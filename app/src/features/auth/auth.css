@@ -1,0 +1,55 @@
+.auth-panel {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 42rem);
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(21, 24, 28, 0.72);
+}
+
+.auth-eyebrow {
+  margin: 0;
+  color: #72d6a3;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-panel h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 2.8rem);
+  line-height: 1.1;
+}
+
+.auth-panel p {
+  margin: 0;
+  color: #c7d0d9;
+  line-height: 1.7;
+}
+
+.auth-facts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.auth-facts div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.auth-facts dt {
+  color: #8ea0ad;
+  font-size: 0.78rem;
+}
+
+.auth-facts dd {
+  margin: 0;
+  color: #f7fafc;
+  word-break: break-word;
+}
