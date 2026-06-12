@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import { BrewLogPanel } from '../brews/BrewLogPanel'
 import { createInitialBeanForm, toBeanInsertPayload } from './beanForm'
 import { createBean, listBeans } from './beanService'
 import type { Bean, BeanForm } from './beanTypes'
@@ -75,26 +76,27 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   }
 
   return (
-    <section className="bean-dashboard" aria-labelledby="bean-dashboard-title">
-      <div className="bean-dashboard__header">
-        <div>
-          <p className="bean-dashboard__eyebrow">Bean Vault</p>
-          <h2 id="bean-dashboard-title">数字豆仓</h2>
+    <>
+      <section className="bean-dashboard" aria-labelledby="bean-dashboard-title">
+        <div className="bean-dashboard__header">
+          <div>
+            <p className="bean-dashboard__eyebrow">Bean Vault</p>
+            <h2 id="bean-dashboard-title">数字豆仓</h2>
+          </div>
+          <span>{beans.length} 支豆子</span>
         </div>
-        <span>{beans.length} 支豆子</span>
-      </div>
 
-      <form className="bean-form" onSubmit={handleSubmit}>
-        <div className="bean-form__grid">
-          <label>
-            名称
-            <input
-              value={form.name}
-              onChange={(event) => updateField('name', event.target.value)}
-              placeholder="例如：埃塞俄比亚 耶加雪菲"
-              required
-            />
-          </label>
+        <form className="bean-form" onSubmit={handleSubmit}>
+          <div className="bean-form__grid">
+            <label>
+              名称
+              <input
+                value={form.name}
+                onChange={(event) => updateField('name', event.target.value)}
+                placeholder="例如：埃塞俄比亚 耶加雪菲"
+                required
+              />
+            </label>
 
           <label>
             烘焙商
@@ -209,50 +211,53 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
               placeholder="克"
             />
           </label>
-        </div>
+          </div>
 
-        <label>
-          备注
-          <textarea
-            value={form.notes}
-            onChange={(event) => updateField('notes', event.target.value)}
-            placeholder="购买信息、豆袋描述、个人印象"
-            rows={3}
-          />
-        </label>
+          <label>
+            备注
+            <textarea
+              value={form.notes}
+              onChange={(event) => updateField('notes', event.target.value)}
+              placeholder="购买信息、豆袋描述、个人印象"
+              rows={3}
+            />
+          </label>
 
-        <button type="submit" disabled={isSaving}>
-          {isSaving ? '保存中' : '保存咖啡豆'}
-        </button>
-      </form>
+          <button type="submit" disabled={isSaving}>
+            {isSaving ? '保存中' : '保存咖啡豆'}
+          </button>
+        </form>
 
-      {status ? <p className="bean-status">{status}</p> : null}
-      {error ? <p className="bean-error">{error}</p> : null}
+        {status ? <p className="bean-status">{status}</p> : null}
+        {error ? <p className="bean-error">{error}</p> : null}
 
-      <div className="bean-list" aria-live="polite">
-        {isLoading ? <p className="bean-empty">正在读取豆仓...</p> : null}
-        {!isLoading && beans.length === 0 ? (
-          <p className="bean-empty">还没有咖啡豆。先保存第一支豆子。</p>
-        ) : null}
-        {beans.map((bean) => (
-          <article className="bean-card" key={bean.id}>
-            <div>
-              <h3>{bean.name}</h3>
-              <p>
-                {[bean.origin, bean.process, bean.roast_level].filter(Boolean).join(' / ') ||
-                  '信息待补充'}
-              </p>
-            </div>
-            {bean.flavor_tags.length > 0 ? (
-              <div className="bean-tags">
-                {bean.flavor_tags.map((tag) => (
-                  <span key={tag}>{tag}</span>
-                ))}
+        <div className="bean-list" aria-live="polite">
+          {isLoading ? <p className="bean-empty">正在读取豆仓...</p> : null}
+          {!isLoading && beans.length === 0 ? (
+            <p className="bean-empty">还没有咖啡豆。先保存第一支豆子。</p>
+          ) : null}
+          {beans.map((bean) => (
+            <article className="bean-card" key={bean.id}>
+              <div>
+                <h3>{bean.name}</h3>
+                <p>
+                  {[bean.origin, bean.process, bean.roast_level].filter(Boolean).join(' / ') ||
+                    '信息待补充'}
+                </p>
               </div>
-            ) : null}
-          </article>
-        ))}
-      </div>
-    </section>
+              {bean.flavor_tags.length > 0 ? (
+                <div className="bean-tags">
+                  {bean.flavor_tags.map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <BrewLogPanel beans={beans} session={session} supabase={supabase} />
+    </>
   )
 }
