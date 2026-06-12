@@ -71,6 +71,24 @@ export function AuthPanel() {
     setStatus('已退出登录。')
   }
 
+  if (session && supabase) {
+    return (
+      <div className="auth-layout">
+        <header className="account-bar">
+          <div>
+            <span>当前登录邮箱</span>
+            <strong>{session.user.email}</strong>
+          </div>
+          <button type="button" onClick={handleSignOut}>
+            退出登录
+          </button>
+        </header>
+        {status ? <p className="auth-status">{status}</p> : null}
+        <BeanDashboard session={session} supabase={supabase} />
+      </div>
+    )
+  }
+
   return (
     <div className="auth-layout">
       <section className="auth-panel" aria-labelledby="auth-title">
@@ -83,14 +101,6 @@ export function AuthPanel() {
             <strong>等待配置</strong>
             <span>{configError}</span>
             <span>把 Supabase anon key 配到本地 `.env.local` 和 GitHub 仓库变量后即可使用。</span>
-          </div>
-        ) : session ? (
-          <div className="auth-session">
-            <span>当前登录邮箱</span>
-            <strong>{session.user.email}</strong>
-            <button type="button" onClick={handleSignOut}>
-              退出登录
-            </button>
           </div>
         ) : (
           <form className="auth-form" onSubmit={handleSubmit}>
@@ -133,8 +143,6 @@ export function AuthPanel() {
           </div>
         </dl>
       </section>
-
-      {session && supabase ? <BeanDashboard session={session} supabase={supabase} /> : null}
     </div>
   )
 }

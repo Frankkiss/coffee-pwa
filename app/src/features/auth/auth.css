@@ -4,6 +4,43 @@
   width: min(100%, 56rem);
 }
 
+.account-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(21, 24, 28, 0.72);
+}
+
+.account-bar div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.account-bar span {
+  color: #8ea0ad;
+  font-size: 0.82rem;
+}
+
+.account-bar strong {
+  color: #f7fafc;
+  word-break: break-word;
+}
+
+.account-bar button {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 8px;
+  color: #0f1712;
+  background: #72d6a3;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .auth-panel {
   display: grid;
   gap: 1rem;
@@ -41,7 +78,6 @@
 }
 
 .auth-alert,
-.auth-session,
 .auth-form {
   display: grid;
   gap: 0.75rem;
@@ -50,13 +86,11 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.auth-alert strong,
-.auth-session strong {
+.auth-alert strong {
   color: #f7fafc;
 }
 
-.auth-alert span,
-.auth-session span {
+.auth-alert span {
   color: #c7d0d9;
 }
 
@@ -80,8 +114,7 @@
   outline: 2px solid rgba(114, 214, 163, 0.24);
 }
 
-.auth-form button,
-.auth-session button {
+.auth-form button {
   min-height: 2.75rem;
   border: 0;
   border-radius: 8px;
@@ -89,6 +122,13 @@
   background: #72d6a3;
   font-weight: 700;
   cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .account-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .auth-form button:disabled {
