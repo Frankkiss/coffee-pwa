@@ -16,3 +16,14 @@ Rules:
 - Never commit DeepSeek API keys.
 - Apply SQL files through the Supabase SQL editor or Supabase CLI after review.
 - Keep Row Level Security enabled on all user-owned tables.
+
+Magic Link auth settings:
+
+- Site URL: `https://frankkiss.github.io/coffee-pwa/`
+- Redirect URL: `https://frankkiss.github.io/coffee-pwa/`
+- Local redirect URL: `http://localhost:5173/coffee-pwa/`
+
+GitHub repository variables for Pages builds:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
