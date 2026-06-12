@@ -27,3 +27,10 @@ GitHub repository variables for Pages builds:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+
+Edge Function setup:
+
+- Function source: `supabase/functions/recommend-brew/index.ts`
+- Function config: `supabase/config.toml`
+- DeepSeek secret name: `DEEPSEEK_API_KEY`
+- Detailed guide: `docs/operations/deepseek-edge-function-setup.md`

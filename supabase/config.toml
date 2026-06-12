@@ -1,0 +1,4 @@
+project_id = "tmjpgcjcrcaxxxhqbyng"
+
+[functions.recommend-brew]
+verify_jwt = true
