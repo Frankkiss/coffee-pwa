@@ -50,7 +50,7 @@ Handle `OPTIONS`, parse JSON request, and require `DEEPSEEK_API_KEY` from `Deno.
 
 - [ ] **Step 2: Call DeepSeek**
 
-POST to `https://api.deepseek.com/chat/completions` with `model: "deepseek-v4-flash"` and non-streaming messages.
+POST to `https://api.deepseek.com/chat/completions` with `model: "deepseek-v4-pro"` and non-streaming messages.
 
 - [ ] **Step 3: Return safe fallback**
 

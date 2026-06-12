@@ -32,7 +32,7 @@ The AI output is plain Chinese text with:
 
 ## Edge Function
 
-The Edge Function uses DeepSeek's OpenAI-compatible `/chat/completions` endpoint at `https://api.deepseek.com`. It uses `deepseek-v4-flash` by default for a low-cost suggestion. If `DEEPSEEK_API_KEY` is missing, it returns `configured: false` without exposing server details.
+The Edge Function uses DeepSeek's OpenAI-compatible `/chat/completions` endpoint at `https://api.deepseek.com`. It uses `deepseek-v4-pro` by default for higher-quality suggestions. If `DEEPSEEK_API_KEY` is missing, it returns `configured: false` without exposing server details.
 
 ## Non-Goals
 
