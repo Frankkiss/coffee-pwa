@@ -8,6 +8,16 @@ export type BackupRows = {
   brewLogs: BrewLog[]
 }
 
+export type ExistingBackupIds = {
+  beanIds: Set<string>
+  brewLogIds: Set<string>
+}
+
+export type BackupImportRows = {
+  beans: Bean[]
+  brewLogs: BrewLog[]
+}
+
 export async function fetchBackupRows(
   supabase: SupabaseClient,
 ): Promise<BackupRows> {
@@ -56,5 +66,50 @@ export async function recordBackupExport(
 
   if (error) {
     throw new Error(error.message)
+  }
+}
+
+export async function fetchExistingBackupIds(
+  supabase: SupabaseClient,
+): Promise<ExistingBackupIds> {
+  const [beansResult, brewLogsResult] = await Promise.all([
+    supabase.from('beans').select('id').is('deleted_at', null),
+    supabase.from('brew_logs').select('id').is('deleted_at', null),
+  ])
+
+  if (beansResult.error) {
+    throw new Error(beansResult.error.message)
+  }
+
+  if (brewLogsResult.error) {
+    throw new Error(brewLogsResult.error.message)
+  }
+
+  return {
+    beanIds: new Set((beansResult.data ?? []).map((row) => row.id as string)),
+    brewLogIds: new Set(
+      (brewLogsResult.data ?? []).map((row) => row.id as string),
+    ),
+  }
+}
+
+export async function importBackupRows(
+  supabase: SupabaseClient,
+  rows: BackupImportRows,
+) {
+  if (rows.beans.length > 0) {
+    const { error } = await supabase.from('beans').insert(rows.beans)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+  }
+
+  if (rows.brewLogs.length > 0) {
+    const { error } = await supabase.from('brew_logs').insert(rows.brewLogs)
+
+    if (error) {
+      throw new Error(error.message)
+    }
   }
 }

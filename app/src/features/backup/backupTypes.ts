@@ -26,3 +26,16 @@ export type BuildBackupDocumentInput = {
   beans: Bean[]
   brewLogs: BrewLog[]
 }
+
+export type BackupImportCounts = {
+  beans: number
+  brewLogs: number
+}
+
+export type BackupImportPreview = {
+  total: BackupImportCounts
+  duplicates: BackupImportCounts
+  importable: BackupImportCounts
+  importableBeanIds: Set<string>
+  importableBrewLogIds: Set<string>
+}
