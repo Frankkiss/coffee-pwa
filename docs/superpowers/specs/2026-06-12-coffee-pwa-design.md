@@ -360,8 +360,18 @@ JSON / CSV 导入导出
 部署方式：
 
 - 前端可本地运行。
-- 前端可部署到 Cloudflare Pages、Vercel 或 GitHub Pages。
+- 前端默认部署到 GitHub Pages。
+- 使用 Git 管理版本，使用 GitHub 托管代码仓库。
+- 使用 GitHub Actions 构建并发布前端。
 - 云数据库、认证和 Edge Function 使用 Supabase。
+
+GitHub Pages 部署注意事项：
+
+- PWA 必须通过 HTTPS 访问，GitHub Pages 满足该要求。
+- 如果站点部署在仓库子路径下，需要正确配置 Vite base、PWA manifest 的 start_url 和 scope。
+- 前端路由优先使用 Hash Router，或配置适配 GitHub Pages 的 SPA fallback，避免刷新页面后 404。
+- DeepSeek API Key 和 Supabase service role key 不能放在 GitHub 仓库或前端构建产物中，只能放在 Supabase Edge Function 的环境变量里。
+- GitHub Actions 只负责构建和发布静态前端，不负责保存业务数据。
 
 ## 验收标准
 
