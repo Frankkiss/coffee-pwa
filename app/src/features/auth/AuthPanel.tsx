@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
 import { BackupPanel } from '../backup/BackupPanel'
 import { BeanDashboard } from '../beans/BeanDashboard'
+import { RecommendationPanel } from '../recommendations/RecommendationPanel'
 import { getAuthRedirectTo } from './authRedirect'
 import './auth.css'
 
@@ -86,6 +87,7 @@ export function AuthPanel() {
         </header>
         {status ? <p className="auth-status">{status}</p> : null}
         <BeanDashboard session={session} supabase={supabase} />
+        <RecommendationPanel session={session} supabase={supabase} />
         <BackupPanel session={session} supabase={supabase} />
       </div>
     )

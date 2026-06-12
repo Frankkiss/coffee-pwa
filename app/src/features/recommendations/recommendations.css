@@ -1,0 +1,145 @@
+.recommendation-panel {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 56rem);
+}
+
+.recommendation-panel__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.recommendation-panel__eyebrow {
+  margin: 0 0 0.25rem;
+  color: #72d6a3;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recommendation-panel h2,
+.recommendation-panel h3 {
+  margin: 0;
+}
+
+.recommendation-panel__header span {
+  color: #c7d0d9;
+  white-space: nowrap;
+}
+
+.recommendation-controls,
+.recommendation-card,
+.recommendation-ai,
+.recommendation-references {
+  display: grid;
+  gap: 0.875rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(21, 24, 28, 0.72);
+}
+
+.recommendation-controls label {
+  display: grid;
+  gap: 0.4rem;
+  color: #c7d0d9;
+  font-size: 0.88rem;
+}
+
+.recommendation-controls select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #f7fafc;
+  background: rgba(17, 20, 24, 0.8);
+}
+
+.recommendation-controls button {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 8px;
+  color: #0f1712;
+  background: #72d6a3;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recommendation-controls button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.recommendation-result {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.recommendation-card dl {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.recommendation-card dl div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.recommendation-card dt {
+  color: #8fa1b3;
+  font-size: 0.78rem;
+}
+
+.recommendation-card dd {
+  margin: 0;
+  color: #f7fafc;
+  font-weight: 700;
+}
+
+.recommendation-card p,
+.recommendation-ai p,
+.recommendation-empty,
+.recommendation-error {
+  margin: 0;
+}
+
+.recommendation-card p,
+.recommendation-ai p {
+  color: #c7d0d9;
+  white-space: pre-wrap;
+}
+
+.recommendation-references article {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.recommendation-references span {
+  color: #c7d0d9;
+}
+
+.recommendation-empty,
+.recommendation-error {
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(114, 214, 163, 0.12);
+}
+
+.recommendation-error {
+  color: #ffd0d0;
+  background: rgba(224, 74, 74, 0.16);
+}
+
+@media (min-width: 760px) {
+  .recommendation-card dl {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
