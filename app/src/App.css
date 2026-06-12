@@ -1,7 +1,7 @@
 .app-shell {
   min-height: 100vh;
   display: grid;
-  align-items: center;
+  align-items: start;
   justify-items: center;
   padding: 1rem;
   background:
