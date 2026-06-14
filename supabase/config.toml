@@ -2,3 +2,6 @@ project_id = "tmjpgcjcrcaxxxhqbyng"
 
 [functions.recommend-brew]
 verify_jwt = true
+
+[functions.import-source]
+verify_jwt = true

@@ -1,0 +1,128 @@
+.source-import {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 56rem);
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-cream-card);
+  box-shadow: var(--shadow-card);
+}
+
+.source-import__eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--color-caramel);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.source-import h3 {
+  margin: 0;
+}
+
+.source-import p {
+  margin: 0.35rem 0 0;
+  color: var(--color-muted);
+}
+
+.source-import__bar,
+.source-import__draft,
+.source-import__grid {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.source-import label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.source-import input,
+.source-import select,
+.source-import textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-coffee-dark);
+  background: var(--color-cream-soft);
+}
+
+.source-import input:focus,
+.source-import select:focus,
+.source-import textarea:focus {
+  border-color: var(--color-caramel);
+  outline: 2px solid rgba(227, 170, 120, 0.28);
+}
+
+.source-import textarea {
+  resize: vertical;
+}
+
+.source-import button {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.source-import button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.source-import__draft {
+  padding: 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 248, 237, 0.72);
+}
+
+.source-import__draft-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.source-import__draft-header strong {
+  color: var(--color-coffee-dark);
+}
+
+.source-import__draft-header span,
+.source-import__hint {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.source-import__status,
+.source-import__error {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(227, 170, 120, 0.22);
+}
+
+.source-import__error {
+  color: #7d2e22;
+  background: rgba(193, 104, 74, 0.18);
+}
+
+@media (min-width: 760px) {
+  .source-import__bar {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+
+  .source-import__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

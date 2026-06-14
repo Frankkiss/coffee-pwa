@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
+import { SourceImportPanel } from '../sourceImports/SourceImportPanel'
 import { filterBeans } from './beanFilters'
 import {
   createBeanFormFromBean,
@@ -155,6 +156,12 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
           </div>
           <span>{beans.length} 支豆子</span>
         </div>
+
+        <SourceImportPanel
+          session={session}
+          supabase={supabase}
+          onBeanCreated={(bean) => setBeans((current) => [bean, ...current])}
+        />
 
         <form className="bean-form" onSubmit={handleSubmit}>
           {editingBeanId ? (

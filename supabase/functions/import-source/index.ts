@@ -1,0 +1,276 @@
+type ImportRequest = {
+  url?: string
+}
+
+type SourceDraft = {
+  name: string
+  roaster: string
+  origin: string
+  farmOrStation: string
+  process: string
+  variety: string
+  altitudeMeters: number | null
+  roastDate: string
+  roastLevel: string
+  flavorTags: string[]
+  flavorNotes: string
+  netWeightGrams: number | null
+  price: number | null
+  sourceUrl: string
+  notes: string
+  confidence: 'low' | 'medium' | 'high' | ''
+  missingFields: string[]
+}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const maxPromptTextLength = 12000
+
+Deno.serve(async (request) => {
+  if (request.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (request.method !== 'POST') {
+    return jsonResponse({ configured: false, draft: null, error: 'Method not allowed' }, 405)
+  }
+
+  const apiKey = Deno.env.get('DEEPSEEK_API_KEY')
+
+  if (!apiKey) {
+    return jsonResponse({ configured: false, draft: null })
+  }
+
+  let payload: ImportRequest
+
+  try {
+    payload = await request.json()
+  } catch {
+    return jsonResponse({ configured: true, draft: null, error: 'Invalid JSON body' }, 400)
+  }
+
+  const sourceUrl = normalizeUrl(payload.url)
+
+  if (!sourceUrl) {
+    return jsonResponse({ configured: true, draft: null, error: 'Invalid URL' }, 400)
+  }
+
+  try {
+    const pageText = await fetchPageText(sourceUrl)
+
+    if (pageText.length < 80) {
+      return jsonResponse({
+        configured: true,
+        sourceUrl,
+        draft: null,
+        rawTextLength: pageText.length,
+        error: 'Page text is too short to extract bean data',
+      })
+    }
+
+    const draft = await requestDeepSeekDraft(apiKey, sourceUrl, pageText)
+
+    return jsonResponse({
+      configured: true,
+      sourceUrl,
+      draft: normalizeDraft({ ...draft, sourceUrl }),
+      rawTextLength: pageText.length,
+    })
+  } catch (error) {
+    return jsonResponse({
+      configured: true,
+      sourceUrl,
+      draft: null,
+      error: error instanceof Error ? error.message : 'Source import failed',
+    })
+  }
+})
+
+function normalizeUrl(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  try {
+    const url = new URL(value.trim())
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null
+    }
+
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+async function fetchPageText(url: string) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (compatible; KaDayCoffeeImporter/1.0; +https://frankkiss.github.io/coffee-pwa/)',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Source page request failed: ${response.status}`)
+  }
+
+  const html = await response.text()
+  return extractReadableText(html).slice(0, maxPromptTextLength)
+}
+
+function extractReadableText(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, pageText: string) {
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'deepseek-v4-pro',
+      messages: [
+        {
+          role: 'system',
+          content:
+            '你是谨慎的咖啡豆资料录入助手。只从用户提供的网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。',
+        },
+        {
+          role: 'user',
+          content: buildPrompt(sourceUrl, pageText),
+        },
+      ],
+      response_format: { type: 'json_object' },
+      stream: false,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`DeepSeek request failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const content = data?.choices?.[0]?.message?.content
+
+  if (typeof content !== 'string') {
+    throw new Error('DeepSeek response is missing content')
+  }
+
+  try {
+    return JSON.parse(content)
+  } catch {
+    throw new Error('DeepSeek response is not valid JSON')
+  }
+}
+
+function buildPrompt(sourceUrl: string, pageText: string) {
+  return [
+    '请从以下公开网页文本中提取咖啡豆资料，返回严格 JSON。',
+    '字段：name, roaster, origin, farmOrStation, process, variety, altitudeMeters, roastDate, roastLevel, flavorTags, flavorNotes, netWeightGrams, price, notes, confidence, missingFields。',
+    '要求：',
+    '1. 找不到的字段用空字符串、null 或空数组。',
+    '2. altitudeMeters、netWeightGrams、price 如果无法确定，返回 null。',
+    '3. flavorTags 返回字符串数组。',
+    '4. confidence 只能是 high、medium、low。',
+    '5. missingFields 写出建议用户补充的字段。',
+    '6. 不要输出网页没有提供的事实。',
+    `sourceUrl: ${sourceUrl}`,
+    `pageText: ${pageText}`,
+  ].join('\n')
+}
+
+function normalizeDraft(input: Record<string, unknown>): SourceDraft {
+  return {
+    name: stringValue(input.name),
+    roaster: stringValue(input.roaster),
+    origin: stringValue(input.origin),
+    farmOrStation: stringValue(input.farmOrStation ?? input.farm_or_station),
+    process: stringValue(input.process),
+    variety: stringValue(input.variety),
+    altitudeMeters: numberValue(input.altitudeMeters ?? input.altitude_meters),
+    roastDate: stringValue(input.roastDate ?? input.roast_date),
+    roastLevel: stringValue(input.roastLevel ?? input.roast_level),
+    flavorTags: listValue(input.flavorTags ?? input.flavor_tags),
+    flavorNotes: stringValue(input.flavorNotes ?? input.flavor_notes),
+    netWeightGrams: numberValue(input.netWeightGrams ?? input.net_weight_grams),
+    price: numberValue(input.price),
+    sourceUrl: stringValue(input.sourceUrl ?? input.source_url),
+    notes: stringValue(input.notes),
+    confidence: confidenceValue(input.confidence),
+    missingFields: listValue(input.missingFields ?? input.missing_fields),
+  }
+}
+
+function stringValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  return ''
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function listValue(value: unknown) {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,，、]/) : []
+  const normalized = values.map(stringValue).filter(Boolean)
+
+  return Array.from(new Set(normalized))
+}
+
+function confidenceValue(value: unknown): SourceDraft['confidence'] {
+  const normalized = stringValue(value).toLowerCase()
+
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+    return normalized
+  }
+
+  return ''
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    },
+  })
+}
