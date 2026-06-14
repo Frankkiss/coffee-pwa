@@ -13,6 +13,7 @@ import {
   recordBackupExport,
   type ExistingBackupIds,
 } from './backupService'
+import { buildBeansCsv, buildBrewLogsCsv, createCsvFileName } from './csvExport'
 import type { BackupDocument, BackupImportPreview } from './backupTypes'
 import './backup.css'
 
@@ -23,6 +24,8 @@ type BackupPanelProps = {
 
 export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingBeansCsv, setIsExportingBeansCsv] = useState(false)
+  const [isExportingBrewLogsCsv, setIsExportingBrewLogsCsv] = useState(false)
   const [isReadingImport, setIsReadingImport] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [importBackup, setImportBackup] = useState<BackupDocument | null>(null)
@@ -48,19 +51,12 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
         beans: rows.beans,
         brewLogs: rows.brewLogs,
       })
-      const backupJson = JSON.stringify(backup, null, 2)
-      const blob = new Blob([backupJson], {
-        type: 'application/json;charset=utf-8',
-      })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
 
-      link.href = url
-      link.download = fileName
-      document.body.append(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
+      downloadTextFile(
+        JSON.stringify(backup, null, 2),
+        fileName,
+        'application/json;charset=utf-8',
+      )
 
       await recordBackupExport(supabase, {
         userId: session.user.id,
@@ -75,6 +71,46 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       setError(err instanceof Error ? err.message : '导出备份失败')
     } finally {
       setIsExporting(false)
+    }
+  }
+
+  async function handleBeansCsvExport() {
+    setIsExportingBeansCsv(true)
+    setStatus('')
+    setError('')
+
+    try {
+      const rows = await fetchBackupRows(supabase)
+      downloadTextFile(
+        buildBeansCsv(rows.beans),
+        createCsvFileName('beans', new Date()),
+        'text/csv;charset=utf-8',
+      )
+      setStatus(`已导出 ${rows.beans.length} 支咖啡豆 CSV。`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导出咖啡豆 CSV 失败')
+    } finally {
+      setIsExportingBeansCsv(false)
+    }
+  }
+
+  async function handleBrewLogsCsvExport() {
+    setIsExportingBrewLogsCsv(true)
+    setStatus('')
+    setError('')
+
+    try {
+      const rows = await fetchBackupRows(supabase)
+      downloadTextFile(
+        buildBrewLogsCsv(rows.brewLogs),
+        createCsvFileName('brew-logs', new Date()),
+        'text/csv;charset=utf-8',
+      )
+      setStatus(`已导出 ${rows.brewLogs.length} 条冲煮记录 CSV。`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导出冲煮记录 CSV 失败')
+    } finally {
+      setIsExportingBrewLogsCsv(false)
     }
   }
 
@@ -152,13 +188,38 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     <section className="backup-panel" aria-labelledby="backup-title">
       <div>
         <p className="backup-panel__eyebrow">Backup</p>
-        <h2 id="backup-title">本地 JSON 备份</h2>
-        <p>导出当前账号的豆仓和冲煮记录，不包含图片。</p>
+        <h2 id="backup-title">本地备份</h2>
+        <p>导出当前账号的豆仓和冲煮记录。JSON 用于恢复，CSV 用于表格查看。</p>
       </div>
 
       <button type="button" onClick={handleExport} disabled={isExporting}>
         {isExporting ? '导出中' : '导出 JSON 备份'}
       </button>
+
+      <div className="backup-panel__divider" />
+
+      <div className="backup-csv">
+        <div>
+          <strong>CSV 导出</strong>
+          <p>用于 Excel、WPS、Notion 等工具查看；不影响 JSON 备份恢复。</p>
+        </div>
+        <div className="backup-csv__actions">
+          <button
+            type="button"
+            onClick={handleBeansCsvExport}
+            disabled={isExportingBeansCsv}
+          >
+            {isExportingBeansCsv ? '导出中' : '导出咖啡豆 CSV'}
+          </button>
+          <button
+            type="button"
+            onClick={handleBrewLogsCsvExport}
+            disabled={isExportingBrewLogsCsv}
+          >
+            {isExportingBrewLogsCsv ? '导出中' : '导出冲煮记录 CSV'}
+          </button>
+        </div>
+      </div>
 
       <div className="backup-panel__divider" />
 
@@ -202,4 +263,17 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       {error ? <p className="backup-error">{error}</p> : null}
     </section>
   )
+}
+
+function downloadTextFile(content: string, fileName: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+
+  link.href = url
+  link.download = fileName
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
