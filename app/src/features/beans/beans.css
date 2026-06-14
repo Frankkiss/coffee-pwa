@@ -1,4 +1,4 @@
-.bean-dashboard {
+﻿.bean-dashboard {
   display: grid;
   gap: 1rem;
   width: min(100%, 56rem);
@@ -13,7 +13,7 @@
 
 .bean-dashboard__eyebrow {
   margin: 0 0 0.25rem;
-  color: #72d6a3;
+  color: var(--color-caramel);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -26,7 +26,7 @@
 }
 
 .bean-dashboard__header span {
-  color: #c7d0d9;
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
@@ -34,9 +34,10 @@
   display: grid;
   gap: 0.875rem;
   padding: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(21, 24, 28, 0.72);
+  background: var(--color-cream-card);
+  box-shadow: var(--shadow-card);
 }
 
 .bean-form__grid {
@@ -47,7 +48,7 @@
 .bean-form label {
   display: grid;
   gap: 0.4rem;
-  color: #c7d0d9;
+  color: var(--color-muted);
   font-size: 0.88rem;
 }
 
@@ -57,10 +58,17 @@
   width: 100%;
   min-height: 2.75rem;
   padding: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  color: #f7fafc;
-  background: rgba(17, 20, 24, 0.8);
+  color: var(--color-coffee-dark);
+  background: var(--color-cream-soft);
+}
+
+.bean-form input:focus,
+.bean-form select:focus,
+.bean-form textarea:focus {
+  border-color: var(--color-caramel);
+  outline: 2px solid rgba(227, 170, 120, 0.28);
 }
 
 .bean-form textarea {
@@ -71,8 +79,8 @@
   min-height: 2.75rem;
   border: 0;
   border-radius: 8px;
-  color: #0f1712;
-  background: #72d6a3;
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
   font-weight: 700;
   cursor: pointer;
 }
@@ -88,12 +96,12 @@
   margin: 0;
   padding: 0.75rem;
   border-radius: 8px;
-  background: rgba(114, 214, 163, 0.12);
+  background: rgba(227, 170, 120, 0.22);
 }
 
 .bean-error {
-  color: #ffd0d0;
-  background: rgba(224, 74, 74, 0.16);
+  color: #7d2e22;
+  background: rgba(193, 104, 74, 0.18);
 }
 
 .bean-list {
@@ -106,12 +114,13 @@
   gap: 0.75rem;
   padding: 1rem;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 248, 237, 0.86);
+  border: 1px solid var(--color-border);
 }
 
 .bean-card p {
   margin: 0.25rem 0 0;
-  color: #c7d0d9;
+  color: var(--color-muted);
 }
 
 .bean-tags {
@@ -123,8 +132,8 @@
 .bean-tags span {
   padding: 0.25rem 0.5rem;
   border-radius: 999px;
-  color: #0f1712;
-  background: #72d6a3;
+  color: var(--color-coffee-dark);
+  background: var(--color-caramel);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -134,3 +143,4 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+

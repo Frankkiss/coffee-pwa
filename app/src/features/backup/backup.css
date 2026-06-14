@@ -1,16 +1,17 @@
-.backup-panel {
+﻿.backup-panel {
   display: grid;
   gap: 1rem;
   width: min(100%, 56rem);
   padding: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(21, 24, 28, 0.72);
+  background: var(--color-cream-card);
+  box-shadow: var(--shadow-card);
 }
 
 .backup-panel__eyebrow {
   margin: 0 0 0.25rem;
-  color: #72d6a3;
+  color: var(--color-caramel);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -23,15 +24,15 @@
 
 .backup-panel p {
   margin: 0.35rem 0 0;
-  color: #c7d0d9;
+  color: var(--color-muted);
 }
 
 .backup-panel button {
   min-height: 2.75rem;
   border: 0;
   border-radius: 8px;
-  color: #0f1712;
-  background: #72d6a3;
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
   font-weight: 700;
   cursor: pointer;
 }
@@ -43,7 +44,7 @@
 
 .backup-panel__divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(122, 79, 63, 0.14);
 }
 
 .backup-import {
@@ -54,7 +55,7 @@
 .backup-import label {
   display: grid;
   gap: 0.4rem;
-  color: #c7d0d9;
+  color: var(--color-muted);
   font-size: 0.88rem;
 }
 
@@ -62,10 +63,15 @@
   width: 100%;
   min-height: 2.75rem;
   padding: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  color: #f7fafc;
-  background: rgba(17, 20, 24, 0.8);
+  color: var(--color-coffee-dark);
+  background: var(--color-cream-soft);
+}
+
+.backup-import input:focus {
+  border-color: var(--color-caramel);
+  outline: 2px solid rgba(227, 170, 120, 0.28);
 }
 
 .backup-preview {
@@ -73,15 +79,16 @@
   gap: 0.35rem;
   padding: 0.75rem;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 248, 237, 0.86);
+  border: 1px solid var(--color-border);
 }
 
 .backup-preview strong {
-  color: #f7fafc;
+  color: var(--color-coffee-dark);
 }
 
 .backup-preview span {
-  color: #c7d0d9;
+  color: var(--color-muted);
 }
 
 .backup-status,
@@ -89,10 +96,11 @@
   margin: 0;
   padding: 0.75rem;
   border-radius: 8px;
-  background: rgba(114, 214, 163, 0.12);
+  background: rgba(227, 170, 120, 0.22);
 }
 
 .backup-error {
-  color: #ffd0d0;
-  background: rgba(224, 74, 74, 0.16);
+  color: #7d2e22;
+  background: rgba(193, 104, 74, 0.18);
 }
+

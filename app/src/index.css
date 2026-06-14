@@ -1,7 +1,17 @@
 :root {
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  color: #f7fafc;
-  background: #111418;
+  color: #4b3027;
+  background: #f7ead6;
+  --color-cream: #f7ead6;
+  --color-cream-soft: #fff8ed;
+  --color-cream-card: #fffaf3;
+  --color-coffee: #7a4f3f;
+  --color-coffee-dark: #56362d;
+  --color-caramel: #e3aa78;
+  --color-caramel-soft: #f4d4ad;
+  --color-muted: #8f7668;
+  --color-border: rgba(122, 79, 63, 0.16);
+  --shadow-card: 0 18px 36px rgba(89, 54, 40, 0.12);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -20,6 +30,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  background: var(--color-cream);
 }
 
 button,

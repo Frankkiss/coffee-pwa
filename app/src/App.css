@@ -3,11 +3,14 @@
   display: grid;
   align-items: start;
   justify-items: center;
+  align-content: start;
+  gap: 1rem;
   padding: 1rem;
   background:
-    radial-gradient(circle at 20% 20%, rgba(114, 214, 163, 0.16), transparent 26rem),
-    #111418;
-  color: #f7fafc;
+    linear-gradient(180deg, rgba(255, 250, 243, 0.92), rgba(247, 234, 214, 0.98)),
+    radial-gradient(circle at 80% 0%, rgba(227, 170, 120, 0.36), transparent 20rem),
+    var(--color-cream);
+  color: var(--color-coffee-dark);
 }
 
 @media (min-width: 760px) {
