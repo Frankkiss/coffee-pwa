@@ -6,6 +6,7 @@ import type {
   RuleRecommendationResult,
 } from './recommendationTypes'
 import { generateRuleRecommendation } from './ruleRecommendation'
+import type { SavedRecommendationPayload } from './savedRecommendation'
 
 export async function loadRuleRecommendationData(supabase: SupabaseClient) {
   const [beans, brewLogs] = await Promise.all([
@@ -53,4 +54,21 @@ export async function requestAiRecommendation(
   }
 
   return data as AiRecommendationResponse
+}
+
+export async function saveRecommendation(
+  supabase: SupabaseClient,
+  payload: SavedRecommendationPayload,
+) {
+  const { data, error } = await supabase
+    .from('ai_recommendations')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data
 }

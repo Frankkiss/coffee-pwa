@@ -10,7 +10,9 @@ import {
   createRecommendationForBean,
   loadRuleRecommendationData,
   requestAiRecommendation,
+  saveRecommendation,
 } from './recommendationService'
+import { buildSavedRecommendationPayload } from './savedRecommendation'
 import './recommendations.css'
 
 type RecommendationPanelProps = {
@@ -23,7 +25,7 @@ type RecommendationData = {
   brewLogs: BrewLog[]
 }
 
-export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
+export function RecommendationPanel({ session, supabase }: RecommendationPanelProps) {
   const [data, setData] = useState<RecommendationData>({
     beans: [],
     brewLogs: [],
@@ -35,6 +37,8 @@ export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
     useState<AiRecommendationResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -71,6 +75,7 @@ export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
 
   async function handleGenerate() {
     setError('')
+    setStatus('')
     setRuleRecommendation(null)
     setAiRecommendation(null)
     setIsGenerating(true)
@@ -97,6 +102,32 @@ export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
       setError(err instanceof Error ? err.message : '生成推荐失败')
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  async function handleSaveRecommendation() {
+    if (!ruleRecommendation) {
+      return
+    }
+
+    setError('')
+    setStatus('')
+    setIsSaving(true)
+
+    try {
+      await saveRecommendation(
+        supabase,
+        buildSavedRecommendationPayload({
+          userId: session.user.id,
+          ruleRecommendation,
+          aiRecommendation,
+        }),
+      )
+      setStatus('已保存为 AI 推荐记录。它不会混入真实冲煮记录。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存推荐失败')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -211,6 +242,19 @@ export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
         </div>
       ) : null}
 
+      {ruleRecommendation ? (
+        <div className="recommendation-save">
+          <div>
+            <strong>保存为推荐记录</strong>
+            <p>保存的是建议，不是实际冲煮记录；之后可以用于回看和对比。</p>
+          </div>
+          <button type="button" onClick={handleSaveRecommendation} disabled={isSaving}>
+            {isSaving ? '保存中' : '保存本次推荐'}
+          </button>
+        </div>
+      ) : null}
+
+      {status ? <p className="recommendation-status">{status}</p> : null}
       {error ? <p className="recommendation-error">{error}</p> : null}
     </section>
   )

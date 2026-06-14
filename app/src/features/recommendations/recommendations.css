@@ -33,6 +33,7 @@
 .recommendation-controls,
 .recommendation-card,
 .recommendation-ai,
+.recommendation-save,
 .recommendation-references {
   display: grid;
   gap: 0.875rem;
@@ -75,6 +76,35 @@
   cursor: pointer;
 }
 
+.recommendation-save {
+  align-items: center;
+}
+
+.recommendation-save strong {
+  color: var(--color-coffee-dark);
+}
+
+.recommendation-save p {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.recommendation-save button {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recommendation-save button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
 .recommendation-controls button:disabled {
   cursor: progress;
   opacity: 0.7;
@@ -110,6 +140,7 @@
 .recommendation-card p,
 .recommendation-ai p,
 .recommendation-empty,
+.recommendation-status,
 .recommendation-error {
   margin: 0;
 }
@@ -134,6 +165,7 @@
 }
 
 .recommendation-empty,
+.recommendation-status,
 .recommendation-error {
   padding: 0.75rem;
   border-radius: 8px;
@@ -148,6 +180,10 @@
 @media (min-width: 760px) {
   .recommendation-card dl {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .recommendation-save {
+    grid-template-columns: 1fr auto;
   }
 }
 
