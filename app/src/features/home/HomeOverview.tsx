@@ -8,6 +8,11 @@ import { listBeans } from '../beans/beanService'
 import type { Bean } from '../beans/beanTypes'
 import { listBrewLogs } from '../brews/brewLogService'
 import type { BrewLog } from '../brews/brewTypes'
+import {
+  buildOfflineCacheSnapshot,
+  readOfflineCache,
+  writeOfflineCache,
+} from '../offline/offlineCache'
 import { buildHomeOverview } from './homeOverviewModel'
 import './home.css'
 
@@ -33,6 +38,7 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [isUsingCache, setIsUsingCache] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -50,10 +56,36 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
 
         if (isMounted) {
           setRows({ beans, brewLogs })
+          setIsUsingCache(false)
         }
+
+        await Promise.all([
+          writeOfflineCache(
+            'beans',
+            buildOfflineCacheSnapshot(beans, session.user.id, new Date()),
+          ),
+          writeOfflineCache(
+            'brewLogs',
+            buildOfflineCacheSnapshot(brewLogs, session.user.id, new Date()),
+          ),
+        ])
       } catch (err) {
+        const [cachedBeans, cachedBrewLogs] = await Promise.all([
+          readOfflineCache<Bean>('beans', session.user.id),
+          readOfflineCache<BrewLog>('brewLogs', session.user.id),
+        ])
+
         if (isMounted) {
-          setError(err instanceof Error ? err.message : '读取首页概览失败')
+          if (cachedBeans || cachedBrewLogs) {
+            setRows({
+              beans: cachedBeans ?? [],
+              brewLogs: cachedBrewLogs ?? [],
+            })
+            setIsUsingCache(true)
+            setError('')
+          } else {
+            setError(err instanceof Error ? err.message : '读取首页概览失败')
+          }
         }
       } finally {
         if (isMounted) {
@@ -67,7 +99,7 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
     return () => {
       isMounted = false
     }
-  }, [supabase])
+  }, [session.user.id, supabase])
 
   useEffect(() => {
     function handleOnline() {
@@ -109,7 +141,8 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
           <p className="home-overview__eyebrow">Ka Day</p>
           <h1 id="home-overview-title">咖Day</h1>
           <p>
-            {overview.accountLabel}，今天也记录一杯。{overview.syncLabel}
+            {overview.accountLabel}，今天也记录一杯。
+            {isUsingCache ? '离线缓存可用' : overview.syncLabel}
           </p>
         </div>
         <div className="home-hero__cup" aria-hidden="true">
@@ -126,6 +159,9 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
       </nav>
 
       {error ? <p className="home-overview__error">{error}</p> : null}
+      {isUsingCache ? (
+        <p className="home-overview__cache">正在显示本机缓存，新增和编辑仍需要联网。</p>
+      ) : null}
 
       <div className="home-stats" aria-label="咖啡记录概览">
         {overview.stats.map((stat) => (

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
+import {
+  buildOfflineCacheSnapshot,
+  readOfflineCache,
+  writeOfflineCache,
+} from '../offline/offlineCache'
 import { SourceImportPanel } from '../sourceImports/SourceImportPanel'
 import { filterBeans } from './beanFilters'
 import {
@@ -48,10 +53,22 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
         const nextBeans = await listBeans(supabase)
         if (isMounted) {
           setBeans(nextBeans)
+          setStatus('')
         }
+        await writeOfflineCache(
+          'beans',
+          buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+        )
       } catch (err) {
+        const cachedBeans = await readOfflineCache<Bean>('beans', session.user.id)
+
         if (isMounted) {
-          setError(err instanceof Error ? err.message : '读取豆仓失败')
+          if (cachedBeans) {
+            setBeans(cachedBeans)
+            setStatus('正在显示本机缓存的豆仓数据，新增和编辑仍需要联网。')
+          } else {
+            setError(err instanceof Error ? err.message : '读取豆仓失败')
+          }
         }
       } finally {
         if (isMounted) {
@@ -65,7 +82,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     return () => {
       isMounted = false
     }
-  }, [supabase])
+  }, [session.user.id, supabase])
 
   function updateField(field: keyof BeanForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }))

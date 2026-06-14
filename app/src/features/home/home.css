@@ -244,12 +244,21 @@
   background: rgba(255, 250, 243, 0.9);
 }
 
-.home-overview__error {
+.home-overview__error,
+.home-overview__cache {
   margin: 0;
   padding: 0.75rem;
   border-radius: 8px;
+}
+
+.home-overview__error {
   color: #7d2e22;
   background: rgba(193, 104, 74, 0.18);
+}
+
+.home-overview__cache {
+  color: var(--color-coffee-dark);
+  background: rgba(244, 212, 173, 0.72);
 }
 
 @media (max-width: 520px) {

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { Bean } from '../beans/beanTypes'
+import {
+  buildOfflineCacheSnapshot,
+  readOfflineCache,
+  writeOfflineCache,
+} from '../offline/offlineCache'
 import { filterBrewLogs } from './brewFilters'
 import {
   createBrewFormFromLog,
@@ -73,10 +78,22 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         const logs = await listBrewLogs(supabase)
         if (isMounted) {
           setBrewLogs(logs)
+          setStatus('')
         }
+        await writeOfflineCache(
+          'brewLogs',
+          buildOfflineCacheSnapshot(logs, session.user.id, new Date()),
+        )
       } catch (err) {
+        const cachedLogs = await readOfflineCache<BrewLog>('brewLogs', session.user.id)
+
         if (isMounted) {
-          setError(err instanceof Error ? err.message : '读取冲煮记录失败')
+          if (cachedLogs) {
+            setBrewLogs(cachedLogs)
+            setStatus('正在显示本机缓存的冲煮记录，新增和编辑仍需要联网。')
+          } else {
+            setError(err instanceof Error ? err.message : '读取冲煮记录失败')
+          }
         }
       } finally {
         if (isMounted) {
@@ -90,7 +107,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     return () => {
       isMounted = false
     }
-  }, [supabase])
+  }, [session.user.id, supabase])
 
   function updateField(field: keyof BrewForm, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }))
