@@ -47,6 +47,34 @@
   background: rgba(122, 79, 63, 0.14);
 }
 
+.backup-reminder {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 248, 237, 0.86);
+}
+
+.backup-reminder--warning {
+  border-color: rgba(193, 104, 74, 0.42);
+  background: rgba(193, 104, 74, 0.12);
+}
+
+.backup-reminder--ok {
+  border-color: rgba(111, 151, 116, 0.32);
+  background: rgba(111, 151, 116, 0.12);
+}
+
+.backup-reminder strong {
+  color: var(--color-coffee-dark);
+}
+
+.backup-reminder span {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
 .backup-csv {
   display: grid;
   gap: 0.75rem;

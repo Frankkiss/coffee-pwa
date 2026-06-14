@@ -15,6 +15,12 @@ import {
 } from './backupService'
 import { buildBeansCsv, buildBrewLogsCsv, createCsvFileName } from './csvExport'
 import type { BackupDocument, BackupImportPreview } from './backupTypes'
+import {
+  buildBackupReminder,
+  readBackupReminderMeta,
+  writeBackupReminderMeta,
+  type BackupReminderMeta,
+} from './backupReminder'
 import './backup.css'
 
 type BackupPanelProps = {
@@ -32,6 +38,12 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const [importPreview, setImportPreview] =
     useState<BackupImportPreview | null>(null)
   const [existingIds, setExistingIds] = useState<ExistingBackupIds | null>(null)
+  const [backupReminderMeta, setBackupReminderMeta] =
+    useState<BackupReminderMeta | null>(() =>
+      typeof window === 'undefined'
+        ? null
+        : readBackupReminderMeta(window.localStorage),
+    )
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
@@ -63,6 +75,10 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
         fileName,
         recordCounts: backup.recordCounts,
       })
+
+      const nextReminderMeta = { exportedAt, fileName }
+      writeBackupReminderMeta(window.localStorage, nextReminderMeta)
+      setBackupReminderMeta(nextReminderMeta)
 
       setStatus(
         `已导出 ${backup.recordCounts.beans} 支豆子、${backup.recordCounts.brewLogs} 条冲煮记录。`,
@@ -183,6 +199,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const importableCount =
     (importPreview?.importable.beans ?? 0) +
     (importPreview?.importable.brewLogs ?? 0)
+  const backupReminder = buildBackupReminder(backupReminderMeta, new Date())
 
   return (
     <section className="backup-panel" aria-labelledby="backup-title">
@@ -190,6 +207,12 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
         <p className="backup-panel__eyebrow">Backup</p>
         <h2 id="backup-title">本地备份</h2>
         <p>导出当前账号的豆仓和冲煮记录。JSON 用于恢复，CSV 用于表格查看。</p>
+      </div>
+
+      <div className={`backup-reminder backup-reminder--${backupReminder.tone}`}>
+        <strong>{backupReminder.title}</strong>
+        <p>{backupReminder.message}</p>
+        {backupReminder.fileName ? <span>最近文件：{backupReminder.fileName}</span> : null}
       </div>
 
       <button type="button" onClick={handleExport} disabled={isExporting}>
