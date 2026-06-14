@@ -23,10 +23,7 @@ type RecommendationData = {
   brewLogs: BrewLog[]
 }
 
-export function RecommendationPanel({
-  session: _session,
-  supabase,
-}: RecommendationPanelProps) {
+export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
   const [data, setData] = useState<RecommendationData>({
     beans: [],
     brewLogs: [],

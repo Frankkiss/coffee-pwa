@@ -7,6 +7,7 @@ import {
   createInitialBrewForm,
   toBrewLogInsertPayload,
   toBrewLogUpdatePayload,
+  withFallbackBeanId,
 } from './brewForm'
 import {
   createBrewLog,
@@ -47,6 +48,10 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     [beans],
   )
   const filteredBrewLogs = filterBrewLogs(brewLogs, filters)
+  const formWithFallbackBean = useMemo(
+    () => withFallbackBeanId(form, firstBeanId),
+    [firstBeanId, form],
+  )
   const availableMethods = useMemo(() => {
     const methods = new Set(methodOptions)
     brewLogs.forEach((log) => {
@@ -56,16 +61,6 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     })
     return Array.from(methods)
   }, [brewLogs])
-
-  useEffect(() => {
-    setForm((current) => {
-      if (current.beanId || !firstBeanId) {
-        return current
-      }
-
-      return { ...current, beanId: firstBeanId }
-    })
-  }, [firstBeanId])
 
   useEffect(() => {
     let isMounted = true
@@ -127,7 +122,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
 
     try {
       if (editingLogId) {
-        const payload = toBrewLogUpdatePayload(form)
+        const payload = toBrewLogUpdatePayload(formWithFallbackBean)
         const log = await updateBrewLog(supabase, editingLogId, payload)
         setBrewLogs((current) =>
           current.map((currentLog) => (currentLog.id === log.id ? log : currentLog)),
@@ -135,13 +130,13 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         setEditingLogId(null)
         setStatus('冲煮记录已更新。')
       } else {
-        const payload = toBrewLogInsertPayload(form, session.user.id)
+        const payload = toBrewLogInsertPayload(formWithFallbackBean, session.user.id)
         const log = await createBrewLog(supabase, payload)
         setBrewLogs((current) => [log, ...current])
         setStatus('冲煮记录已保存。')
       }
 
-      setForm(createInitialBrewForm(form.beanId))
+      setForm(createInitialBrewForm(formWithFallbackBean.beanId))
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存冲煮记录失败')
     } finally {
@@ -206,7 +201,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
             <label>
               咖啡豆
               <select
-                value={form.beanId}
+                value={formWithFallbackBean.beanId}
                 onChange={(event) => updateField('beanId', event.target.value)}
                 required
               >

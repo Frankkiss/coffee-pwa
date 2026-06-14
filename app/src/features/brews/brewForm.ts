@@ -25,6 +25,14 @@ export function createInitialBrewForm(beanId = ''): BrewForm {
   }
 }
 
+export function withFallbackBeanId(form: BrewForm, fallbackBeanId: string): BrewForm {
+  if (form.beanId || !fallbackBeanId) {
+    return form
+  }
+
+  return { ...form, beanId: fallbackBeanId }
+}
+
 export function createBrewFormFromLog(log: BrewLog): BrewForm {
   return {
     beanId: log.bean_id ?? '',

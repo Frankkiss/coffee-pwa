@@ -4,6 +4,7 @@ import {
   createInitialBrewForm,
   toBrewLogInsertPayload,
   toBrewLogUpdatePayload,
+  withFallbackBeanId,
 } from './brewForm'
 import type { BrewLog } from './brewTypes'
 
@@ -154,5 +155,17 @@ describe('brew log edit helpers', () => {
       is_pinned_recipe: true,
     })
     expect(payload).not.toHaveProperty('user_id')
+  })
+})
+
+describe('withFallbackBeanId', () => {
+  it('uses the fallback bean id when the form does not have one yet', () => {
+    expect(withFallbackBeanId(createInitialBrewForm(''), 'bean-1').beanId).toBe('bean-1')
+  })
+
+  it('keeps the selected bean id when the form already has one', () => {
+    expect(withFallbackBeanId(createInitialBrewForm('bean-2'), 'bean-1').beanId).toBe(
+      'bean-2',
+    )
   })
 })
