@@ -30,6 +30,11 @@ export type SourceImportResponse = {
   error?: string
 }
 
+export type SourceImportRequest = {
+  url: string
+  pastedText: string
+}
+
 export type SourceImportRecordInput = {
   userId: string
   sourceUrl: string

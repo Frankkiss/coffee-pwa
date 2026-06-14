@@ -1,5 +1,6 @@
 type ImportRequest = {
   url?: string
+  pastedText?: string
 }
 
 type SourceDraft = {
@@ -29,6 +30,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+const manualSourceUrl = 'manual://pasted-text'
+const minTextLength = 30
 const maxPromptTextLength = 12000
 
 Deno.serve(async (request) => {
@@ -54,45 +57,61 @@ Deno.serve(async (request) => {
     return jsonResponse({ configured: true, draft: null, error: 'Invalid JSON body' }, 400)
   }
 
+  const normalizedText = normalizePastedText(payload.pastedText)
   const sourceUrl = normalizeUrl(payload.url)
+  const sourceForResponse = sourceUrl ?? manualSourceUrl
 
-  if (!sourceUrl) {
-    return jsonResponse({ configured: true, draft: null, error: 'Invalid URL' }, 400)
+  if (!sourceUrl && !normalizedText) {
+    return jsonResponse({
+      configured: true,
+      sourceUrl: sourceForResponse,
+      draft: null,
+      error: 'Please provide a source URL or pasted product detail text',
+    }, 400)
   }
 
   try {
-    const pageText = await fetchPageText(sourceUrl)
+    const sourceText = normalizedText || await fetchFallbackText(sourceUrl)
 
-    if (pageText.length < 80) {
+    if (sourceText.length < minTextLength) {
       return jsonResponse({
         configured: true,
-        sourceUrl,
+        sourceUrl: sourceForResponse,
         draft: null,
-        rawTextLength: pageText.length,
-        error: 'Page text is too short to extract bean data',
+        rawTextLength: sourceText.length,
+        error: 'Product detail text is too short to extract bean data',
       })
     }
 
-    const draft = await requestDeepSeekDraft(apiKey, sourceUrl, pageText)
+    const promptText = sourceText.slice(0, maxPromptTextLength)
+    const draft = await requestDeepSeekDraft(apiKey, sourceForResponse, promptText)
 
     return jsonResponse({
       configured: true,
-      sourceUrl,
-      draft: normalizeDraft({ ...draft, sourceUrl }),
-      rawTextLength: pageText.length,
+      sourceUrl: sourceForResponse,
+      draft: normalizeDraft({ ...draft, sourceUrl: sourceForResponse }),
+      rawTextLength: promptText.length,
     })
   } catch (error) {
     return jsonResponse({
       configured: true,
-      sourceUrl,
+      sourceUrl: sourceForResponse,
       draft: null,
       error: error instanceof Error ? error.message : 'Source import failed',
     })
   }
 })
 
-function normalizeUrl(value: unknown) {
+function normalizePastedText(value: unknown) {
   if (typeof value !== 'string') {
+    return ''
+  }
+
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeUrl(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
     return null
   }
 
@@ -109,8 +128,16 @@ function normalizeUrl(value: unknown) {
   }
 }
 
-async function fetchPageText(url: string) {
-  const response = await fetch(url, {
+async function fetchFallbackText(sourceUrl: string | null) {
+  if (!sourceUrl) {
+    return ''
+  }
+
+  if (isTaobaoLikeUrl(sourceUrl)) {
+    throw new Error('淘宝/天猫链接通常无法直接抓取，请粘贴商品详情文本后再解析。')
+  }
+
+  const response = await fetch(sourceUrl, {
     headers: {
       'User-Agent':
         'Mozilla/5.0 (compatible; KaDayCoffeeImporter/1.0; +https://frankkiss.github.io/coffee-pwa/)',
@@ -123,7 +150,16 @@ async function fetchPageText(url: string) {
   }
 
   const html = await response.text()
-  return extractReadableText(html).slice(0, maxPromptTextLength)
+  return extractReadableText(html)
+}
+
+function isTaobaoLikeUrl(sourceUrl: string) {
+  try {
+    const hostname = new URL(sourceUrl).hostname.toLowerCase()
+    return hostname.includes('taobao.com') || hostname.includes('tmall.com')
+  } catch {
+    return false
+  }
 }
 
 function extractReadableText(html: string) {
@@ -142,7 +178,7 @@ function extractReadableText(html: string) {
     .trim()
 }
 
-async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, pageText: string) {
+async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, sourceText: string) {
   const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
@@ -155,11 +191,11 @@ async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, pageText:
         {
           role: 'system',
           content:
-            '你是谨慎的咖啡豆资料录入助手。只从用户提供的网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。',
+            '你是谨慎的咖啡豆资料录入助手。只从用户提供的商品详情文本或网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。',
         },
         {
           role: 'user',
-          content: buildPrompt(sourceUrl, pageText),
+          content: buildPrompt(sourceUrl, sourceText),
         },
       ],
       response_format: { type: 'json_object' },
@@ -185,9 +221,9 @@ async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, pageText:
   }
 }
 
-function buildPrompt(sourceUrl: string, pageText: string) {
+function buildPrompt(sourceUrl: string, sourceText: string) {
   return [
-    '请从以下公开网页文本中提取咖啡豆资料，返回严格 JSON。',
+    '请从以下商品详情文本中提取咖啡豆资料，返回严格 JSON。',
     '字段：name, roaster, origin, farmOrStation, process, variety, altitudeMeters, roastDate, roastLevel, flavorTags, flavorNotes, netWeightGrams, price, notes, confidence, missingFields。',
     '要求：',
     '1. 找不到的字段用空字符串、null 或空数组。',
@@ -195,9 +231,9 @@ function buildPrompt(sourceUrl: string, pageText: string) {
     '3. flavorTags 返回字符串数组。',
     '4. confidence 只能是 high、medium、low。',
     '5. missingFields 写出建议用户补充的字段。',
-    '6. 不要输出网页没有提供的事实。',
+    '6. 不要输出商品详情没有提供的事实。',
     `sourceUrl: ${sourceUrl}`,
-    `pageText: ${pageText}`,
+    `sourceText: ${sourceText}`,
   ].join('\n')
 }
 

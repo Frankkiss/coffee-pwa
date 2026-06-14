@@ -23,6 +23,7 @@ export function SourceImportPanel({
   onBeanCreated,
 }: SourceImportPanelProps) {
   const [url, setUrl] = useState('')
+  const [pastedText, setPastedText] = useState('')
   const [form, setForm] = useState<BeanForm | null>(null)
   const [lastResponse, setLastResponse] = useState<SourceImportResponse | null>(null)
   const [isParsing, setIsParsing] = useState(false)
@@ -36,27 +37,31 @@ export function SourceImportPanel({
 
   async function handleParse() {
     const sourceUrl = url.trim()
+    const detailText = pastedText.trim()
     setStatus('')
     setError('')
     setForm(null)
     setLastResponse(null)
 
-    if (!sourceUrl) {
-      setError('请先粘贴来源链接。')
+    if (!sourceUrl && !detailText) {
+      setError('请粘贴来源链接，或粘贴商品详情文本。淘宝/天猫建议粘贴商品详情文本。')
       return
     }
 
     setIsParsing(true)
 
     try {
-      const response = await requestSourceImport(supabase, sourceUrl)
+      const response = await requestSourceImport(supabase, {
+        url: sourceUrl,
+        pastedText: detailText,
+      })
       setLastResponse(response)
 
       if (!response.configured) {
-        setError('DeepSeek API 尚未配置，暂时无法 AI 解析链接。')
+        setError('DeepSeek API 尚未配置，暂时无法 AI 解析。')
         await recordSourceImport(supabase, {
           userId: session.user.id,
-          sourceUrl,
+          sourceUrl: response.sourceUrl || sourceUrl || 'manual://pasted-text',
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'DeepSeek API not configured',
@@ -68,7 +73,7 @@ export function SourceImportPanel({
         setError(response.error ?? '没有解析出可用的咖啡豆草稿。')
         await recordSourceImport(supabase, {
           userId: session.user.id,
-          sourceUrl: response.sourceUrl || sourceUrl,
+          sourceUrl: response.sourceUrl || sourceUrl || 'manual://pasted-text',
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'No draft extracted',
@@ -86,7 +91,7 @@ export function SourceImportPanel({
         extractedPayload: response,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : '解析来源链接失败')
+      setError(err instanceof Error ? err.message : 'AI 解析失败')
     } finally {
       setIsParsing(false)
     }
@@ -114,6 +119,7 @@ export function SourceImportPanel({
       setForm(null)
       setLastResponse(null)
       setUrl('')
+      setPastedText('')
       setStatus('已保存到豆仓。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存导入草稿失败')
@@ -127,7 +133,7 @@ export function SourceImportPanel({
       <div>
         <p className="source-import__eyebrow">Source Import</p>
         <h3 id="source-import-title">来源导入</h3>
-        <p>粘贴公开商品页或豆单链接，用 AI 生成草稿；保存前需要你确认。</p>
+        <p>淘宝/天猫建议粘贴商品详情文本；链接会作为来源保存，普通公开网页也可尝试只粘贴链接。</p>
       </div>
 
       <div className="source-import__bar">
@@ -136,21 +142,31 @@ export function SourceImportPanel({
           <input
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://example.com/coffee-bean"
+            placeholder="可选，例如淘宝商品页或烘焙商页面"
             inputMode="url"
           />
         </label>
         <button type="button" onClick={handleParse} disabled={isParsing}>
-          {isParsing ? '解析中' : '解析链接'}
+          {isParsing ? '解析中' : 'AI 解析'}
         </button>
       </div>
+
+      <label>
+        商品详情文本
+        <textarea
+          value={pastedText}
+          onChange={(event) => setPastedText(event.target.value)}
+          placeholder="粘贴商品标题、豆子详情、风味描述、处理法、产地、烘焙商、规格等文本。淘宝/天猫场景建议填写这里。"
+          rows={5}
+        />
+      </label>
 
       {form ? (
         <div className="source-import__draft">
           <div className="source-import__draft-header">
             <strong>导入预览</strong>
             {lastResponse?.rawTextLength ? (
-              <span>读取文本约 {lastResponse.rawTextLength} 字符</span>
+              <span>解析文本约 {lastResponse.rawTextLength} 字符</span>
             ) : null}
           </div>
 

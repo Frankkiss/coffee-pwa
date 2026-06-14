@@ -1,22 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeSourceImportDraft } from './sourceImportMapping'
 import type {
+  SourceImportRequest,
   SourceImportRecordInput,
   SourceImportResponse,
 } from './sourceImportTypes'
 
 export async function requestSourceImport(
   supabase: SupabaseClient,
-  url: string,
+  input: SourceImportRequest,
 ): Promise<SourceImportResponse> {
   const { data, error } = await supabase.functions.invoke('import-source', {
-    body: { url },
+    body: input,
   })
 
   if (error) {
     return {
       configured: false,
-      sourceUrl: url,
+      sourceUrl: input.url,
       draft: null,
       error: error.message,
     }
@@ -26,7 +27,7 @@ export async function requestSourceImport(
 
   return {
     ...response,
-    sourceUrl: response.sourceUrl || url,
+    sourceUrl: response.sourceUrl || input.url,
     draft: response.draft ? normalizeSourceImportDraft(response.draft) : null,
   }
 }
