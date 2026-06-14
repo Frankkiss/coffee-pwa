@@ -1,5 +1,12 @@
 :root {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    'Microsoft YaHei UI',
+    'Yuanti SC',
+    'YouYuan',
+    'Segoe UI Rounded',
+    'Arial Rounded MT Bold',
+    system-ui,
+    sans-serif;
   color: #4b3027;
   background: #f7ead6;
   --color-cream: #f7ead6;

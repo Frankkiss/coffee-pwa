@@ -202,7 +202,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const backupReminder = buildBackupReminder(backupReminderMeta, new Date())
 
   return (
-    <section className="backup-panel" aria-labelledby="backup-title">
+    <section id="backup" className="backup-panel" aria-labelledby="backup-title">
       <div>
         <p className="backup-panel__eyebrow">Backup</p>
         <h2 id="backup-title">本地备份</h2>

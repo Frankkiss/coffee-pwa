@@ -148,7 +148,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
 
   return (
     <>
-      <section className="bean-dashboard" aria-labelledby="bean-dashboard-title">
+      <section id="bean-dashboard" className="bean-dashboard" aria-labelledby="bean-dashboard-title">
         <div className="bean-dashboard__header">
           <div>
             <p className="bean-dashboard__eyebrow">Bean Vault</p>

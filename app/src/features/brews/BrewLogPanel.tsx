@@ -175,7 +175,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
   }
 
   return (
-    <section className="brew-panel" aria-labelledby="brew-panel-title">
+    <section id="brew-log" className="brew-panel" aria-labelledby="brew-panel-title">
       <div className="brew-panel__header">
         <div>
           <p className="brew-panel__eyebrow">Brew Log</p>

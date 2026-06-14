@@ -101,7 +101,7 @@ export function RecommendationPanel({ supabase }: RecommendationPanelProps) {
   }
 
   return (
-    <section className="recommendation-panel" aria-labelledby="recommendation-title">
+    <section id="recommendation" className="recommendation-panel" aria-labelledby="recommendation-title">
       <div className="recommendation-panel__header">
         <div>
           <p className="recommendation-panel__eyebrow">Recommendation</p>

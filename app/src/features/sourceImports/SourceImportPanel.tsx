@@ -172,7 +172,7 @@ export function SourceImportPanel({
   }
 
   return (
-    <section className="source-import" aria-labelledby="source-import-title">
+    <section id="source-import" className="source-import" aria-labelledby="source-import-title">
       <div>
         <p className="source-import__eyebrow">Source Import</p>
         <h3 id="source-import-title">来源导入</h3>
