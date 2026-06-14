@@ -53,8 +53,14 @@ export type BrewForm = {
   isPinnedRecipe: boolean
 }
 
-export type BrewLogInsertPayload = {
-  user_id: string
+export type BrewLogFilters = {
+  query: string
+  beanId: string
+  method: string
+  pinned: 'all' | 'pinned' | 'unpinned'
+}
+
+export type BrewLogUpdatePayload = {
   bean_id: string
   method: string | null
   dripper: string | null
@@ -77,4 +83,8 @@ export type BrewLogInsertPayload = {
   flavor_tags: string[]
   is_pinned_recipe: boolean
   notes: string | null
+}
+
+export type BrewLogInsertPayload = BrewLogUpdatePayload & {
+  user_id: string
 }

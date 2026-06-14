@@ -1,4 +1,4 @@
-import type { BrewForm, BrewLogInsertPayload } from './brewTypes'
+import type { BrewForm, BrewLog, BrewLogInsertPayload, BrewLogUpdatePayload } from './brewTypes'
 
 export function createInitialBrewForm(beanId = ''): BrewForm {
   return {
@@ -25,10 +25,42 @@ export function createInitialBrewForm(beanId = ''): BrewForm {
   }
 }
 
+export function createBrewFormFromLog(log: BrewLog): BrewForm {
+  return {
+    beanId: log.bean_id ?? '',
+    method: log.method ?? '',
+    dripper: log.dripper ?? '',
+    filterPaper: log.filter_paper ?? '',
+    grinder: log.grinder ?? '',
+    grindSetting: log.grind_setting ?? '',
+    coffeeGrams: numberToFormValue(log.coffee_grams),
+    waterGrams: numberToFormValue(log.water_grams),
+    waterTemperatureC: numberToFormValue(log.water_temperature_c),
+    totalTimeSeconds: numberToFormValue(log.total_time_seconds),
+    rating: numberToFormValue(log.rating),
+    acidity: numberToFormValue(log.acidity),
+    sweetness: numberToFormValue(log.sweetness),
+    bitterness: numberToFormValue(log.bitterness),
+    astringency: numberToFormValue(log.astringency),
+    body: numberToFormValue(log.body),
+    aftertaste: numberToFormValue(log.aftertaste),
+    flavorTags: log.flavor_tags.join(', '),
+    notes: log.notes ?? '',
+    isPinnedRecipe: log.is_pinned_recipe,
+  }
+}
+
 export function toBrewLogInsertPayload(
   form: BrewForm,
   userId: string,
 ): BrewLogInsertPayload {
+  return {
+    ...toBrewLogUpdatePayload(form),
+    user_id: userId,
+  }
+}
+
+export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
   const beanId = form.beanId.trim()
 
   if (!beanId) {
@@ -39,7 +71,6 @@ export function toBrewLogInsertPayload(
   const waterGrams = optionalNumber(form.waterGrams)
 
   return {
-    user_id: userId,
     bean_id: beanId,
     method: optionalText(form.method),
     dripper: optionalText(form.dripper),
@@ -79,6 +110,10 @@ function optionalNumber(value: string) {
 
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function numberToFormValue(value: number | null) {
+  return value === null ? '' : String(value)
 }
 
 function calculateRatio(coffeeGrams: number | null, waterGrams: number | null) {

@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { Bean } from '../beans/beanTypes'
-import { createInitialBrewForm, toBrewLogInsertPayload } from './brewForm'
-import { createBrewLog, listBrewLogs } from './brewLogService'
-import type { BrewForm, BrewLog } from './brewTypes'
+import { filterBrewLogs } from './brewFilters'
+import {
+  createBrewFormFromLog,
+  createInitialBrewForm,
+  toBrewLogInsertPayload,
+  toBrewLogUpdatePayload,
+} from './brewForm'
+import {
+  createBrewLog,
+  listBrewLogs,
+  softDeleteBrewLog,
+  updateBrewLog,
+} from './brewLogService'
+import type { BrewForm, BrewLog, BrewLogFilters } from './brewTypes'
 import './brews.css'
 
 type BrewLogPanelProps = {
@@ -18,8 +29,16 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
   const firstBeanId = beans[0]?.id ?? ''
   const [brewLogs, setBrewLogs] = useState<BrewLog[]>([])
   const [form, setForm] = useState<BrewForm>(() => createInitialBrewForm(firstBeanId))
+  const [filters, setFilters] = useState<BrewLogFilters>({
+    query: '',
+    beanId: '',
+    method: '',
+    pinned: 'all',
+  })
+  const [editingLogId, setEditingLogId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
@@ -27,6 +46,16 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     () => new Map(beans.map((bean) => [bean.id, bean.name])),
     [beans],
   )
+  const filteredBrewLogs = filterBrewLogs(brewLogs, filters)
+  const availableMethods = useMemo(() => {
+    const methods = new Set(methodOptions)
+    brewLogs.forEach((log) => {
+      if (log.method) {
+        methods.add(log.method)
+      }
+    })
+    return Array.from(methods)
+  }, [brewLogs])
 
   useEffect(() => {
     setForm((current) => {
@@ -72,6 +101,24 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
+  function updateFilter(field: keyof BrewLogFilters, value: string) {
+    setFilters((current) => ({ ...current, [field]: value }))
+  }
+
+  function handleEdit(log: BrewLog) {
+    setError('')
+    setStatus('')
+    setEditingLogId(log.id)
+    setForm(createBrewFormFromLog(log))
+  }
+
+  function handleCancelEdit() {
+    setEditingLogId(null)
+    setForm(createInitialBrewForm(firstBeanId))
+    setStatus('')
+    setError('')
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -79,15 +126,56 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     setIsSaving(true)
 
     try {
-      const payload = toBrewLogInsertPayload(form, session.user.id)
-      const log = await createBrewLog(supabase, payload)
-      setBrewLogs((current) => [log, ...current])
+      if (editingLogId) {
+        const payload = toBrewLogUpdatePayload(form)
+        const log = await updateBrewLog(supabase, editingLogId, payload)
+        setBrewLogs((current) =>
+          current.map((currentLog) => (currentLog.id === log.id ? log : currentLog)),
+        )
+        setEditingLogId(null)
+        setStatus('冲煮记录已更新。')
+      } else {
+        const payload = toBrewLogInsertPayload(form, session.user.id)
+        const log = await createBrewLog(supabase, payload)
+        setBrewLogs((current) => [log, ...current])
+        setStatus('冲煮记录已保存。')
+      }
+
       setForm(createInitialBrewForm(form.beanId))
-      setStatus('冲煮记录已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存冲煮记录失败')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleDelete(log: BrewLog) {
+    const beanName = log.bean_id ? beanNameById.get(log.bean_id) : ''
+    const confirmed = window.confirm(
+      `确定删除这条${beanName ? `「${beanName}」` : ''}冲煮记录吗？数据会软删除，不会物理抹掉。`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setError('')
+    setStatus('')
+    setIsDeleting(true)
+
+    try {
+      await softDeleteBrewLog(supabase, log.id)
+      setBrewLogs((current) => current.filter((currentLog) => currentLog.id !== log.id))
+
+      if (editingLogId === log.id) {
+        handleCancelEdit()
+      }
+
+      setStatus('冲煮记录已删除。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除冲煮记录失败')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -105,6 +193,15 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         <p className="brew-empty">先保存一支咖啡豆，再记录冲煮。</p>
       ) : (
         <form className="brew-form" onSubmit={handleSubmit}>
+          {editingLogId ? (
+            <div className="brew-editing-banner">
+              <strong>正在编辑冲煮记录</strong>
+              <button type="button" onClick={handleCancelEdit}>
+                取消编辑
+              </button>
+            </div>
+          ) : null}
+
           <div className="brew-form__grid">
             <label>
               咖啡豆
@@ -242,34 +339,130 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
             设为这支豆子的候选推荐方案
           </label>
 
-          <button type="submit" disabled={isSaving}>
-            {isSaving ? '保存中' : '保存冲煮记录'}
-          </button>
+          <div className="brew-form__actions">
+            <button type="submit" disabled={isSaving}>
+              {isSaving ? '保存中' : editingLogId ? '更新冲煮记录' : '保存冲煮记录'}
+            </button>
+            {editingLogId ? (
+              <button type="button" className="brew-secondary-button" onClick={handleCancelEdit}>
+                取消
+              </button>
+            ) : null}
+          </div>
         </form>
       )}
 
       {status ? <p className="brew-status">{status}</p> : null}
       {error ? <p className="brew-error">{error}</p> : null}
 
+      <div className="brew-filters" aria-label="冲煮记录筛选">
+        <label>
+          搜索
+          <input
+            value={filters.query}
+            onChange={(event) => updateFilter('query', event.target.value)}
+            placeholder="方式、器具、研磨度、风味、备注"
+          />
+        </label>
+        <label>
+          咖啡豆
+          <select
+            value={filters.beanId}
+            onChange={(event) => updateFilter('beanId', event.target.value)}
+          >
+            <option value="">全部</option>
+            {beans.map((bean) => (
+              <option key={bean.id} value={bean.id}>
+                {bean.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          方式
+          <select
+            value={filters.method}
+            onChange={(event) => updateFilter('method', event.target.value)}
+          >
+            <option value="">全部</option>
+            {availableMethods.map((method) => (
+              <option key={method} value={method}>
+                {method}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          推荐方案
+          <select
+            value={filters.pinned}
+            onChange={(event) => updateFilter('pinned', event.target.value)}
+          >
+            <option value="all">全部</option>
+            <option value="pinned">仅候选方案</option>
+            <option value="unpinned">非候选方案</option>
+          </select>
+        </label>
+      </div>
+
       <div className="brew-list" aria-live="polite">
         {isLoading ? <p className="brew-empty">正在读取冲煮记录...</p> : null}
         {!isLoading && brewLogs.length === 0 ? (
           <p className="brew-empty">还没有冲煮记录。</p>
         ) : null}
-        {brewLogs.map((log) => (
+        {!isLoading && brewLogs.length > 0 && filteredBrewLogs.length === 0 ? (
+          <p className="brew-empty">没有匹配的冲煮记录。</p>
+        ) : null}
+        {filteredBrewLogs.map((log) => (
           <article className="brew-card" key={log.id}>
-            <div>
-              <h3>{log.bean_id ? beanNameById.get(log.bean_id) ?? '未知咖啡豆' : '未绑定豆子'}</h3>
-              <p>
-                {[log.method, log.ratio, log.water_temperature_c ? `${log.water_temperature_c}°C` : null]
-                  .filter(Boolean)
-                  .join(' / ') || '参数待补充'}
-              </p>
+            <div className="brew-card__main">
+              <div>
+                <h3>{log.bean_id ? beanNameById.get(log.bean_id) ?? '未知咖啡豆' : '未绑定豆子'}</h3>
+                <p>{formatBrewSummary(log)}</p>
+              </div>
+              {log.rating ? <strong>{log.rating}/5</strong> : null}
             </div>
-            {log.rating ? <strong>{log.rating}/5</strong> : null}
+
+            {log.flavor_tags.length > 0 ? (
+              <div className="brew-tags">
+                {log.flavor_tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+            ) : null}
+
+            {log.notes ? <p className="brew-card__notes">{log.notes}</p> : null}
+
+            <div className="brew-card__actions">
+              <button type="button" onClick={() => handleEdit(log)}>
+                编辑
+              </button>
+              <button
+                type="button"
+                className="brew-danger-button"
+                disabled={isDeleting}
+                onClick={() => handleDelete(log)}
+              >
+                删除
+              </button>
+            </div>
           </article>
         ))}
       </div>
     </section>
+  )
+}
+
+function formatBrewSummary(log: BrewLog) {
+  return (
+    [
+      log.method,
+      log.ratio,
+      log.water_temperature_c ? `${log.water_temperature_c}°C` : null,
+      log.total_time_seconds ? `${log.total_time_seconds}s` : null,
+      log.grind_setting,
+    ]
+      .filter(Boolean)
+      .join(' / ') || '参数待补充'
   )
 }
