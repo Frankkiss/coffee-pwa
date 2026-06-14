@@ -1,4 +1,4 @@
-import type { BeanForm, BeanInsertPayload } from './beanTypes'
+import type { Bean, BeanForm, BeanInsertPayload, BeanUpdatePayload } from './beanTypes'
 
 export function createInitialBeanForm(): BeanForm {
   return {
@@ -23,6 +23,35 @@ export function createInitialBeanForm(): BeanForm {
 }
 
 export function toBeanInsertPayload(form: BeanForm, userId: string): BeanInsertPayload {
+  return {
+    user_id: userId,
+    ...toBeanUpdatePayload(form),
+  }
+}
+
+export function createBeanFormFromBean(bean: Bean): BeanForm {
+  return {
+    name: bean.name,
+    roaster: bean.roaster ?? '',
+    origin: bean.origin ?? '',
+    farmOrStation: bean.farm_or_station ?? '',
+    process: bean.process ?? '',
+    variety: bean.variety ?? '',
+    altitudeMeters: numberToFormValue(bean.altitude_meters),
+    roastDate: bean.roast_date ?? '',
+    roastLevel: bean.roast_level ?? '',
+    flavorTags: bean.flavor_tags.join(', '),
+    flavorNotes: bean.flavor_notes ?? '',
+    netWeightGrams: numberToFormValue(bean.net_weight_grams),
+    remainingGrams: numberToFormValue(bean.remaining_grams),
+    price: numberToFormValue(bean.price),
+    purchaseDate: bean.purchase_date ?? '',
+    sourceUrl: bean.source_url ?? '',
+    notes: bean.notes ?? '',
+  }
+}
+
+export function toBeanUpdatePayload(form: BeanForm): BeanUpdatePayload {
   const name = form.name.trim()
 
   if (!name) {
@@ -30,7 +59,6 @@ export function toBeanInsertPayload(form: BeanForm, userId: string): BeanInsertP
   }
 
   return {
-    user_id: userId,
     name,
     roaster: optionalText(form.roaster),
     origin: optionalText(form.origin),
@@ -49,6 +77,10 @@ export function toBeanInsertPayload(form: BeanForm, userId: string): BeanInsertP
     source_url: optionalText(form.sourceUrl),
     notes: optionalText(form.notes),
   }
+}
+
+function numberToFormValue(value: number | null) {
+  return value === null ? '' : String(value)
 }
 
 function optionalText(value: string) {

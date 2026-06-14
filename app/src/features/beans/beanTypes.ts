@@ -65,3 +65,11 @@ export type BeanInsertPayload = {
   source_url: string | null
   notes: string | null
 }
+
+export type BeanUpdatePayload = Omit<BeanInsertPayload, 'user_id'>
+
+export type BeanFilters = {
+  search: string
+  process: string
+  roastLevel: string
+}

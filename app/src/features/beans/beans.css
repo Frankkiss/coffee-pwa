@@ -45,7 +45,8 @@
   gap: 0.875rem;
 }
 
-.bean-form label {
+.bean-form label,
+.bean-filters label {
   display: grid;
   gap: 0.4rem;
   color: var(--color-muted);
@@ -54,7 +55,9 @@
 
 .bean-form input,
 .bean-form select,
-.bean-form textarea {
+.bean-form textarea,
+.bean-filters input,
+.bean-filters select {
   width: 100%;
   min-height: 2.75rem;
   padding: 0.75rem;
@@ -66,7 +69,9 @@
 
 .bean-form input:focus,
 .bean-form select:focus,
-.bean-form textarea:focus {
+.bean-form textarea:focus,
+.bean-filters input:focus,
+.bean-filters select:focus {
   border-color: var(--color-caramel);
   outline: 2px solid rgba(227, 170, 120, 0.28);
 }
@@ -75,7 +80,35 @@
   resize: vertical;
 }
 
-.bean-form button {
+.bean-editing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  color: var(--color-coffee-dark);
+  background: rgba(227, 170, 120, 0.22);
+}
+
+.bean-editing-banner button {
+  min-height: 2.2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-coffee);
+  background: var(--color-cream-soft);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bean-form__actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.bean-form button,
+.bean-card__actions button {
   min-height: 2.75rem;
   border: 0;
   border-radius: 8px;
@@ -88,6 +121,28 @@
 .bean-form button:disabled {
   cursor: progress;
   opacity: 0.7;
+}
+
+.bean-form .bean-secondary-button,
+.bean-card__actions button {
+  border: 1px solid var(--color-border);
+  color: var(--color-coffee);
+  background: var(--color-cream-soft);
+}
+
+.bean-card__actions .bean-danger-button {
+  color: #7d2e22;
+  background: rgba(193, 104, 74, 0.16);
+}
+
+.bean-filters {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-cream-card);
+  box-shadow: var(--shadow-card);
 }
 
 .bean-status,
@@ -118,6 +173,12 @@
   border: 1px solid var(--color-border);
 }
 
+.bean-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
 .bean-card p {
   margin: 0.25rem 0 0;
   color: var(--color-muted);
@@ -139,8 +200,17 @@
 }
 
 @media (min-width: 760px) {
-  .bean-form__grid {
+  .bean-form__grid,
+  .bean-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bean-filters {
+    grid-template-columns: 2fr 1fr 1fr;
+  }
+
+  .bean-form__actions {
+    grid-template-columns: 1fr auto;
   }
 }
 

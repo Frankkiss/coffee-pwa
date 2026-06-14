@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createInitialBeanForm, toBeanInsertPayload } from './beanForm'
+import {
+  createBeanFormFromBean,
+  createInitialBeanForm,
+  toBeanInsertPayload,
+  toBeanUpdatePayload,
+} from './beanForm'
+import type { Bean } from './beanTypes'
 
 describe('toBeanInsertPayload', () => {
   it('maps required and optional form values to a Supabase insert payload', () => {
@@ -69,5 +75,62 @@ describe('toBeanInsertPayload', () => {
     expect(() => toBeanInsertPayload(createInitialBeanForm(), 'user-1')).toThrow(
       '咖啡豆名称不能为空',
     )
+  })
+})
+
+describe('bean edit helpers', () => {
+  const bean = {
+    id: 'bean-1',
+    user_id: 'user-1',
+    name: '埃塞俄比亚 测试豆',
+    roaster: '示例烘焙',
+    origin: 'Ethiopia',
+    farm_or_station: 'Aricha',
+    process: '水洗',
+    variety: 'Heirloom',
+    altitude_meters: 1950,
+    roast_date: '2026-06-01',
+    roast_level: '浅烘',
+    flavor_tags: ['柑橘', '花香'],
+    flavor_notes: '明亮',
+    net_weight_grams: 100,
+    remaining_grams: 60,
+    price: 88,
+    purchase_date: '2026-06-10',
+    source_url: 'https://example.com',
+    image_url: null,
+    notes: '需要复购',
+    created_at: '2026-06-12T01:00:00.000Z',
+    updated_at: '2026-06-12T01:00:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  } satisfies Bean
+
+  it('creates an editable form from an existing bean', () => {
+    expect(createBeanFormFromBean(bean)).toMatchObject({
+      name: '埃塞俄比亚 测试豆',
+      roaster: '示例烘焙',
+      origin: 'Ethiopia',
+      farmOrStation: 'Aricha',
+      altitudeMeters: '1950',
+      flavorTags: '柑橘, 花香',
+      remainingGrams: '60',
+      notes: '需要复购',
+    })
+  })
+
+  it('creates an update payload without user ownership fields', () => {
+    const payload = toBeanUpdatePayload({
+      ...createBeanFormFromBean(bean),
+      name: '埃塞俄比亚 更新',
+      remainingGrams: '42',
+    })
+
+    expect(payload).toMatchObject({
+      name: '埃塞俄比亚 更新',
+      remaining_grams: 42,
+      flavor_tags: ['柑橘', '花香'],
+    })
+    expect(payload).not.toHaveProperty('user_id')
   })
 })

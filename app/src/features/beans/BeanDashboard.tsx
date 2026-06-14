@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
-import { createInitialBeanForm, toBeanInsertPayload } from './beanForm'
-import { createBean, listBeans } from './beanService'
-import type { Bean, BeanForm } from './beanTypes'
+import { filterBeans } from './beanFilters'
+import {
+  createBeanFormFromBean,
+  createInitialBeanForm,
+  toBeanInsertPayload,
+  toBeanUpdatePayload,
+} from './beanForm'
+import { createBean, listBeans, softDeleteBean, updateBean } from './beanService'
+import type { Bean, BeanFilters, BeanForm } from './beanTypes'
 import './beans.css'
 
 type BeanDashboardProps = {
@@ -17,10 +23,18 @@ const roastOptions = ['浅烘', '中浅烘', '中烘', '中深烘', '深烘']
 export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   const [beans, setBeans] = useState<Bean[]>([])
   const [form, setForm] = useState<BeanForm>(() => createInitialBeanForm())
+  const [filters, setFilters] = useState<BeanFilters>({
+    search: '',
+    process: '',
+    roastLevel: '',
+  })
+  const [editingBeanId, setEditingBeanId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const filteredBeans = filterBeans(beans, filters)
 
   useEffect(() => {
     let isMounted = true
@@ -56,6 +70,24 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
+  function updateFilter(field: keyof BeanFilters, value: string) {
+    setFilters((current) => ({ ...current, [field]: value }))
+  }
+
+  function handleEdit(bean: Bean) {
+    setError('')
+    setStatus('')
+    setEditingBeanId(bean.id)
+    setForm(createBeanFormFromBean(bean))
+  }
+
+  function handleCancelEdit() {
+    setEditingBeanId(null)
+    setForm(createInitialBeanForm())
+    setStatus('')
+    setError('')
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -63,15 +95,53 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     setIsSaving(true)
 
     try {
-      const payload = toBeanInsertPayload(form, session.user.id)
-      const bean = await createBean(supabase, payload)
-      setBeans((current) => [bean, ...current])
+      if (editingBeanId) {
+        const payload = toBeanUpdatePayload(form)
+        const bean = await updateBean(supabase, editingBeanId, payload)
+        setBeans((current) =>
+          current.map((currentBean) => (currentBean.id === bean.id ? bean : currentBean)),
+        )
+        setEditingBeanId(null)
+        setStatus('咖啡豆已更新。')
+      } else {
+        const payload = toBeanInsertPayload(form, session.user.id)
+        const bean = await createBean(supabase, payload)
+        setBeans((current) => [bean, ...current])
+        setStatus('咖啡豆已保存到云端。')
+      }
+
       setForm(createInitialBeanForm())
-      setStatus('咖啡豆已保存到云端。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存咖啡豆失败')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleDelete(bean: Bean) {
+    const confirmed = window.confirm(`确定删除「${bean.name}」吗？数据会软删除，不会物理抹掉。`)
+
+    if (!confirmed) {
+      return
+    }
+
+    setError('')
+    setStatus('')
+    setIsDeleting(true)
+
+    try {
+      await softDeleteBean(supabase, bean.id)
+      setBeans((current) => current.filter((currentBean) => currentBean.id !== bean.id))
+
+      if (editingBeanId === bean.id) {
+        handleCancelEdit()
+      }
+
+      setStatus('咖啡豆已删除。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除咖啡豆失败')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -87,6 +157,15 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
         </div>
 
         <form className="bean-form" onSubmit={handleSubmit}>
+          {editingBeanId ? (
+            <div className="bean-editing-banner">
+              <strong>正在编辑咖啡豆</strong>
+              <button type="button" onClick={handleCancelEdit}>
+                取消编辑
+              </button>
+            </div>
+          ) : null}
+
           <div className="bean-form__grid">
             <label>
               名称
@@ -223,20 +302,69 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
             />
           </label>
 
-          <button type="submit" disabled={isSaving}>
-            {isSaving ? '保存中' : '保存咖啡豆'}
-          </button>
+          <div className="bean-form__actions">
+            <button type="submit" disabled={isSaving}>
+              {isSaving ? '保存中' : editingBeanId ? '更新咖啡豆' : '保存咖啡豆'}
+            </button>
+            {editingBeanId ? (
+              <button type="button" className="bean-secondary-button" onClick={handleCancelEdit}>
+                取消
+              </button>
+            ) : null}
+          </div>
         </form>
 
         {status ? <p className="bean-status">{status}</p> : null}
         {error ? <p className="bean-error">{error}</p> : null}
+
+        <div className="bean-filters" aria-label="豆仓筛选">
+          <label>
+            搜索
+            <input
+              value={filters.search}
+              onChange={(event) => updateFilter('search', event.target.value)}
+              placeholder="名称、烘焙商、产地、处理站"
+            />
+          </label>
+          <label>
+            处理法
+            <select
+              value={filters.process}
+              onChange={(event) => updateFilter('process', event.target.value)}
+            >
+              <option value="">全部</option>
+              {processOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            烘焙度
+            <select
+              value={filters.roastLevel}
+              onChange={(event) => updateFilter('roastLevel', event.target.value)}
+            >
+              <option value="">全部</option>
+              {roastOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <div className="bean-list" aria-live="polite">
           {isLoading ? <p className="bean-empty">正在读取豆仓...</p> : null}
           {!isLoading && beans.length === 0 ? (
             <p className="bean-empty">还没有咖啡豆。先保存第一支豆子。</p>
           ) : null}
-          {beans.map((bean) => (
+          {!isLoading && beans.length > 0 && filteredBeans.length === 0 ? (
+            <p className="bean-empty">没有匹配的咖啡豆。</p>
+          ) : null}
+          {filteredBeans.map((bean) => (
             <article className="bean-card" key={bean.id}>
               <div>
                 <h3>{bean.name}</h3>
@@ -252,6 +380,19 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                   ))}
                 </div>
               ) : null}
+              <div className="bean-card__actions">
+                <button type="button" onClick={() => handleEdit(bean)}>
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  className="bean-danger-button"
+                  disabled={isDeleting}
+                  onClick={() => handleDelete(bean)}
+                >
+                  删除
+                </button>
+              </div>
             </article>
           ))}
         </div>
