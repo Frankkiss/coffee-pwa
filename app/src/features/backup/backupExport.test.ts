@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
-import { buildBackupDocument, createBackupFileName } from './backupExport'
+import {
+  buildBackupDocument,
+  createBackupFileName,
+  createRestorePointFileName,
+} from './backupExport'
 
 describe('backup export', () => {
   it('builds a versioned JSON backup document with record counts', () => {
@@ -88,5 +92,11 @@ describe('backup export', () => {
     expect(createBackupFileName(new Date('2026-06-12T03:00:00.000Z'))).toBe(
       'coffee-backup-2026-06-12.json',
     )
+  })
+
+  it('creates a date-based restore point filename', () => {
+    expect(
+      createRestorePointFileName(new Date('2026-06-15T03:00:00.000Z')),
+    ).toBe('coffee-restore-point-2026-06-15.json')
   })
 })

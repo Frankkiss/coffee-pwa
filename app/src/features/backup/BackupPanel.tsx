@@ -5,7 +5,11 @@ import {
   createBackupImportPreview,
   parseBackupDocument,
 } from './backupImport'
-import { buildBackupDocument, createBackupFileName } from './backupExport'
+import {
+  buildBackupDocument,
+  createBackupFileName,
+  createRestorePointFileName,
+} from './backupExport'
 import {
   fetchBackupRows,
   fetchExistingBackupIds,
@@ -173,6 +177,22 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     setError('')
 
     try {
+      const now = new Date()
+      const restorePointFileName = createRestorePointFileName(now)
+      const currentRows = await fetchBackupRows(supabase)
+      const restorePoint = buildBackupDocument({
+        userId: session.user.id,
+        exportedAt: now.toISOString(),
+        beans: currentRows.beans,
+        brewLogs: currentRows.brewLogs,
+      })
+
+      downloadTextFile(
+        JSON.stringify(restorePoint, null, 2),
+        restorePointFileName,
+        'application/json;charset=utf-8',
+      )
+
       const payloads = buildBackupImportPayloads(
         importBackup,
         importPreview,
@@ -184,7 +204,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
       await importBackupRows(supabase, payloads)
       setStatus(
-        `已导入 ${payloads.beans.length} 支豆子、${payloads.brewLogs.length} 条冲煮记录；已跳过 ${importPreview.duplicates.beans} 支重复豆子、${importPreview.duplicates.brewLogs} 条重复冲煮记录。`,
+        `已先下载恢复点 ${restorePointFileName}，再导入 ${payloads.beans.length} 支豆子、${payloads.brewLogs.length} 条冲煮记录；已跳过 ${importPreview.duplicates.beans} 支重复豆子、${importPreview.duplicates.brewLogs} 条重复冲煮记录。`,
       )
       setImportBackup(null)
       setImportPreview(null)

@@ -22,3 +22,7 @@ export function buildBackupDocument(
 export function createBackupFileName(date: Date) {
   return `coffee-backup-${date.toISOString().slice(0, 10)}.json`
 }
+
+export function createRestorePointFileName(date: Date) {
+  return `coffee-restore-point-${date.toISOString().slice(0, 10)}.json`
+}
