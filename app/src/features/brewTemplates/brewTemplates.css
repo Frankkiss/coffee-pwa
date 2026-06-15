@@ -1,0 +1,262 @@
+.brew-template-panel {
+  display: grid;
+  gap: 18px;
+  margin: 18px auto;
+  max-width: 980px;
+  width: min(100%, 980px);
+}
+
+.brew-template-panel__header,
+.brew-template-card__summary {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.brew-template-panel__header h2 {
+  color: #5b3729;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  line-height: 1.05;
+  margin: 4px 0 0;
+}
+
+.brew-template-panel__header > span {
+  background: #7b4f3f;
+  border-radius: 999px;
+  color: #fff7ec;
+  font-weight: 800;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.brew-template-panel__eyebrow,
+.brew-template-card__kicker {
+  color: #b9784d;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.brew-template-panel__intro {
+  color: #6d5a4e;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.brew-template-filters {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.brew-template-filters label {
+  color: #6b5143;
+  display: grid;
+  font-size: 0.85rem;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.brew-template-filters select {
+  background: #fffaf2;
+  border: 1px solid rgba(99, 65, 50, 0.22);
+  border-radius: 8px;
+  color: #4d342a;
+  min-height: 42px;
+  padding: 9px 10px;
+}
+
+.brew-template-checkbox {
+  align-items: center;
+  background: #f6ead9;
+  border: 1px solid rgba(99, 65, 50, 0.14);
+  border-radius: 8px;
+  display: flex !important;
+  flex-direction: row;
+  min-height: 42px;
+  padding: 9px 10px;
+}
+
+.brew-template-checkbox input {
+  accent-color: #7b4f3f;
+}
+
+.brew-template-list {
+  display: grid;
+  gap: 12px;
+}
+
+.brew-template-card {
+  background: #fffaf2;
+  border: 1px solid rgba(99, 65, 50, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(76, 49, 36, 0.08);
+  padding: 14px;
+}
+
+.brew-template-card__summary {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.brew-template-card__summary strong {
+  color: #5b3729;
+  display: block;
+  font-size: 1.05rem;
+  margin-top: 4px;
+}
+
+.brew-template-card__summary p {
+  color: #72594b;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.brew-template-card__summary > span {
+  background: #e3b179;
+  border-radius: 999px;
+  color: #4c3027;
+  font-size: 0.82rem;
+  font-weight: 900;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.brew-template-card__metrics,
+.brew-template-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.brew-template-card__metrics span,
+.brew-template-tags span {
+  background: #f2e4d1;
+  border-radius: 999px;
+  color: #684839;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.brew-template-card__steps,
+.brew-template-source {
+  color: #806759;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin: 12px 0 0;
+}
+
+.brew-template-detail {
+  border-top: 1px solid rgba(99, 65, 50, 0.12);
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.brew-template-detail dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.brew-template-detail dl div {
+  background: #f8efe2;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.brew-template-detail dt {
+  color: #a26d48;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.brew-template-detail dd {
+  color: #4d342a;
+  font-weight: 800;
+  margin: 4px 0 0;
+}
+
+.brew-template-steps {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.brew-template-steps li {
+  background: #fff4e5;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.brew-template-steps strong,
+.brew-template-adjustments strong {
+  color: #5b3729;
+  display: block;
+}
+
+.brew-template-steps span {
+  color: #a26d48;
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 900;
+  margin-top: 3px;
+}
+
+.brew-template-steps p {
+  color: #70574a;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+.brew-template-adjustments {
+  background: #f6ead9;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.brew-template-adjustments ul {
+  color: #70574a;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.brew-template-empty {
+  background: #fffaf2;
+  border: 1px dashed rgba(99, 65, 50, 0.3);
+  border-radius: 8px;
+  color: #7c6355;
+  margin: 0;
+  padding: 18px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .brew-template-panel {
+    margin: 14px auto;
+  }
+
+  .brew-template-filters,
+  .brew-template-detail dl {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-template-panel__header h2 {
+    font-size: 1.8rem;
+  }
+}
