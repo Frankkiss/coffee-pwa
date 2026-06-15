@@ -38,11 +38,15 @@ create table if not exists public.beans (
   purchase_date date,
   source_url text,
   image_url text,
+  bean_type text not null default 'single_origin',
+  blend_components jsonb not null default '[]'::jsonb,
+  blend_notes text,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
-  schema_version integer not null default 1
+  schema_version integer not null default 1,
+  constraint beans_bean_type_check check (bean_type in ('single_origin', 'blend'))
 );
 
 create table if not exists public.brew_logs (

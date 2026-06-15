@@ -1,4 +1,9 @@
 import type { Bean, BeanForm, BeanInsertPayload, BeanUpdatePayload } from './beanTypes'
+import {
+  formatBlendComponents,
+  normalizeBeanType,
+  parseBlendComponentsText,
+} from './blendComponents'
 
 export function createInitialBeanForm(): BeanForm {
   return {
@@ -18,6 +23,8 @@ export function createInitialBeanForm(): BeanForm {
     price: '',
     purchaseDate: '',
     sourceUrl: '',
+    beanType: 'single_origin',
+    blendComponentsText: '',
     notes: '',
   }
 }
@@ -47,6 +54,8 @@ export function createBeanFormFromBean(bean: Bean): BeanForm {
     price: numberToFormValue(bean.price),
     purchaseDate: bean.purchase_date ?? '',
     sourceUrl: bean.source_url ?? '',
+    beanType: normalizeBeanType(bean.bean_type),
+    blendComponentsText: bean.blend_notes ?? formatBlendComponents(bean.blend_components ?? []),
     notes: bean.notes ?? '',
   }
 }
@@ -75,6 +84,13 @@ export function toBeanUpdatePayload(form: BeanForm): BeanUpdatePayload {
     price: optionalNumber(form.price),
     purchase_date: optionalText(form.purchaseDate),
     source_url: optionalText(form.sourceUrl),
+    bean_type: normalizeBeanType(form.beanType),
+    blend_components:
+      normalizeBeanType(form.beanType) === 'blend'
+        ? parseBlendComponentsText(form.blendComponentsText)
+        : [],
+    blend_notes:
+      normalizeBeanType(form.beanType) === 'blend' ? optionalText(form.blendComponentsText) : null,
     notes: optionalText(form.notes),
   }
 }

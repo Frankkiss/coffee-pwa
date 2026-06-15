@@ -1,5 +1,10 @@
 import { createInitialBeanForm } from '../beans/beanForm'
-import type { BeanForm } from '../beans/beanTypes'
+import type { BeanBlendComponent, BeanForm } from '../beans/beanTypes'
+import {
+  formatBlendComponents,
+  normalizeBeanType,
+  normalizeBlendComponents,
+} from '../beans/blendComponents'
 import type { SourceImportConfidence, SourceImportDraft } from './sourceImportTypes'
 
 export function normalizeSourceImportDraft(input: unknown): SourceImportDraft {
@@ -20,6 +25,11 @@ export function normalizeSourceImportDraft(input: unknown): SourceImportDraft {
     netWeightGrams: numberValue(record.netWeightGrams ?? record.net_weight_grams),
     price: numberValue(record.price),
     sourceUrl: stringValue(record.sourceUrl ?? record.source_url),
+    beanType: normalizeSourceBeanType(record.beanType ?? record.bean_type),
+    blendComponents: normalizeSourceBlendComponents(
+      record.blendComponents ?? record.blend_components,
+    ),
+    blendNotes: stringValue(record.blendNotes ?? record.blend_notes),
     notes: stringValue(record.notes),
     confidence: confidenceValue(record.confidence),
     missingFields: listValue(record.missingFields ?? record.missing_fields, missingFieldTerms),
@@ -43,6 +53,9 @@ export function createBeanFormFromSourceDraft(draft: SourceImportDraft): BeanFor
     netWeightGrams: numberToFormValue(draft.netWeightGrams),
     price: numberToFormValue(draft.price),
     sourceUrl: draft.sourceUrl,
+    beanType: draft.beanType,
+    blendComponentsText:
+      draft.blendNotes || formatBlendComponents(draft.blendComponents),
     notes: draft.notes,
   }
 }
@@ -87,6 +100,27 @@ function listValue(value: unknown, dictionary?: Record<string, string>) {
     .filter(Boolean)
 
   return Array.from(new Set(normalized))
+}
+
+function normalizeSourceBeanType(value: unknown) {
+  const normalized = termKey(stringValue(value))
+
+  if (normalized === 'blend' || normalized === '拼配' || normalized === '拼配豆') {
+    return 'blend'
+  }
+
+  return normalizeBeanType(value)
+}
+
+function normalizeSourceBlendComponents(value: unknown): BeanBlendComponent[] {
+  return normalizeBlendComponents(value).map((component) => ({
+    origin: localizeKnownTerm(component.origin, originTerms),
+    process: localizeKnownTerm(component.process, processTerms),
+    variety: localizeKnownTerm(component.variety, varietyTerms),
+    percentage: component.percentage,
+    role: component.role,
+    notes: component.notes,
+  }))
 }
 
 function localizeKnownTerm(value: unknown, dictionary?: Record<string, string>) {

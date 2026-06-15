@@ -60,6 +60,12 @@ function scoreBrewLog(
     reasons.push('品种相同')
   }
 
+  const sharedBlendComponentScore = scoreSharedBlendComponents(targetBean, sourceBean)
+  if (sharedBlendComponentScore > 0) {
+    score += sharedBlendComponentScore
+    reasons.push('拼配组成相近')
+  }
+
   if (sourceBean?.roast_level && sourceBean.roast_level === targetBean.roast_level) {
     score += 3
     reasons.push('烘焙度相近')
@@ -127,4 +133,30 @@ function getSharedFlavorTags(targetBean: Bean, sourceBean: Bean | null) {
   const targetTags = new Set(targetBean.flavor_tags)
 
   return sourceBean.flavor_tags.filter((tag) => targetTags.has(tag))
+}
+
+function scoreSharedBlendComponents(targetBean: Bean, sourceBean: Bean | null) {
+  if (!sourceBean || targetBean.bean_type !== 'blend' || sourceBean.bean_type !== 'blend') {
+    return 0
+  }
+
+  let score = 0
+
+  for (const targetComponent of targetBean.blend_components ?? []) {
+    for (const sourceComponent of sourceBean.blend_components ?? []) {
+      if (targetComponent.origin && targetComponent.origin === sourceComponent.origin) {
+        score += 3
+      }
+
+      if (targetComponent.process && targetComponent.process === sourceComponent.process) {
+        score += 2
+      }
+
+      if (targetComponent.variety && targetComponent.variety === sourceComponent.variety) {
+        score += 1
+      }
+    }
+  }
+
+  return Math.min(score, 8)
 }

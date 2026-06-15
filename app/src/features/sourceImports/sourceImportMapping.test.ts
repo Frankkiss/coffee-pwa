@@ -17,6 +17,17 @@ describe('source import mapping', () => {
       roastLevel: 'Light',
       flavorTags: ['citrus', ' honey ', 'citrus', ''],
       flavorNotes: 'citrus and honey',
+      beanType: 'blend',
+      blendComponents: [
+        {
+          origin: 'Brazil',
+          process: 'Natural',
+          variety: 'Bourbon',
+          percentage: '60',
+          notes: 'body and sweetness',
+        },
+      ],
+      blendNotes: '60% Brazil Natural Bourbon',
       sourceUrl: 'https://example.com/bean',
       notes: 'Imported draft',
       confidence: 'medium',
@@ -34,6 +45,18 @@ describe('source import mapping', () => {
       roastLevel: '浅烘',
       flavorTags: ['柑橘', '蜂蜜'],
       flavorNotes: 'citrus and honey',
+      beanType: 'blend',
+      blendComponents: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '波旁',
+          percentage: 60,
+          role: '',
+          notes: 'body and sweetness',
+        },
+      ],
+      blendNotes: '60% Brazil Natural Bourbon',
       sourceUrl: 'https://example.com/bean',
       notes: 'Imported draft',
       confidence: 'medium',
@@ -53,6 +76,7 @@ describe('source import mapping', () => {
       name: 'Ethiopia Guji',
       altitudeMeters: '1900',
       flavorTags: '柑橘, 蜂蜜',
+      beanType: 'single_origin',
       sourceUrl: 'https://example.com/bean',
     })
   })

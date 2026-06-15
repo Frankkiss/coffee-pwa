@@ -36,7 +36,7 @@ export function SourceImportPanel({
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
 
-  function updateField(field: keyof BeanForm, value: string) {
+  function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => (current ? { ...current, [field]: value } : current))
   }
 
@@ -227,6 +227,19 @@ export function SourceImportPanel({
 
           <div className="source-import__grid">
             <label>
+              豆子类型
+              <select
+                value={form.beanType}
+                onChange={(event) =>
+                  updateField('beanType', event.target.value === 'blend' ? 'blend' : 'single_origin')
+                }
+              >
+                <option value="single_origin">单一产区 / SOE</option>
+                <option value="blend">拼配豆</option>
+              </select>
+            </label>
+
+            <label>
               名称
               <input
                 value={form.name}
@@ -335,6 +348,17 @@ export function SourceImportPanel({
               />
             </label>
           </div>
+
+          {form.beanType === 'blend' ? (
+            <label>
+              拼配说明
+              <textarea
+                value={form.blendComponentsText}
+                onChange={(event) => updateField('blendComponentsText', event.target.value)}
+                rows={4}
+              />
+            </label>
+          ) : null}
 
           <label>
             风味描述

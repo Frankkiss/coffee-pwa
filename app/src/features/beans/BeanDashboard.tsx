@@ -84,7 +84,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     }
   }, [session.user.id, supabase])
 
-  function updateField(field: keyof BeanForm, value: string) {
+  function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
@@ -191,6 +191,19 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
           ) : null}
 
           <div className="bean-form__grid">
+            <label>
+              豆子类型
+              <select
+                value={form.beanType}
+                onChange={(event) =>
+                  updateField('beanType', event.target.value === 'blend' ? 'blend' : 'single_origin')
+                }
+              >
+                <option value="single_origin">单一产区 / SOE</option>
+                <option value="blend">拼配豆</option>
+              </select>
+            </label>
+
             <label>
               名称
               <input
@@ -315,6 +328,18 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
             />
           </label>
           </div>
+
+          {form.beanType === 'blend' ? (
+            <label>
+              拼配说明
+              <textarea
+                value={form.blendComponentsText}
+                onChange={(event) => updateField('blendComponentsText', event.target.value)}
+                placeholder={'例如：\n60% 巴西 日晒 黄波旁，提供坚果和甜感\n40% 埃塞俄比亚 水洗 原生种，提供花香和柑橘'}
+                rows={4}
+              />
+            </label>
+          ) : null}
 
           <label>
             备注

@@ -1,4 +1,5 @@
 import type { Bean } from '../beans/beanTypes'
+import { formatBlendComponents } from '../beans/blendComponents'
 import type { BrewLog } from '../brews/brewTypes'
 
 type CsvKind = 'beans' | 'brew-logs'
@@ -8,6 +9,7 @@ export function buildBeansCsv(beans: Bean[]) {
     [
       '名称',
       '烘焙商',
+      '豆子类型',
       '产地',
       '庄园/处理站',
       '处理法',
@@ -18,6 +20,7 @@ export function buildBeansCsv(beans: Bean[]) {
       '风味标签',
       '净含量',
       '剩余量',
+      '拼配组成',
       '备注',
       '创建时间',
       '更新时间',
@@ -25,6 +28,7 @@ export function buildBeansCsv(beans: Bean[]) {
     beans.map((bean) => [
       bean.name,
       bean.roaster,
+      bean.bean_type === 'blend' ? '拼配豆' : '单一产区',
       bean.origin,
       bean.farm_or_station,
       bean.process,
@@ -35,6 +39,9 @@ export function buildBeansCsv(beans: Bean[]) {
       bean.flavor_tags.join('、'),
       bean.net_weight_grams,
       bean.remaining_grams,
+      bean.bean_type === 'blend'
+        ? bean.blend_notes ?? formatBlendComponents(bean.blend_components ?? [])
+        : null,
       bean.notes,
       bean.created_at,
       bean.updated_at,

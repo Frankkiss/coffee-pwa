@@ -1,3 +1,14 @@
+export type BeanType = 'single_origin' | 'blend'
+
+export type BeanBlendComponent = {
+  origin: string
+  process: string
+  variety: string
+  percentage: number | null
+  role: string
+  notes: string
+}
+
 export type Bean = {
   id: string
   user_id: string
@@ -18,6 +29,9 @@ export type Bean = {
   purchase_date: string | null
   source_url: string | null
   image_url: string | null
+  bean_type?: BeanType
+  blend_components?: BeanBlendComponent[]
+  blend_notes?: string | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -42,6 +56,8 @@ export type BeanForm = {
   price: string
   purchaseDate: string
   sourceUrl: string
+  beanType: BeanType
+  blendComponentsText: string
   notes: string
 }
 
@@ -63,6 +79,9 @@ export type BeanInsertPayload = {
   price: number | null
   purchase_date: string | null
   source_url: string | null
+  bean_type: BeanType
+  blend_components: BeanBlendComponent[]
+  blend_notes: string | null
   notes: string | null
 }
 

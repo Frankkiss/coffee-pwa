@@ -44,6 +44,16 @@ function scoreTemplate(targetBean: Bean, template: BrewTemplate): ScoredTemplate
     reasons.push('处理法匹配')
   }
 
+  const blendProcesses = getBlendProcesses(targetBean)
+  const matchingBlendProcesses = blendProcesses.filter((blendProcess) =>
+    template.suitableFor.includes(blendProcess),
+  )
+
+  if (matchingBlendProcesses.length > 0) {
+    score += Math.min(matchingBlendProcesses.length * 5, 8)
+    reasons.push(`拼配处理法匹配：${matchingBlendProcesses.join('、')}`)
+  }
+
   const roastLevel = targetBean.roast_level?.trim()
   if (roastLevel && template.suitableFor.includes(roastLevel)) {
     score += 5
@@ -110,4 +120,18 @@ function rankTemplate(candidate: ScoredTemplate) {
   }
 
   return 2
+}
+
+function getBlendProcesses(targetBean: Bean) {
+  if (targetBean.bean_type !== 'blend') {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      (targetBean.blend_components ?? [])
+        .map((component) => component.process.trim())
+        .filter(Boolean),
+    ),
+  )
 }

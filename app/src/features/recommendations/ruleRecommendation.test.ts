@@ -24,6 +24,9 @@ function createBean(overrides: Partial<Bean>): Bean {
     purchase_date: null,
     source_url: null,
     image_url: null,
+    bean_type: 'single_origin',
+    blend_components: [],
+    blend_notes: null,
     notes: null,
     created_at: '2026-06-12T01:00:00.000Z',
     updated_at: '2026-06-12T01:00:00.000Z',
@@ -130,5 +133,78 @@ describe('generateRuleRecommendation', () => {
     ])
 
     expect(result).toBeNull()
+  })
+
+  it('scores blend beans by shared blend components', () => {
+    const targetBean = createBean({
+      id: 'target',
+      name: 'House Blend',
+      bean_type: 'blend',
+      origin: '巴西 / 埃塞俄比亚',
+      process: '拼配',
+      blend_components: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '黄波旁',
+          percentage: 60,
+          role: '主体甜感',
+          notes: '',
+        },
+        {
+          origin: '埃塞俄比亚',
+          process: '水洗',
+          variety: '原生种',
+          percentage: 40,
+          role: '香气',
+          notes: '',
+        },
+      ],
+      flavor_tags: ['坚果', '花香'],
+    })
+    const similarBlend = createBean({
+      id: 'similar-blend',
+      name: 'Similar Blend',
+      bean_type: 'blend',
+      origin: '巴西 / 哥伦比亚',
+      process: '拼配',
+      blend_components: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '黄波旁',
+          percentage: 70,
+          role: '主体甜感',
+          notes: '',
+        },
+      ],
+      flavor_tags: ['坚果'],
+    })
+    const unrelatedBean = createBean({
+      id: 'unrelated',
+      name: 'Washed Kenya',
+      origin: '肯尼亚',
+      process: '水洗',
+      roast_level: '浅烘',
+      flavor_tags: ['柑橘'],
+    })
+
+    const result = generateRuleRecommendation(targetBean, [targetBean, similarBlend, unrelatedBean], [
+      createBrewLog({
+        id: 'similar-brew',
+        bean_id: 'similar-blend',
+        rating: 4,
+        ratio: '1:15',
+      }),
+      createBrewLog({
+        id: 'unrelated-brew',
+        bean_id: 'unrelated',
+        rating: 5,
+        ratio: '1:17',
+      }),
+    ])
+
+    expect(result?.primary.brewLog.id).toBe('similar-brew')
+    expect(result?.primary.reasons.join(' / ')).toContain('拼配组成相近')
   })
 })

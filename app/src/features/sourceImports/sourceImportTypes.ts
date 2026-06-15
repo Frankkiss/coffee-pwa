@@ -1,4 +1,4 @@
-import type { BeanForm } from '../beans/beanTypes'
+import type { BeanBlendComponent, BeanForm, BeanType } from '../beans/beanTypes'
 
 export type SourceImportConfidence = 'low' | 'medium' | 'high' | ''
 
@@ -17,6 +17,9 @@ export type SourceImportDraft = {
   netWeightGrams: number | null
   price: number | null
   sourceUrl: string
+  beanType: BeanType
+  blendComponents: BeanBlendComponent[]
+  blendNotes: string
   notes: string
   confidence: SourceImportConfidence
   missingFields: string[]

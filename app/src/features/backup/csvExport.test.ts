@@ -24,6 +24,18 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     purchase_date: null,
     source_url: null,
     image_url: null,
+    bean_type: 'blend',
+    blend_components: [
+      {
+        origin: '巴西',
+        process: '日晒',
+        variety: '黄波旁',
+        percentage: 60,
+        role: '',
+        notes: '主体甜感',
+      },
+    ],
+    blend_notes: '60% 巴西 日晒 黄波旁，主体甜感',
     notes: 'line one\nline two',
     created_at: '2026-06-12T01:00:00.000Z',
     updated_at: '2026-06-12T01:00:00.000Z',
@@ -72,7 +84,10 @@ describe('CSV export', () => {
   it('builds a beans CSV with Chinese headers and escaped cells', () => {
     const csv = buildBeansCsv([createBean()])
 
-    expect(csv).toContain('名称,烘焙商,产地')
+    expect(csv).toContain('名称,烘焙商,豆子类型,产地')
+    expect(csv).toContain('豆子类型')
+    expect(csv).toContain('拼配豆')
+    expect(csv).toContain('60% 巴西 日晒 黄波旁，主体甜感')
     expect(csv).toContain('"蜜处理,特殊"')
     expect(csv).toContain('citrus、honey')
     expect(csv).toContain('"line one\nline two"')

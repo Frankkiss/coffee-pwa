@@ -23,6 +23,9 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     purchase_date: null,
     source_url: null,
     image_url: null,
+    bean_type: 'single_origin',
+    blend_components: [],
+    blend_notes: null,
     notes: null,
     created_at: '2026-06-12T01:00:00.000Z',
     updated_at: '2026-06-12T01:00:00.000Z',
@@ -54,5 +57,27 @@ describe('selectTemplateCandidates', () => {
     expect(candidates).toHaveLength(3)
     expect(candidates[0].isChampionReference).toBe(false)
     expect(candidates.filter((candidate) => candidate.isChampionReference).length).toBeLessThanOrEqual(1)
+  })
+
+  it('uses blend component processes when selecting template candidates', () => {
+    const candidates = selectTemplateCandidates(
+      createBean({
+        bean_type: 'blend',
+        process: '拼配',
+        blend_components: [
+          {
+            origin: '埃塞俄比亚',
+            process: '日晒',
+            variety: '原生种',
+            percentage: 40,
+            role: '香气',
+            notes: '',
+          },
+        ],
+        flavor_tags: ['甜感', '莓果'],
+      }),
+    )
+
+    expect(candidates.some((candidate) => candidate.reasons.join(' / ').includes('拼配处理法匹配'))).toBe(true)
   })
 })
