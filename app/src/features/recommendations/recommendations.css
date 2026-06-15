@@ -34,6 +34,7 @@
 .recommendation-card,
 .recommendation-ai,
 .recommendation-save,
+.recommendation-saved,
 .recommendation-references {
   display: grid;
   gap: 0.875rem;
@@ -149,6 +150,59 @@
 .recommendation-ai p {
   color: var(--color-muted);
   white-space: pre-wrap;
+}
+
+.recommendation-saved {
+  gap: 0.75rem;
+}
+
+.recommendation-saved__header h3,
+.recommendation-saved__header p {
+  margin: 0;
+}
+
+.recommendation-saved__header p {
+  margin-top: 0.25rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.recommendation-saved-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 248, 237, 0.86);
+  border: 1px solid var(--color-border);
+}
+
+.recommendation-saved-card__title {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.recommendation-saved-card__title div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.recommendation-saved-card__title span,
+.recommendation-saved-card em {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
+.recommendation-saved-card p {
+  margin: 0;
+  color: var(--color-coffee-dark);
+  font-weight: 700;
+}
+
+.recommendation-saved-card > span {
+  color: var(--color-muted);
+  line-height: 1.5;
 }
 
 .recommendation-references article {

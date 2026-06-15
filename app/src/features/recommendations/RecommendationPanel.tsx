@@ -8,11 +8,16 @@ import type {
 } from './recommendationTypes'
 import {
   createRecommendationForBean,
+  listSavedRecommendations,
   loadRuleRecommendationData,
   requestAiRecommendation,
   saveRecommendation,
 } from './recommendationService'
 import { buildSavedRecommendationPayload } from './savedRecommendation'
+import {
+  toSavedRecommendationCards,
+  type SavedRecommendationCard,
+} from './savedRecommendationList'
 import './recommendations.css'
 
 type RecommendationPanelProps = {
@@ -35,11 +40,14 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
     useState<RuleRecommendationResult | null>(null)
   const [aiRecommendation, setAiRecommendation] =
     useState<AiRecommendationResponse | null>(null)
+  const [savedRecommendations, setSavedRecommendations] = useState<SavedRecommendationCard[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingSaved, setIsLoadingSaved] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [savedError, setSavedError] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -72,6 +80,42 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       isMounted = false
     }
   }, [supabase])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadSaved() {
+      setIsLoadingSaved(true)
+      setSavedError('')
+
+      try {
+        const rows = await listSavedRecommendations(supabase)
+
+        if (isMounted) {
+          setSavedRecommendations(toSavedRecommendationCards(rows))
+        }
+      } catch (err) {
+        if (isMounted) {
+          setSavedError(err instanceof Error ? err.message : '读取已保存推荐失败')
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingSaved(false)
+        }
+      }
+    }
+
+    loadSaved()
+
+    return () => {
+      isMounted = false
+    }
+  }, [supabase])
+
+  async function refreshSavedRecommendations() {
+    const rows = await listSavedRecommendations(supabase)
+    setSavedRecommendations(toSavedRecommendationCards(rows))
+  }
 
   async function handleGenerate() {
     setError('')
@@ -123,6 +167,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
           aiRecommendation,
         }),
       )
+      await refreshSavedRecommendations()
       setStatus('已保存为 AI 推荐记录。它不会混入真实冲煮记录。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存推荐失败')
@@ -256,6 +301,34 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
 
       {status ? <p className="recommendation-status">{status}</p> : null}
       {error ? <p className="recommendation-error">{error}</p> : null}
+
+      <div className="recommendation-saved">
+        <div className="recommendation-saved__header">
+          <div>
+            <h3>已保存推荐</h3>
+            <p>最近 5 条建议记录，方便回看和对比。</p>
+          </div>
+        </div>
+
+        {isLoadingSaved ? <p className="recommendation-empty">正在读取已保存推荐...</p> : null}
+        {!isLoadingSaved && savedRecommendations.length === 0 ? (
+          <p className="recommendation-empty">还没有保存过推荐。</p>
+        ) : null}
+        {savedRecommendations.map((recommendation) => (
+          <article className="recommendation-saved-card" key={recommendation.id}>
+            <div className="recommendation-saved-card__title">
+              <div>
+                <strong>{recommendation.targetName}</strong>
+                <span>{recommendation.createdAtLabel}</span>
+              </div>
+              {recommendation.modelName ? <em>{recommendation.modelName}</em> : null}
+            </div>
+            <p>{recommendation.parameterSummary}</p>
+            <span>{recommendation.aiSummary}</span>
+          </article>
+        ))}
+        {savedError ? <p className="recommendation-error">{savedError}</p> : null}
+      </div>
     </section>
   )
 }

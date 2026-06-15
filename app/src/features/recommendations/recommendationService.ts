@@ -7,6 +7,7 @@ import type {
 } from './recommendationTypes'
 import { generateRuleRecommendation } from './ruleRecommendation'
 import type { SavedRecommendationPayload } from './savedRecommendation'
+import type { SavedRecommendationRow } from './savedRecommendationList'
 
 export async function loadRuleRecommendationData(supabase: SupabaseClient) {
   const [beans, brewLogs] = await Promise.all([
@@ -71,4 +72,21 @@ export async function saveRecommendation(
   }
 
   return data
+}
+
+export async function listSavedRecommendations(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from('ai_recommendations')
+    .select(
+      'id, bean_id, input_context, recommendation, model_name, accepted, created_at',
+    )
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []) as SavedRecommendationRow[]
 }
