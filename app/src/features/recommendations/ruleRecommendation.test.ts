@@ -207,4 +207,46 @@ describe('generateRuleRecommendation', () => {
     expect(result?.primary.brewLog.id).toBe('similar-brew')
     expect(result?.primary.reasons.join(' / ')).toContain('拼配组成相近')
   })
+
+  it('matches blend beans by multi-value origin and process text when ratio is unknown', () => {
+    const targetBean = createBean({
+      id: 'target',
+      name: 'Unknown Ratio Blend',
+      bean_type: 'blend',
+      origin: '巴西 / 埃塞俄比亚',
+      process: '日晒 / 水洗',
+      variety: '黄波旁 / 原生种',
+      blend_components: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '黄波旁',
+          percentage: null,
+          role: '',
+          notes: '',
+        },
+      ],
+    })
+    const sourceBean = createBean({
+      id: 'source',
+      name: 'Similar Unknown Ratio Blend',
+      bean_type: 'blend',
+      origin: '巴西 / 哥伦比亚',
+      process: '日晒 / 蜜处理',
+      variety: '黄波旁 / 卡杜拉',
+      blend_components: [],
+    })
+
+    const result = generateRuleRecommendation(targetBean, [targetBean, sourceBean], [
+      createBrewLog({
+        id: 'source-brew',
+        bean_id: 'source',
+        rating: 4,
+        ratio: '1:15.5',
+      }),
+    ])
+
+    expect(result?.primary.brewLog.id).toBe('source-brew')
+    expect(result?.primary.reasons.join(' / ')).toContain('拼配文字信息相近')
+  })
 })

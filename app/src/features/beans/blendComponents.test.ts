@@ -43,6 +43,27 @@ describe('blend component helpers', () => {
     ])
   })
 
+  it('parses known blend components without requiring percentages', () => {
+    expect(parseBlendComponentsText('巴西 日晒 黄波旁\n埃塞俄比亚 水洗 原生种')).toEqual([
+      {
+        origin: '巴西',
+        process: '日晒',
+        variety: '黄波旁',
+        percentage: null,
+        role: '',
+        notes: '',
+      },
+      {
+        origin: '埃塞俄比亚',
+        process: '水洗',
+        variety: '原生种',
+        percentage: null,
+        role: '',
+        notes: '',
+      },
+    ])
+  })
+
   it('formats structured components back into editable text', () => {
     expect(
       formatBlendComponents([
@@ -56,5 +77,20 @@ describe('blend component helpers', () => {
         },
       ]),
     ).toBe('60% 巴西 日晒 黄波旁 主体甜感，坚果、巧克力')
+  })
+
+  it('formats unknown-ratio blend components without implying a ratio', () => {
+    expect(
+      formatBlendComponents([
+        {
+          origin: '埃塞俄比亚',
+          process: '水洗',
+          variety: '原生种',
+          percentage: null,
+          role: '香气',
+          notes: '花香和柑橘',
+        },
+      ]),
+    ).toBe('埃塞俄比亚 水洗 原生种 香气，花香和柑橘')
   })
 })

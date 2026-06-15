@@ -255,7 +255,7 @@ export function SourceImportPanel({
               />
             </label>
             <label>
-              产地
+              {form.beanType === 'blend' ? '产地（可多个）' : '产地'}
               <input
                 value={form.origin}
                 onChange={(event) => updateField('origin', event.target.value)}
@@ -269,24 +269,32 @@ export function SourceImportPanel({
               />
             </label>
             <label>
-              处理法
-              <select
-                value={form.process}
-                onChange={(event) => updateField('process', event.target.value)}
-              >
-                <option value="">未选择</option>
-                {form.process && !processOptions.includes(form.process) ? (
-                  <option value={form.process}>{form.process}</option>
-                ) : null}
-                {processOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+              {form.beanType === 'blend' ? '处理法（可多个）' : '处理法'}
+              {form.beanType === 'blend' ? (
+                <input
+                  value={form.process}
+                  onChange={(event) => updateField('process', event.target.value)}
+                  placeholder="例如：日晒 / 水洗"
+                />
+              ) : (
+                <select
+                  value={form.process}
+                  onChange={(event) => updateField('process', event.target.value)}
+                >
+                  <option value="">未选择</option>
+                  {form.process && !processOptions.includes(form.process) ? (
+                    <option value={form.process}>{form.process}</option>
+                  ) : null}
+                  {processOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              )}
             </label>
             <label>
-              品种
+              {form.beanType === 'blend' ? '品种（可多个）' : '品种'}
               <input
                 value={form.variety}
                 onChange={(event) => updateField('variety', event.target.value)}
@@ -355,6 +363,7 @@ export function SourceImportPanel({
               <textarea
                 value={form.blendComponentsText}
                 onChange={(event) => updateField('blendComponentsText', event.target.value)}
+                placeholder={'可写比例，也可以不写比例。例如：\n巴西 日晒 黄波旁，提供坚果和甜感\n埃塞俄比亚 水洗 原生种，提供花香和柑橘'}
                 rows={4}
               />
             </label>

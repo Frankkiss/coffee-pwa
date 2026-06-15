@@ -1,4 +1,5 @@
 import type { Bean } from '../beans/beanTypes'
+import { splitMultiValueText } from '../beans/blendComponents'
 import {
   formatTemplateTime,
   summarizePourSteps,
@@ -42,6 +43,16 @@ function scoreTemplate(targetBean: Bean, template: BrewTemplate): ScoredTemplate
   if (process && template.suitableFor.includes(process)) {
     score += 8
     reasons.push('处理法匹配')
+  }
+
+  const processHints = splitMultiValueText(targetBean.process)
+  const matchingProcessHints = processHints.filter((processHint) =>
+    template.suitableFor.includes(processHint),
+  )
+
+  if (matchingProcessHints.length > 0 && !(process && template.suitableFor.includes(process))) {
+    score += Math.min(matchingProcessHints.length * 4, 8)
+    reasons.push(`处理法线索匹配：${matchingProcessHints.join('、')}`)
   }
 
   const blendProcesses = getBlendProcesses(targetBean)

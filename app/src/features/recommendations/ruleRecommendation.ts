@@ -1,4 +1,5 @@
 import type { Bean } from '../beans/beanTypes'
+import { splitMultiValueText } from '../beans/blendComponents'
 import type { BrewLog } from '../brews/brewTypes'
 import type {
   BrewRecommendationCandidate,
@@ -58,6 +59,12 @@ function scoreBrewLog(
   if (sourceBean?.variety && sourceBean.variety === targetBean.variety) {
     score += 2
     reasons.push('品种相同')
+  }
+
+  const sharedBlendTextScore = scoreSharedBlendTextFields(targetBean, sourceBean)
+  if (sharedBlendTextScore > 0) {
+    score += sharedBlendTextScore
+    reasons.push('拼配文字信息相近')
   }
 
   const sharedBlendComponentScore = scoreSharedBlendComponents(targetBean, sourceBean)
@@ -159,4 +166,22 @@ function scoreSharedBlendComponents(targetBean: Bean, sourceBean: Bean | null) {
   }
 
   return Math.min(score, 8)
+}
+
+function scoreSharedBlendTextFields(targetBean: Bean, sourceBean: Bean | null) {
+  if (!sourceBean || targetBean.bean_type !== 'blend' || sourceBean.bean_type !== 'blend') {
+    return 0
+  }
+
+  const sharedOrigins = countSharedValues(targetBean.origin, sourceBean.origin)
+  const sharedProcesses = countSharedValues(targetBean.process, sourceBean.process)
+  const sharedVarieties = countSharedValues(targetBean.variety, sourceBean.variety)
+
+  return Math.min(sharedOrigins * 3 + sharedProcesses * 2 + sharedVarieties, 6)
+}
+
+function countSharedValues(left: string | null | undefined, right: string | null | undefined) {
+  const rightValues = new Set(splitMultiValueText(right))
+
+  return splitMultiValueText(left).filter((value) => rightValues.has(value)).length
 }

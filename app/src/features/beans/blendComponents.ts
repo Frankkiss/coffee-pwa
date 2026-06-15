@@ -106,6 +106,21 @@ export function formatBlendComponents(components: BeanBlendComponent[]) {
     .join('\n')
 }
 
+export function splitMultiValueText(value: string | null | undefined) {
+  if (!value) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .split(/[/,，、；;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 function parseBlendLine(line: string): BeanBlendComponent {
   const percentage = parsePercentage(line)
   const withoutPercentage = line.replace(/^\s*\d+(?:\.\d+)?\s*%?\s*/, '').trim()

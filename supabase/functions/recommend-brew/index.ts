@@ -96,10 +96,11 @@ function buildPrompt(payload: RecommendationRequest) {
     '2. 不要创造 templateCandidates 之外的新冲煮方法；可以只微调粉量、水量、粉水比、水温、研磨、分段时间和注水解释。',
     '3. 先给出最终建议参数和分段注水步骤。',
     '4. 解释为什么这个模板适合这支豆子，以及你做了哪些微调。',
-    '5. 如果 targetBean.bean_type 是 blend，请明确说明它是拼配豆，并结合 blend_components 或 blend_notes 解释如何平衡主体甜感、香气和酸质。',
-    '6. 给出偏酸、偏苦、口感薄、口感重时的下一次调整方向。',
-    '7. 如果 templateCandidates 为空，明确说明缺少模板上下文，并只基于历史规则参数给保守建议。',
-    '8. 不要输出超出 JSON 的虚构事实。',
+    '5. 如果 targetBean.bean_type 是 blend，请明确说明它是拼配豆，并结合 blend_components、上方多个产地/处理法/品种或 blend_notes 解释如何平衡甜感、香气和酸质。',
+    '6. 拼配比例未知时，不要猜测哪支豆子是主体；把已知组成视为共同影响风味的线索。只有 percentage 明确存在时，才按比例判断主次。',
+    '7. 给出偏酸、偏苦、口感薄、口感重时的下一次调整方向。',
+    '8. 如果 templateCandidates 为空，明确说明缺少模板上下文，并只基于历史规则参数给保守建议。',
+    '9. 不要输出超出 JSON 的虚构事实。',
     JSON.stringify(payload, null, 2),
   ].join('\n')
 }

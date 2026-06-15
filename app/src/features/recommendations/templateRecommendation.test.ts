@@ -80,4 +80,17 @@ describe('selectTemplateCandidates', () => {
 
     expect(candidates.some((candidate) => candidate.reasons.join(' / ').includes('拼配处理法匹配'))).toBe(true)
   })
+
+  it('uses multi-value process text when blend components are incomplete', () => {
+    const candidates = selectTemplateCandidates(
+      createBean({
+        bean_type: 'blend',
+        process: '日晒 / 水洗',
+        blend_components: [],
+        flavor_tags: ['甜感'],
+      }),
+    )
+
+    expect(candidates.some((candidate) => candidate.reasons.join(' / ').includes('处理法线索匹配'))).toBe(true)
+  })
 })
