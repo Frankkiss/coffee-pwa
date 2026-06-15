@@ -54,6 +54,13 @@ export function summarizePourSteps(template: BrewTemplate) {
 }
 
 export function formatTemplateTime(seconds: number) {
+  if (seconds >= 3600) {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.round((seconds % 3600) / 60)
+
+    return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`
+  }
+
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
 

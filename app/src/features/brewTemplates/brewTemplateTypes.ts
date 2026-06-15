@@ -2,6 +2,7 @@ export type BrewTemplateCategory =
   | 'daily-pourover'
   | 'immersion-hybrid'
   | 'bean-specific'
+  | 'cold-brew'
   | 'champion-reference'
 
 export type BrewTemplateDifficulty = 'easy' | 'medium' | 'advanced'

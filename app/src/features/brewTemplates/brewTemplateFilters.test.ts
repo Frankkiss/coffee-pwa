@@ -61,11 +61,35 @@ describe('brew template dataset', () => {
     expect(options.difficulties).toEqual(['easy', 'medium', 'advanced'])
   })
 
+  it('uses Chinese brewer labels for common non-brand devices', () => {
+    const options = getBrewTemplateFilterOptions(brewTemplates)
+
+    expect(options.brewers).toContain('聪明杯')
+    expect(options.brewers).toContain('Switch 浸泡滤杯')
+    expect(options.brewers).toContain('Kalita Wave 平底滤杯')
+    expect(options.brewers).not.toContain('Clever Dripper')
+    expect(options.brewers).not.toContain('Hario Switch')
+    expect(options.brewers).not.toContain('Kalita Wave')
+  })
+
+  it('includes executable cold brew pitcher templates', () => {
+    const coldBrewTemplates = brewTemplates.filter((template) => template.category === 'cold-brew')
+
+    expect(coldBrewTemplates.length).toBeGreaterThanOrEqual(3)
+    expect(coldBrewTemplates.map((template) => template.brewer)).toContain('冷萃壶')
+    expect(
+      coldBrewTemplates.every((template) =>
+        template.pourSteps.some((step) => step.label.includes('冷藏')),
+      ),
+    ).toBe(true)
+  })
+
   it('summarizes cumulative pour steps for compact cards', () => {
     const summary = summarizePourSteps(brewTemplates[0])
 
     expect(summary).toContain('1.')
     expect(summary).toContain('g')
     expect(formatTemplateTime(125)).toBe('2:05')
+    expect(formatTemplateTime(12 * 60 * 60)).toBe('12小时')
   })
 })
