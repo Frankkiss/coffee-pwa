@@ -191,7 +191,7 @@ async function requestDeepSeekDraft(apiKey: string, sourceUrl: string, sourceTex
         {
           role: 'system',
           content:
-            '你是谨慎的咖啡豆资料录入助手。只从用户提供的商品详情文本或网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。',
+            '你是谨慎的咖啡豆资料录入助手。只从用户提供的商品详情文本、OCR 文本或网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。除专有名称外，所有面向用户展示的字段值都应尽量使用中文。',
         },
         {
           role: 'user',
@@ -232,6 +232,10 @@ function buildPrompt(sourceUrl: string, sourceText: string) {
     '4. confidence 只能是 high、medium、low。',
     '5. missingFields 写出建议用户补充的字段。',
     '6. 不要输出商品详情没有提供的事实。',
+    '7. 如果原文是英文，请尽量翻译为自然中文后再写入字段。处理法、烘焙度、风味标签、风味描述、备注、缺失字段必须优先使用中文。',
+    '8. 专有名称可以保留原文，尤其是烘焙商、庄园、处理站、品种、产品名；但常见咖啡术语要中文化，例如 Washed=水洗、Natural=日晒、Honey=蜜处理、Anaerobic=厌氧、Light Roast=浅烘、Medium Roast=中烘。',
+    '9. flavorTags 使用短中文词条，例如 citrus=柑橘、honey=蜂蜜、jasmine=茉莉、berry=莓果、floral=花香、chocolate=巧克力。flavorNotes 可写成中文短句。',
+    '10. missingFields 只能返回中文字段名，例如 烘焙日期、净含量、产地、处理法、品种、海拔。',
     `sourceUrl: ${sourceUrl}`,
     `sourceText: ${sourceText}`,
   ].join('\n')

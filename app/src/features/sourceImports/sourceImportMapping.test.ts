@@ -26,18 +26,18 @@ describe('source import mapping', () => {
     expect(draft).toMatchObject({
       name: 'Ethiopia Guji',
       roaster: 'Test Roaster',
-      origin: 'Ethiopia',
+      origin: '埃塞俄比亚',
       farmOrStation: 'Guji Station',
-      process: 'Washed',
-      variety: 'Heirloom',
+      process: '水洗',
+      variety: '原生种',
       altitudeMeters: 1900,
-      roastLevel: 'Light',
-      flavorTags: ['citrus', 'honey'],
+      roastLevel: '浅烘',
+      flavorTags: ['柑橘', '蜂蜜'],
       flavorNotes: 'citrus and honey',
       sourceUrl: 'https://example.com/bean',
       notes: 'Imported draft',
       confidence: 'medium',
-      missingFields: ['roast date', 'net weight'],
+      missingFields: ['烘焙日期', '净含量'],
     })
   })
 
@@ -52,7 +52,7 @@ describe('source import mapping', () => {
     expect(createBeanFormFromSourceDraft(draft)).toMatchObject({
       name: 'Ethiopia Guji',
       altitudeMeters: '1900',
-      flavorTags: 'citrus, honey',
+      flavorTags: '柑橘, 蜂蜜',
       sourceUrl: 'https://example.com/bean',
     })
   })
@@ -67,7 +67,7 @@ describe('source import mapping', () => {
 
     expect(draft.name).toBe('')
     expect(draft.altitudeMeters).toBe(null)
-    expect(draft.flavorTags).toEqual(['berry', 'sweet'])
-    expect(draft.missingFields).toEqual(['origin', 'process'])
+    expect(draft.flavorTags).toEqual(['莓果', '甜感'])
+    expect(draft.missingFields).toEqual(['产地', '处理法'])
   })
 })
