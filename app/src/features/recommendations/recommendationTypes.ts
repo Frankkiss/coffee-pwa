@@ -41,5 +41,34 @@ export type RuleRecommendationResult = {
 export type AiRecommendationResponse = {
   configured: boolean
   suggestion: string | null
+  structured: StructuredAiRecommendation | null
   error?: string
+}
+
+export type StructuredAiRecipe = {
+  method: string | null
+  dripper: string | null
+  grindSetting: string | null
+  waterTemperatureC: number | null
+  coffeeGrams: number | null
+  waterGrams: number | null
+  ratio: string | null
+  totalTimeSeconds: number | null
+}
+
+export type StructuredAiPourStep = {
+  label: string
+  time: string
+  waterGrams: number | null
+  action: string
+}
+
+export type StructuredAiRecommendation = {
+  summary: string
+  recipe: StructuredAiRecipe
+  pourPlan: StructuredAiPourStep[]
+  adjustments: string[]
+  reasons: string[]
+  riskNotes: string[]
+  rawText: string
 }

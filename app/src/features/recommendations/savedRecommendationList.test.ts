@@ -35,6 +35,30 @@ describe('saved recommendation list view model', () => {
           ],
         },
         ai: {
+          structured: {
+            summary: '用 V60 三段式突出甜感。',
+            recipe: {
+              method: '手冲',
+              dripper: 'V60',
+              ratio: '1:16',
+              waterTemperatureC: 92,
+              totalTimeSeconds: 150,
+              grindSetting: '22 clicks',
+            },
+            pourPlan: [
+              {
+                label: '闷蒸',
+                time: '0:00-0:30',
+                waterGrams: 30,
+                action: '轻柔绕圈',
+              },
+            ],
+            adjustments: ['偏酸就升高水温 1°C'],
+            reasons: ['模板适合水洗浅烘'],
+            riskNotes: ['首次建议需要实测校正'],
+            rawText:
+              '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
+          },
           suggestion:
             '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
         },
@@ -53,6 +77,12 @@ describe('saved recommendation list view model', () => {
         '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
       aiDetail:
         '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
+      structuredSummary: '用 V60 三段式突出甜感。',
+      structuredRecipeSummary: '手冲 / V60 / 1:16 / 92°C / 150s / 22 clicks',
+      pourPlan: ['闷蒸：0:00-0:30 / 30g / 轻柔绕圈'],
+      aiAdjustments: ['偏酸就升高水温 1°C'],
+      aiReasons: ['模板适合水洗浅烘'],
+      aiRiskNotes: ['首次建议需要实测校正'],
       ruleReasons: ['处理法相同', '候选模板匹配'],
       templateNames: ['经典三段式 V60', '水洗浅烘明亮模板'],
       modelName: 'deepseek-v4-pro',

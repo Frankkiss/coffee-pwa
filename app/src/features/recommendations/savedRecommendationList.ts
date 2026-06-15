@@ -15,6 +15,12 @@ export type SavedRecommendationCard = {
   parameterSummary: string
   aiSummary: string
   aiDetail: string
+  structuredSummary: string
+  structuredRecipeSummary: string
+  pourPlan: string[]
+  aiAdjustments: string[]
+  aiReasons: string[]
+  aiRiskNotes: string[]
   ruleReasons: string[]
   templateNames: string[]
   modelName: string | null
@@ -38,6 +44,12 @@ export function toSavedRecommendationCard(row: SavedRecommendationRow): SavedRec
     parameterSummary: getParameterSummary(row),
     aiSummary: getAiSummary(row),
     aiDetail: getAiDetail(row),
+    structuredSummary: getStructuredSummary(row),
+    structuredRecipeSummary: getStructuredRecipeSummary(row),
+    pourPlan: getStructuredPourPlan(row),
+    aiAdjustments: getNestedStringArray(row.recommendation, ['ai', 'structured', 'adjustments']),
+    aiReasons: getNestedStringArray(row.recommendation, ['ai', 'structured', 'reasons']),
+    aiRiskNotes: getNestedStringArray(row.recommendation, ['ai', 'structured', 'riskNotes']),
     ruleReasons: getRuleReasons(row),
     templateNames: getTemplateNames(row),
     modelName: row.model_name,
@@ -96,7 +108,31 @@ function getAiSummary(row: SavedRecommendationRow) {
 }
 
 function getAiDetail(row: SavedRecommendationRow) {
-  return getNestedString(row.recommendation, ['ai', 'suggestion']) ?? ''
+  return (
+    getNestedString(row.recommendation, ['ai', 'structured', 'rawText']) ??
+    getNestedString(row.recommendation, ['ai', 'suggestion']) ??
+    ''
+  )
+}
+
+function getStructuredSummary(row: SavedRecommendationRow) {
+  return getNestedString(row.recommendation, ['ai', 'structured', 'summary']) ?? ''
+}
+
+function getStructuredRecipeSummary(row: SavedRecommendationRow) {
+  const recipe = getNestedRecord(row.recommendation, ['ai', 'structured', 'recipe'])
+
+  if (!recipe) {
+    return ''
+  }
+
+  return formatRecipeSummary(recipe)
+}
+
+function getStructuredPourPlan(row: SavedRecommendationRow) {
+  return getNestedArray(row.recommendation, ['ai', 'structured', 'pourPlan'])
+    .map(formatPourStep)
+    .filter((line): line is string => Boolean(line))
 }
 
 function getRuleReasons(row: SavedRecommendationRow) {
@@ -166,6 +202,40 @@ function getString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function getNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function formatRecipeSummary(recipe: Record<string, unknown>) {
+  return (
+    [
+      getString(recipe.method),
+      getString(recipe.dripper),
+      getString(recipe.ratio),
+      getNumber(recipe.waterTemperatureC) !== null ? `${recipe.waterTemperatureC}°C` : null,
+      getNumber(recipe.totalTimeSeconds) !== null ? `${recipe.totalTimeSeconds}s` : null,
+      getString(recipe.grindSetting),
+    ]
+      .filter(Boolean)
+      .join(' / ') || ''
+  )
+}
+
+function formatPourStep(step: unknown) {
+  if (!isRecord(step)) {
+    return null
+  }
+
+  const label = getString(step.label) ?? '分段'
+  const parts = [
+    getString(step.time),
+    getNumber(step.waterGrams) !== null ? `${step.waterGrams}g` : null,
+    getString(step.action),
+  ].filter(Boolean)
+
+  return parts.length > 0 ? `${label}：${parts.join(' / ')}` : null
 }

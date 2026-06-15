@@ -131,6 +131,31 @@ describe('buildSavedRecommendationPayload', () => {
     const aiRecommendation: AiRecommendationResponse = {
       configured: true,
       suggestion: '建议从 1:16、92°C、V60 开始。',
+      structured: {
+        summary: '用 V60 三段式突出甜感。',
+        recipe: {
+          method: '手冲',
+          dripper: 'V60',
+          grindSetting: '22 clicks',
+          waterTemperatureC: 92,
+          coffeeGrams: 15,
+          waterGrams: 240,
+          ratio: '1:16',
+          totalTimeSeconds: 150,
+        },
+        pourPlan: [
+          {
+            label: '闷蒸',
+            time: '0:00-0:30',
+            waterGrams: 30,
+            action: '轻柔绕圈',
+          },
+        ],
+        adjustments: ['偏酸就升高水温 1°C'],
+        reasons: ['参考同处理法高分记录'],
+        riskNotes: ['首次建议需要实测校正'],
+        rawText: '建议从 1:16、92°C、V60 开始。',
+      },
     }
 
     const payload = buildSavedRecommendationPayload({
@@ -172,6 +197,23 @@ describe('buildSavedRecommendationPayload', () => {
       ai: {
         configured: true,
         suggestion: '建议从 1:16、92°C、V60 开始。',
+        structured: {
+          summary: '用 V60 三段式突出甜感。',
+          recipe: {
+            ratio: '1:16',
+            waterTemperatureC: 92,
+          },
+          pourPlan: [
+            {
+              label: '闷蒸',
+              waterGrams: 30,
+            },
+          ],
+          adjustments: ['偏酸就升高水温 1°C'],
+          reasons: ['参考同处理法高分记录'],
+          riskNotes: ['首次建议需要实测校正'],
+          rawText: '建议从 1:16、92°C、V60 开始。',
+        },
       },
     })
     expect(payload.accepted).toBe(false)

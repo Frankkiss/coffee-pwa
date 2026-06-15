@@ -53,6 +53,7 @@ export function buildSavedRecommendationPayload({
       ai: {
         configured: aiRecommendation?.configured ?? false,
         suggestion: aiRecommendation?.suggestion ?? null,
+        structured: aiRecommendation?.structured ?? null,
         error: aiRecommendation?.error ?? null,
       },
     },

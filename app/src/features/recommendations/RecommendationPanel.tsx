@@ -20,6 +20,7 @@ import {
   toSavedRecommendationCards,
   type SavedRecommendationCard,
 } from './savedRecommendationList'
+import { StructuredAiRecommendationView } from './StructuredAiRecommendationView'
 import './recommendations.css'
 
 type RecommendationPanelProps = {
@@ -337,7 +338,9 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       {aiRecommendation ? (
         <div className="recommendation-ai">
           <h3>DeepSeek 建议</h3>
-          {aiRecommendation.configured && aiRecommendation.suggestion ? (
+          {aiRecommendation.configured && aiRecommendation.structured ? (
+            <StructuredAiRecommendationView recommendation={aiRecommendation.structured} />
+          ) : aiRecommendation.configured && aiRecommendation.suggestion ? (
             <p>{aiRecommendation.suggestion}</p>
           ) : (
             <p>AI 建议暂未启用。规则推荐已经可用，配置 Supabase Secret 后会显示 DeepSeek 建议。</p>
@@ -427,7 +430,36 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
                   </div>
                 </dl>
                 <strong>DeepSeek 完整建议</strong>
-                <p>{recommendation.aiDetail || '仅保存了规则推荐。'}</p>
+                {recommendation.structuredSummary ||
+                recommendation.structuredRecipeSummary ||
+                recommendation.pourPlan.length > 0 ? (
+                  <div className="recommendation-saved-structured">
+                    {recommendation.structuredSummary ? (
+                      <p>{recommendation.structuredSummary}</p>
+                    ) : null}
+                    {recommendation.structuredRecipeSummary ? (
+                      <span>{recommendation.structuredRecipeSummary}</span>
+                    ) : null}
+                    {recommendation.pourPlan.length > 0 ? (
+                      <ol>
+                        {recommendation.pourPlan.map((step) => (
+                          <li key={step}>{step}</li>
+                        ))}
+                      </ol>
+                    ) : null}
+                    {recommendation.aiReasons.length > 0 ? (
+                      <p>理由：{recommendation.aiReasons.join('；')}</p>
+                    ) : null}
+                    {recommendation.aiAdjustments.length > 0 ? (
+                      <p>微调：{recommendation.aiAdjustments.join('；')}</p>
+                    ) : null}
+                    {recommendation.aiRiskNotes.length > 0 ? (
+                      <p>注意：{recommendation.aiRiskNotes.join('；')}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p>{recommendation.aiDetail || '仅保存了规则推荐。'}</p>
+                )}
               </div>
             ) : null}
           </article>

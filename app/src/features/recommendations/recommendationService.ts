@@ -8,6 +8,7 @@ import type {
 import { generateRuleRecommendation } from './ruleRecommendation'
 import type { SavedRecommendationPayload } from './savedRecommendation'
 import type { SavedRecommendationRow } from './savedRecommendationList'
+import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 
 export async function loadRuleRecommendationData(supabase: SupabaseClient) {
   const [beans, brewLogs] = await Promise.all([
@@ -51,11 +52,12 @@ export async function requestAiRecommendation(
     return {
       configured: false,
       suggestion: null,
+      structured: null,
       error: error.message,
     }
   }
 
-  return data as AiRecommendationResponse
+  return normalizeAiRecommendationResponse(data)
 }
 
 export async function saveRecommendation(
