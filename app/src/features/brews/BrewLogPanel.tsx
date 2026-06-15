@@ -20,6 +20,7 @@ import {
   softDeleteBrewLog,
   updateBrewLog,
 } from './brewLogService'
+import { BrewLogDetailPanel } from './BrewLogDetailPanel'
 import type { BrewForm, BrewLog, BrewLogFilters } from './brewTypes'
 import './brews.css'
 
@@ -43,6 +44,7 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     pinned: 'all',
   })
   const [editingLogId, setEditingLogId] = useState<string | null>(null)
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -54,6 +56,9 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     [beans],
   )
   const filteredBrewLogs = filterBrewLogs(brewLogs, filters)
+  const selectedLog = selectedLogId
+    ? brewLogs.find((log) => log.id === selectedLogId) ?? null
+    : null
   const formWithFallbackBean = useMemo(
     () => withFallbackBeanId(form, firstBeanId),
     [firstBeanId, form],
@@ -123,6 +128,7 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
   function handleEdit(log: BrewLog) {
     setError('')
     setStatus('')
+    setSelectedLogId(null)
     setEditingLogId(log.id)
     setForm(createBrewFormFromLog(log))
   }
@@ -184,6 +190,10 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
         syncBrewLogs(current.filter((currentLog) => currentLog.id !== log.id)),
       )
 
+      if (selectedLogId === log.id) {
+        setSelectedLogId(null)
+      }
+
       if (editingLogId === log.id) {
         handleCancelEdit()
       }
@@ -193,6 +203,55 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
       setError(err instanceof Error ? err.message : '删除冲煮记录失败')
     } finally {
       setIsDeleting(false)
+    }
+  }
+
+  async function handleTogglePinned(log: BrewLog) {
+    if (!log.bean_id) {
+      setError('这条冲煮记录没有绑定咖啡豆，暂时不能设为候选方案。')
+      return
+    }
+
+    setError('')
+    setStatus('')
+    setIsSaving(true)
+
+    try {
+      const updatedLog = await updateBrewLog(supabase, log.id, {
+        bean_id: log.bean_id,
+        method: log.method,
+        dripper: log.dripper,
+        filter_paper: log.filter_paper,
+        grinder: log.grinder,
+        grind_setting: log.grind_setting,
+        coffee_grams: log.coffee_grams,
+        water_grams: log.water_grams,
+        ratio: log.ratio,
+        water_temperature_c: log.water_temperature_c,
+        total_time_seconds: log.total_time_seconds,
+        pour_steps: log.pour_steps,
+        rating: log.rating,
+        acidity: log.acidity,
+        sweetness: log.sweetness,
+        bitterness: log.bitterness,
+        astringency: log.astringency,
+        body: log.body,
+        aftertaste: log.aftertaste,
+        flavor_tags: log.flavor_tags,
+        is_pinned_recipe: !log.is_pinned_recipe,
+        notes: log.notes,
+      })
+
+      setBrewLogs((current) =>
+        syncBrewLogs(
+          current.map((currentLog) => (currentLog.id === updatedLog.id ? updatedLog : currentLog)),
+        ),
+      )
+      setStatus(updatedLog.is_pinned_recipe ? '已设为候选方案。' : '已取消候选方案。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新候选方案状态失败')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -377,6 +436,19 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
       {status ? <p className="brew-status">{status}</p> : null}
       {error ? <p className="brew-error">{error}</p> : null}
 
+      {selectedLog ? (
+        <BrewLogDetailPanel
+          log={selectedLog}
+          beanName={selectedLog.bean_id ? beanNameById.get(selectedLog.bean_id) ?? '未知咖啡豆' : ''}
+          isDeleting={isDeleting}
+          isSaving={isSaving}
+          onBack={() => setSelectedLogId(null)}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onTogglePinned={handleTogglePinned}
+        />
+      ) : (
+        <>
       <div className="brew-filters" aria-label="冲煮记录筛选">
         <label>
           搜索
@@ -456,6 +528,9 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
             {log.notes ? <p className="brew-card__notes">{log.notes}</p> : null}
 
             <div className="brew-card__actions">
+              <button type="button" onClick={() => setSelectedLogId(log.id)}>
+                详情
+              </button>
               <button type="button" onClick={() => handleEdit(log)}>
                 编辑
               </button>
@@ -471,6 +546,8 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
           </article>
         ))}
       </div>
+        </>
+      )}
     </section>
   )
 }
