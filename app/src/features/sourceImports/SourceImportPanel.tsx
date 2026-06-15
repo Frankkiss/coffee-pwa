@@ -86,7 +86,7 @@ export function SourceImportPanel({
     setLastResponse(null)
 
     if (!sourceUrl && !detailText) {
-      setError('请粘贴来源链接，或粘贴商品详情文本。淘宝/天猫建议粘贴商品详情文本。')
+      setError('请粘贴链接或商品详情文本。')
       return
     }
 
@@ -177,7 +177,7 @@ export function SourceImportPanel({
       <div>
         <p className="source-import__eyebrow">Source Import</p>
         <h3 id="source-import-title">来源导入</h3>
-        <p>淘宝/天猫建议粘贴商品详情文本；链接会作为来源保存，普通公开网页也可尝试只粘贴链接。</p>
+        <p>粘贴链接或详情文本。</p>
       </div>
 
       <div className="source-import__bar">
@@ -186,7 +186,7 @@ export function SourceImportPanel({
           <input
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="可选，例如淘宝商品页或烘焙商页面"
+            placeholder="可选，商品页或烘焙商页面"
             inputMode="url"
           />
         </label>
@@ -203,7 +203,7 @@ export function SourceImportPanel({
         <button type="button" onClick={handleRecognizeImage} disabled={isReadingImage}>
           {isReadingImage ? '识别中' : '识别图片文字'}
         </button>
-        <p>用于淘宝/天猫详情图。第一版只在本机识别文字，原图不会保存或上传。</p>
+        <p>本机识别，不保存原图。</p>
         {ocrStatus ? <p className="source-import__ocr-status">{ocrStatus}</p> : null}
       </div>
 
@@ -212,7 +212,7 @@ export function SourceImportPanel({
         <textarea
           value={pastedText}
           onChange={(event) => setPastedText(event.target.value)}
-          placeholder="粘贴商品标题、豆子详情、风味描述、处理法、产地、烘焙商、规格等文本。淘宝/天猫场景建议填写这里。"
+          placeholder="粘贴标题、风味、产地、处理法、烘焙商等。"
           rows={5}
         />
       </label>

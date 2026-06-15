@@ -34,11 +34,11 @@ export type HomeNavigationTarget =
   | 'backup'
 
 const quickActions: Array<{ label: string; view: HomeNavigationTarget }> = [
-  { label: '新增咖啡豆', view: 'beans' },
-  { label: '来源导入', view: 'beans' },
-  { label: '冲煮模板', view: 'brewTemplates' },
-  { label: 'AI 推荐', view: 'recommendations' },
-  { label: '备份导出', view: 'backup' },
+  { label: '加豆', view: 'beans' },
+  { label: '导入', view: 'beans' },
+  { label: '模板', view: 'brewTemplates' },
+  { label: '推荐', view: 'recommendations' },
+  { label: '备份', view: 'backup' },
 ]
 
 export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProps) {
@@ -145,11 +145,11 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
     <section className="home-overview" aria-labelledby="home-overview-title">
       <div className="home-hero">
         <div>
-          <p className="home-overview__eyebrow">Ka Day</p>
+          <p className="home-overview__eyebrow">Coffee Day</p>
           <h1 id="home-overview-title">咖Day</h1>
           <p>
-            {overview.accountLabel}，今天也记录一杯。
-            {isUsingCache ? '离线缓存可用' : overview.syncLabel}
+            {overview.accountLabel}
+            <span>{isUsingCache ? '离线缓存' : overview.syncLabel}</span>
           </p>
         </div>
         <div className="home-hero__cup" aria-hidden="true">
@@ -167,7 +167,7 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
 
       {error ? <p className="home-overview__error">{error}</p> : null}
       {isUsingCache ? (
-        <p className="home-overview__cache">正在显示本机缓存，新增和编辑仍需要联网。</p>
+        <p className="home-overview__cache">当前显示本机缓存，编辑需要联网。</p>
       ) : null}
 
       <div className="home-stats" aria-label="咖啡记录概览">
@@ -188,9 +188,9 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
               管理
             </button>
           </div>
-          {isLoading ? <p className="home-empty">正在读取豆仓...</p> : null}
+          {isLoading ? <p className="home-empty">读取豆仓...</p> : null}
           {!isLoading && overview.currentBeans.length === 0 ? (
-            <p className="home-empty">还没有咖啡豆，先新增第一支豆子。</p>
+            <p className="home-empty">先加一支豆子。</p>
           ) : null}
           {overview.currentBeans.map((bean) => (
             <article className="home-bean" key={bean.id}>
@@ -213,7 +213,7 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
               记录
             </button>
           </div>
-          {isLoading ? <p className="home-empty">正在读取冲煮记录...</p> : null}
+          {isLoading ? <p className="home-empty">读取冲煮...</p> : null}
           {!isLoading && overview.recentBrews.length === 0 ? (
             <p className="home-empty">还没有冲煮记录。</p>
           ) : null}

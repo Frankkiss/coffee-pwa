@@ -229,7 +229,7 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
       </div>
 
       <p className="brew-template-panel__intro">
-        系统模板作为参考保留；你可以新增自己的模板，或把系统模板复制成可编辑版本。AI 推荐会优先从这些模板里挑选，再根据豆子信息微调。
+        系统模板和我的模板分开管理，AI 推荐会优先参考这里。
       </p>
 
       {editingState ? (
@@ -305,7 +305,7 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
 
       {status ? <p className="brew-template-status">{status}</p> : null}
       {error ? <p className="brew-template-error">{error}</p> : null}
-      {isLoading ? <p className="brew-template-empty">正在读取你的自定义模板...</p> : null}
+      {isLoading ? <p className="brew-template-empty">读取我的模板...</p> : null}
 
       <div className="brew-template-list" aria-live="polite">
         {filteredTemplates.length === 0 && !isLoading ? (

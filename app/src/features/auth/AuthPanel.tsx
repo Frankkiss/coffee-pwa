@@ -169,19 +169,22 @@ export function AuthPanel() {
   return (
     <div className="auth-layout">
       <section className="auth-panel" aria-labelledby="auth-title">
-        <p className="auth-eyebrow">Cloud Sync</p>
-        <h1 id="auth-title">邮箱 Magic Link 登录</h1>
-        <p>用邮箱接收一次性登录链接。登录后，咖啡豆仓和冲煮记录会归属于当前用户。</p>
+        <div className="auth-logo" aria-label="咖Day Coffee Day">
+          <span className="auth-logo__mark">咖</span>
+          <div>
+            <h1 id="auth-title">咖Day</h1>
+            <small>Coffee Day</small>
+          </div>
+        </div>
 
         {configError ? (
           <div className="auth-alert" role="status">
-            <strong>等待配置</strong>
+            <strong>需要配置 Supabase</strong>
             <span>{configError}</span>
-            <span>把 Supabase anon key 配到本地 `.env.local` 和 GitHub 仓库变量后即可使用。</span>
           </div>
         ) : (
           <form className="auth-form" onSubmit={handleSubmit}>
-            <label htmlFor="email">邮箱地址</label>
+            <label htmlFor="email">邮箱</label>
             <input
               id="email"
               name="email"
@@ -193,32 +196,13 @@ export function AuthPanel() {
               required
             />
             <button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? '发送中' : '发送登录链接'}
+              {isSubmitting ? '发送中' : '发送登录邮件'}
             </button>
           </form>
         )}
 
         {status ? <p className="auth-status">{status}</p> : null}
         {error ? <p className="auth-error">{error}</p> : null}
-
-        <dl className="auth-facts">
-          <div>
-            <dt>Project</dt>
-            <dd>tmjpgcjcrcaxxxhqbyng</dd>
-          </div>
-          <div>
-            <dt>Region</dt>
-            <dd>Asia Pacific, Sydney</dd>
-          </div>
-          <div>
-            <dt>Security</dt>
-            <dd>Row Level Security required</dd>
-          </div>
-          <div>
-            <dt>Redirect</dt>
-            <dd>{redirectTo}</dd>
-          </div>
-        </dl>
       </section>
     </div>
   )

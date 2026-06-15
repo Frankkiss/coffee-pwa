@@ -229,7 +229,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       <div>
         <p className="backup-panel__eyebrow">Backup</p>
         <h2 id="backup-title">本地备份</h2>
-        <p>导出当前账号的豆仓和冲煮记录。JSON 用于恢复，CSV 用于表格查看。</p>
+        <p>JSON 恢复，CSV 查看。</p>
       </div>
 
       <div className={`backup-reminder backup-reminder--${backupReminder.tone}`}>
@@ -239,7 +239,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       </div>
 
       <button type="button" onClick={handleExport} disabled={isExporting}>
-        {isExporting ? '导出中' : '导出 JSON 备份'}
+        {isExporting ? '导出中' : '导出 JSON'}
       </button>
 
       <div className="backup-panel__divider" />
@@ -247,7 +247,6 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       <div className="backup-csv">
         <div>
           <strong>CSV 导出</strong>
-          <p>用于 Excel、WPS、Notion 等工具查看；不影响 JSON 备份恢复。</p>
         </div>
         <div className="backup-csv__actions">
           <button
@@ -255,14 +254,14 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
             onClick={handleBeansCsvExport}
             disabled={isExportingBeansCsv}
           >
-            {isExportingBeansCsv ? '导出中' : '导出咖啡豆 CSV'}
+            {isExportingBeansCsv ? '导出中' : '豆子 CSV'}
           </button>
           <button
             type="button"
             onClick={handleBrewLogsCsvExport}
             disabled={isExportingBrewLogsCsv}
           >
-            {isExportingBrewLogsCsv ? '导出中' : '导出冲煮记录 CSV'}
+            {isExportingBrewLogsCsv ? '导出中' : '冲煮 CSV'}
           </button>
         </div>
       </div>
@@ -271,7 +270,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
       <div className="backup-import">
         <label>
-          选择 JSON 备份文件
+          导入 JSON
           <input
             type="file"
             accept="application/json,.json"
@@ -306,7 +305,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
           onClick={handleConfirmImport}
           disabled={isImporting || isReadingImport || importableCount === 0}
         >
-          {isImporting ? '导入中' : '确认导入非重复数据'}
+          {isImporting ? '导入中' : '确认导入'}
         </button>
       </div>
 

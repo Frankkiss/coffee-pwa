@@ -9,8 +9,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 0.8rem;
-  min-height: 9.25rem;
-  padding: 1rem;
+  min-height: 8.6rem;
+  padding: 0.95rem;
   border: 1px solid rgba(122, 79, 63, 0.12);
   border-radius: 14px;
   color: var(--color-cream-soft);
@@ -31,12 +31,14 @@
 
 .home-hero h1 {
   margin: 0;
-  font-size: clamp(2.25rem, 11vw, 4rem);
+  font-size: 3.2rem;
   line-height: 1;
 }
 
 .home-hero p {
-  margin: 0.7rem 0 0;
+  display: grid;
+  gap: 0.2rem;
+  margin: 0.62rem 0 0;
   max-width: 22rem;
   color: rgba(255, 248, 237, 0.86);
   line-height: 1.6;
@@ -77,21 +79,16 @@
   top: 0.75rem;
   width: 1.7rem;
   height: 0.25rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 248, 237, 0.88);
 }
 
 .home-actions {
   display: grid;
-  grid-template-columns: repeat(5, minmax(4.7rem, 1fr));
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding: 0.1rem 0.02rem 0.2rem;
-  scrollbar-width: none;
-}
-
-.home-actions::-webkit-scrollbar {
-  display: none;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+  overflow: visible;
+  padding: 0;
 }
 
 .home-actions button,
@@ -100,7 +97,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.7rem;
+  padding: 0 0.52rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   color: var(--color-coffee-dark);
@@ -108,7 +105,8 @@
   font-size: 0.88rem;
   font-weight: 800;
   text-decoration: none;
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
   cursor: pointer;
 }
 
@@ -273,6 +271,16 @@
 
   .home-hero__cup {
     width: 3.65rem;
+  }
+
+  .home-hero h1 {
+    font-size: 2.75rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .home-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

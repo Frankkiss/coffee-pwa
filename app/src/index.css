@@ -61,9 +61,10 @@ select {
 
 button {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
-button:active {
+button:not(:disabled):active {
   transform: translateY(1px);
 }
 
