@@ -27,11 +27,12 @@ type BrewLogPanelProps = {
   beans: Bean[]
   session: Session
   supabase: SupabaseClient
+  onBrewLogsChange?: (brewLogs: BrewLog[]) => void
 }
 
 const methodOptions = ['手冲', '爱乐压', '法压', '冷萃', '意式']
 
-export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
+export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: BrewLogPanelProps) {
   const firstBeanId = beans[0]?.id ?? ''
   const [brewLogs, setBrewLogs] = useState<BrewLog[]>([])
   const [form, setForm] = useState<BrewForm>(() => createInitialBrewForm(firstBeanId))
@@ -78,6 +79,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         const logs = await listBrewLogs(supabase)
         if (isMounted) {
           setBrewLogs(logs)
+          onBrewLogsChange?.(logs)
           setStatus('')
         }
         await writeOfflineCache(
@@ -90,6 +92,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         if (isMounted) {
           if (cachedLogs) {
             setBrewLogs(cachedLogs)
+            onBrewLogsChange?.(cachedLogs)
             setStatus('正在显示本机缓存的冲煮记录，新增和编辑仍需要联网。')
           } else {
             setError(err instanceof Error ? err.message : '读取冲煮记录失败')
@@ -107,7 +110,7 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     return () => {
       isMounted = false
     }
-  }, [session.user.id, supabase])
+  }, [onBrewLogsChange, session.user.id, supabase])
 
   function updateField(field: keyof BrewForm, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -142,14 +145,14 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
         const payload = toBrewLogUpdatePayload(formWithFallbackBean)
         const log = await updateBrewLog(supabase, editingLogId, payload)
         setBrewLogs((current) =>
-          current.map((currentLog) => (currentLog.id === log.id ? log : currentLog)),
+          syncBrewLogs(current.map((currentLog) => (currentLog.id === log.id ? log : currentLog))),
         )
         setEditingLogId(null)
         setStatus('冲煮记录已更新。')
       } else {
         const payload = toBrewLogInsertPayload(formWithFallbackBean, session.user.id)
         const log = await createBrewLog(supabase, payload)
-        setBrewLogs((current) => [log, ...current])
+        setBrewLogs((current) => syncBrewLogs([log, ...current]))
         setStatus('冲煮记录已保存。')
       }
 
@@ -177,7 +180,9 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
 
     try {
       await softDeleteBrewLog(supabase, log.id)
-      setBrewLogs((current) => current.filter((currentLog) => currentLog.id !== log.id))
+      setBrewLogs((current) =>
+        syncBrewLogs(current.filter((currentLog) => currentLog.id !== log.id)),
+      )
 
       if (editingLogId === log.id) {
         handleCancelEdit()
@@ -189,6 +194,11 @@ export function BrewLogPanel({ beans, session, supabase }: BrewLogPanelProps) {
     } finally {
       setIsDeleting(false)
     }
+  }
+
+  function syncBrewLogs(nextLogs: BrewLog[]) {
+    onBrewLogsChange?.(nextLogs)
+    return nextLogs
   }
 
   return (

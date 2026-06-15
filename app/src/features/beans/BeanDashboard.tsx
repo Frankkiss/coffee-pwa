@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import type { BrewLog } from '../brews/brewTypes'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
+import { listBrewLogs } from '../brews/brewLogService'
 import {
   buildOfflineCacheSnapshot,
   readOfflineCache,
@@ -15,6 +17,7 @@ import {
   toBeanUpdatePayload,
 } from './beanForm'
 import { createBean, listBeans, softDeleteBean, updateBean } from './beanService'
+import { BeanDetailPanel } from './BeanDetailPanel'
 import type { Bean, BeanFilters, BeanForm } from './beanTypes'
 import './beans.css'
 
@@ -28,6 +31,7 @@ const roastOptions = ['浅烘', '中浅烘', '中烘', '中深烘', '深烘']
 
 export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   const [beans, setBeans] = useState<Bean[]>([])
+  const [detailBrewLogs, setDetailBrewLogs] = useState<BrewLog[]>([])
   const [form, setForm] = useState<BeanForm>(() => createInitialBeanForm())
   const [filters, setFilters] = useState<BeanFilters>({
     search: '',
@@ -36,11 +40,20 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   })
   const [editingBeanId, setEditingBeanId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isBrewSummaryStale, setIsBrewSummaryStale] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [selectedBeanId, setSelectedBeanId] = useState<string | null>(null)
   const filteredBeans = filterBeans(beans, filters)
+  const selectedBean = selectedBeanId
+    ? beans.find((bean) => bean.id === selectedBeanId) ?? null
+    : null
+  const handleDetailBrewLogsChange = useCallback((logs: BrewLog[]) => {
+    setDetailBrewLogs(logs)
+    setIsBrewSummaryStale(false)
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -84,6 +97,34 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     }
   }, [session.user.id, supabase])
 
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadDetailBrewLogs() {
+      try {
+        const logs = await listBrewLogs(supabase)
+
+        if (isMounted) {
+          setDetailBrewLogs(logs)
+          setIsBrewSummaryStale(false)
+        }
+      } catch {
+        const cachedLogs = await readOfflineCache<BrewLog>('brewLogs', session.user.id)
+
+        if (isMounted) {
+          setDetailBrewLogs(cachedLogs ?? [])
+          setIsBrewSummaryStale(!cachedLogs)
+        }
+      }
+    }
+
+    loadDetailBrewLogs()
+
+    return () => {
+      isMounted = false
+    }
+  }, [session.user.id, supabase])
+
   function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -95,6 +136,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   function handleEdit(bean: Bean) {
     setError('')
     setStatus('')
+    setSelectedBeanId(null)
     setEditingBeanId(bean.id)
     setForm(createBeanFormFromBean(bean))
   }
@@ -150,6 +192,9 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     try {
       await softDeleteBean(supabase, bean.id)
       setBeans((current) => current.filter((currentBean) => currentBean.id !== bean.id))
+      if (selectedBeanId === bean.id) {
+        setSelectedBeanId(null)
+      }
 
       if (editingBeanId === bean.id) {
         handleCancelEdit()
@@ -174,6 +219,16 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
           <span>{beans.length} 支豆子</span>
         </div>
 
+        {selectedBean ? (
+          <BeanDetailPanel
+            bean={selectedBean}
+            brewLogs={detailBrewLogs}
+            isBrewSummaryStale={isBrewSummaryStale}
+            onBack={() => setSelectedBeanId(null)}
+            onEdit={handleEdit}
+          />
+        ) : (
+        <>
         <SourceImportPanel
           session={session}
           supabase={supabase}
@@ -441,6 +496,9 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                 <button type="button" onClick={() => handleEdit(bean)}>
                   编辑
                 </button>
+                <button type="button" onClick={() => setSelectedBeanId(bean.id)}>
+                  详情
+                </button>
                 <button
                   type="button"
                   className="bean-danger-button"
@@ -453,9 +511,16 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
             </article>
           ))}
         </div>
+        </>
+        )}
       </section>
 
-      <BrewLogPanel beans={beans} session={session} supabase={supabase} />
+      <BrewLogPanel
+        beans={beans}
+        session={session}
+        supabase={supabase}
+        onBrewLogsChange={handleDetailBrewLogsChange}
+      />
     </>
   )
 }
