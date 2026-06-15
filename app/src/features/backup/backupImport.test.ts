@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import type { BackupDocument } from './backupTypes'
 import {
   buildBackupImportPayloads,
@@ -67,6 +68,36 @@ const brewLog = {
   schema_version: 1,
 } satisfies BrewLog
 
+const brewTemplate = {
+  id: 'template-1',
+  user_id: 'old-user',
+  name: '我的 V60',
+  category: 'daily-pourover',
+  difficulty: 'easy',
+  brewer: 'V60',
+  filter: 'V60 滤纸',
+  dose_grams: 15,
+  water_grams: 240,
+  ratio: '1:16',
+  water_temperature_min: 91,
+  water_temperature_max: 93,
+  grind_size: '中细研磨',
+  target_time_min: 135,
+  target_time_max: 165,
+  pour_steps: [],
+  suitable_for: ['水洗'],
+  avoid_for: [],
+  flavor_goal: '干净',
+  adjustment_rules: [],
+  source_notes: '自定义',
+  source_urls: [],
+  is_champion_reference: false,
+  copied_from_template_id: null,
+  created_at: '2026-06-12T02:30:00.000Z',
+  updated_at: '2026-06-12T02:30:00.000Z',
+  deleted_at: null,
+} satisfies UserBrewTemplateRow
+
 function createBackupDocument(
   beans: Bean[] = [bean],
   brewLogs: BrewLog[] = [brewLog],
@@ -108,9 +139,9 @@ describe('backup import', () => {
       brewLogIds: new Set<string>(),
     })
 
-    expect(preview.total).toEqual({ beans: 1, brewLogs: 1 })
-    expect(preview.duplicates).toEqual({ beans: 1, brewLogs: 0 })
-    expect(preview.importable).toEqual({ beans: 0, brewLogs: 1 })
+    expect(preview.total).toEqual({ beans: 1, brewLogs: 1, brewTemplates: 0 })
+    expect(preview.duplicates).toEqual({ beans: 1, brewLogs: 0, brewTemplates: 0 })
+    expect(preview.importable).toEqual({ beans: 0, brewLogs: 1, brewTemplates: 0 })
     expect(preview.importableBeanIds.has('bean-1')).toBe(false)
     expect(preview.importableBrewLogIds.has('brew-1')).toBe(true)
   })
@@ -150,5 +181,34 @@ describe('backup import', () => {
 
     expect(payloads.beans).toHaveLength(0)
     expect(payloads.brewLogs[0].bean_id).toBeNull()
+  })
+
+  it('rewrites imported custom templates to the current user', () => {
+    const backup: BackupDocument = {
+      ...createBackupDocument([], []),
+      recordCounts: {
+        beans: 0,
+        brewLogs: 0,
+        brewTemplates: 1,
+      },
+      data: {
+        beans: [],
+        brewLogs: [],
+        brewTemplates: [brewTemplate],
+      },
+    }
+    const preview = createBackupImportPreview(backup, {
+      beanIds: new Set<string>(),
+      brewLogIds: new Set<string>(),
+      brewTemplateIds: new Set<string>(),
+    })
+
+    const payloads = buildBackupImportPayloads(backup, preview, 'current-user', {
+      existingBeanIds: new Set<string>(),
+    })
+
+    expect(payloads.brewTemplates[0].id).toBe('template-1')
+    expect(payloads.brewTemplates[0].user_id).toBe('current-user')
+    expect(payloads.brewTemplates[0].deleted_at).toBeNull()
   })
 })

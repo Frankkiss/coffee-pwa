@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { listBeans } from '../beans/beanService'
 import { listBrewLogs } from '../brews/brewLogService'
+import { brewTemplates } from '../brewTemplates/brewTemplates'
+import { listUserBrewTemplates } from '../brewTemplates/brewTemplateService'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
@@ -11,14 +13,16 @@ import type { SavedRecommendationRow } from './savedRecommendationList'
 import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 
 export async function loadRuleRecommendationData(supabase: SupabaseClient) {
-  const [beans, brewLogs] = await Promise.all([
+  const [beans, brewLogs, userTemplates] = await Promise.all([
     listBeans(supabase),
     listBrewLogs(supabase),
+    listUserBrewTemplates(supabase),
   ])
 
   return {
     beans,
     brewLogs,
+    templates: [...brewTemplates, ...userTemplates],
   }
 }
 
@@ -32,7 +36,7 @@ export function createRecommendationForBean(
     return null
   }
 
-  return generateRuleRecommendation(targetBean, data.beans, data.brewLogs)
+  return generateRuleRecommendation(targetBean, data.beans, data.brewLogs, data.templates)
 }
 
 export async function requestAiRecommendation(

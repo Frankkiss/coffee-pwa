@@ -83,9 +83,52 @@ describe('backup export', () => {
     expect(backup.userId).toBe('user-1')
     expect(backup.exportedAt).toBe('2026-06-12T03:00:00.000Z')
     expect(backup.includesImages).toBe(false)
-    expect(backup.recordCounts).toEqual({ beans: 1, brewLogs: 1 })
+    expect(backup.recordCounts).toEqual({ beans: 1, brewLogs: 1, brewTemplates: 0 })
     expect(backup.data.beans[0].name).toBe('Ethiopia Test')
     expect(backup.data.brewLogs[0].ratio).toBe('1:16')
+  })
+
+  it('includes custom brew templates in JSON backup data', () => {
+    const backup = buildBackupDocument({
+      userId: 'user-1',
+      exportedAt: '2026-06-12T03:00:00.000Z',
+      beans: [],
+      brewLogs: [],
+      brewTemplates: [
+        {
+          id: 'template-1',
+          user_id: 'user-1',
+          name: '我的 V60',
+          category: 'daily-pourover',
+          difficulty: 'easy',
+          brewer: 'V60',
+          filter: 'V60 滤纸',
+          dose_grams: 15,
+          water_grams: 240,
+          ratio: '1:16',
+          water_temperature_min: 91,
+          water_temperature_max: 93,
+          grind_size: '中细研磨',
+          target_time_min: 135,
+          target_time_max: 165,
+          pour_steps: [],
+          suitable_for: ['水洗'],
+          avoid_for: [],
+          flavor_goal: '干净',
+          adjustment_rules: [],
+          source_notes: '自定义',
+          source_urls: [],
+          is_champion_reference: false,
+          copied_from_template_id: null,
+          created_at: '2026-06-12T02:30:00.000Z',
+          updated_at: '2026-06-12T02:30:00.000Z',
+          deleted_at: null,
+        },
+      ],
+    })
+
+    expect(backup.recordCounts.brewTemplates).toBe(1)
+    expect(backup.data.brewTemplates?.[0].name).toBe('我的 V60')
   })
 
   it('creates a date-based JSON backup filename', () => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
@@ -31,12 +32,14 @@ type RecommendationPanelProps = {
 type RecommendationData = {
   beans: Bean[]
   brewLogs: BrewLog[]
+  templates: BrewTemplate[]
 }
 
 export function RecommendationPanel({ session, supabase }: RecommendationPanelProps) {
   const [data, setData] = useState<RecommendationData>({
     beans: [],
     brewLogs: [],
+    templates: [],
   })
   const [selectedBeanId, setSelectedBeanId] = useState('')
   const [ruleRecommendation, setRuleRecommendation] =

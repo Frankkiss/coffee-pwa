@@ -89,7 +89,7 @@ export function AuthPanel() {
         </header>
         {status ? <p className="auth-status">{status}</p> : null}
         <HomeOverview session={session} supabase={supabase} />
-        <BrewTemplatePanel />
+        <BrewTemplatePanel session={session} supabase={supabase} />
         <BeanDashboard session={session} supabase={supabase} />
         <RecommendationPanel session={session} supabase={supabase} />
         <BackupPanel session={session} supabase={supabase} />

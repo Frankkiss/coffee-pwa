@@ -66,6 +66,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
         exportedAt,
         beans: rows.beans,
         brewLogs: rows.brewLogs,
+        brewTemplates: rows.brewTemplates,
       })
 
       downloadTextFile(
@@ -85,7 +86,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       setBackupReminderMeta(nextReminderMeta)
 
       setStatus(
-        `已导出 ${backup.recordCounts.beans} 支豆子、${backup.recordCounts.brewLogs} 条冲煮记录。`,
+        `已导出 ${backup.recordCounts.beans} 支豆子、${backup.recordCounts.brewLogs} 条冲煮记录、${backup.recordCounts.brewTemplates} 个自定义模板。`,
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : '导出备份失败')
@@ -185,6 +186,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
         exportedAt: now.toISOString(),
         beans: currentRows.beans,
         brewLogs: currentRows.brewLogs,
+        brewTemplates: currentRows.brewTemplates,
       })
 
       downloadTextFile(
@@ -204,7 +206,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
       await importBackupRows(supabase, payloads)
       setStatus(
-        `已先下载恢复点 ${restorePointFileName}，再导入 ${payloads.beans.length} 支豆子、${payloads.brewLogs.length} 条冲煮记录；已跳过 ${importPreview.duplicates.beans} 支重复豆子、${importPreview.duplicates.brewLogs} 条重复冲煮记录。`,
+        `已先下载恢复点 ${restorePointFileName}，再导入 ${payloads.beans.length} 支豆子、${payloads.brewLogs.length} 条冲煮记录、${payloads.brewTemplates.length} 个自定义模板；已跳过 ${importPreview.duplicates.beans} 支重复豆子、${importPreview.duplicates.brewLogs} 条重复冲煮记录、${importPreview.duplicates.brewTemplates} 个重复模板。`,
       )
       setImportBackup(null)
       setImportPreview(null)
@@ -218,7 +220,8 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
   const importableCount =
     (importPreview?.importable.beans ?? 0) +
-    (importPreview?.importable.brewLogs ?? 0)
+    (importPreview?.importable.brewLogs ?? 0) +
+    (importPreview?.importable.brewTemplates ?? 0)
   const backupReminder = buildBackupReminder(backupReminderMeta, new Date())
 
   return (
@@ -289,6 +292,11 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
               冲煮记录：共 {importPreview.total.brewLogs} 条，可导入{' '}
               {importPreview.importable.brewLogs} 条，跳过重复{' '}
               {importPreview.duplicates.brewLogs} 条。
+            </span>
+            <span>
+              自定义模板：共 {importPreview.total.brewTemplates} 个，可导入{' '}
+              {importPreview.importable.brewTemplates} 个，跳过重复{' '}
+              {importPreview.duplicates.brewTemplates} 个。
             </span>
           </div>
         ) : null}

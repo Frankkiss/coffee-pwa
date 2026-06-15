@@ -6,6 +6,7 @@ export type BrewTemplateCategory =
   | 'champion-reference'
 
 export type BrewTemplateDifficulty = 'easy' | 'medium' | 'advanced'
+export type BrewTemplateSource = 'system' | 'user'
 
 export type BrewTemplatePourStep = {
   order: number
@@ -43,6 +44,11 @@ export type BrewTemplate = {
   sourceNotes: string
   sourceUrls: string[]
   isChampionReference: boolean
+  source?: BrewTemplateSource
+  userId?: string
+  copiedFromTemplateId?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type BrewTemplateFilters = {
@@ -51,3 +57,38 @@ export type BrewTemplateFilters = {
   difficulty: BrewTemplateDifficulty | ''
   includeChampionReferences: boolean
 }
+
+export type UserBrewTemplateRow = {
+  id: string
+  user_id: string
+  name: string
+  category: BrewTemplateCategory
+  difficulty: BrewTemplateDifficulty
+  brewer: string
+  filter: string
+  dose_grams: number
+  water_grams: number
+  ratio: string
+  water_temperature_min: number
+  water_temperature_max: number
+  grind_size: string
+  target_time_min: number
+  target_time_max: number
+  pour_steps: BrewTemplatePourStep[]
+  suitable_for: string[]
+  avoid_for: string[]
+  flavor_goal: string
+  adjustment_rules: string[]
+  source_notes: string
+  source_urls: string[]
+  is_champion_reference: boolean
+  copied_from_template_id: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export type UserBrewTemplatePayload = Omit<
+  UserBrewTemplateRow,
+  'id' | 'created_at' | 'updated_at' | 'deleted_at'
+>

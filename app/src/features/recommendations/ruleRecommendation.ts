@@ -1,6 +1,7 @@
 import type { Bean } from '../beans/beanTypes'
 import { splitMultiValueText } from '../beans/blendComponents'
 import type { BrewLog } from '../brews/brewTypes'
+import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
 import type {
   BrewRecommendationCandidate,
   RecommendedBrewParameters,
@@ -12,6 +13,7 @@ export function generateRuleRecommendation(
   targetBean: Bean,
   beans: Bean[],
   brewLogs: BrewLog[],
+  templates?: BrewTemplate[],
 ): RuleRecommendationResult | null {
   const beanById = new Map(beans.map((bean) => [bean.id, bean]))
   const candidates = brewLogs
@@ -29,7 +31,7 @@ export function generateRuleRecommendation(
     targetBean,
     primary: candidates[0],
     references: candidates.slice(0, 3),
-    templateCandidates: selectTemplateCandidates(targetBean),
+    templateCandidates: selectTemplateCandidates(targetBean, templates),
   }
 }
 

@@ -21,13 +21,45 @@
   margin: 4px 0 0;
 }
 
-.brew-template-panel__header > span {
+.brew-template-panel__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.brew-template-panel__actions > span {
   background: #7b4f3f;
   border-radius: 999px;
   color: #fff7ec;
   font-weight: 800;
   padding: 8px 12px;
   white-space: nowrap;
+}
+
+.brew-template-panel__actions button,
+.brew-template-card__actions button,
+.brew-template-form button {
+  background: #7b4f3f;
+  border: 0;
+  border-radius: 8px;
+  color: #fff7ec;
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 38px;
+  padding: 9px 12px;
+}
+
+.brew-template-form button[type='button'],
+.brew-template-card__actions button {
+  background: #ead8c4;
+  color: #5b3729;
+}
+
+.brew-template-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .brew-template-panel__eyebrow,
@@ -67,6 +99,81 @@
   color: #4d342a;
   min-height: 42px;
   padding: 9px 10px;
+}
+
+.brew-template-form {
+  background: #fffaf2;
+  border: 1px solid rgba(99, 65, 50, 0.16);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.brew-template-form__header,
+.brew-template-step-editor__header,
+.brew-template-card__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.brew-template-form__header strong,
+.brew-template-step-editor__header strong {
+  color: #5b3729;
+}
+
+.brew-template-form__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.brew-template-form label,
+.brew-template-step-row label {
+  color: #6b5143;
+  display: grid;
+  font-size: 0.85rem;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.brew-template-form input,
+.brew-template-form select,
+.brew-template-form textarea {
+  background: #fff7ec;
+  border: 1px solid rgba(99, 65, 50, 0.22);
+  border-radius: 8px;
+  color: #4d342a;
+  font: inherit;
+  min-height: 40px;
+  padding: 9px 10px;
+}
+
+.brew-template-form textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.brew-template-step-editor {
+  background: #f8efe2;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.brew-template-step-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 0.7fr 0.7fr 0.8fr minmax(160px, 1.5fr) auto;
+}
+
+.brew-template-step-row__action {
+  min-width: 0;
 }
 
 .brew-template-checkbox {
@@ -135,6 +242,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 12px;
+}
+
+.brew-template-card__actions {
+  justify-content: flex-start;
   margin-top: 12px;
 }
 
@@ -246,14 +358,44 @@
   text-align: center;
 }
 
+.brew-template-status,
+.brew-template-error {
+  border-radius: 8px;
+  font-weight: 800;
+  line-height: 1.5;
+  margin: 0;
+  padding: 12px;
+}
+
+.brew-template-status {
+  background: #e4f3dd;
+  color: #426936;
+}
+
+.brew-template-error {
+  background: #f3dddd;
+  color: #7a3d35;
+}
+
 @media (max-width: 720px) {
   .brew-template-panel {
     margin: 14px auto;
   }
 
   .brew-template-filters,
+  .brew-template-form__grid,
+  .brew-template-step-row,
   .brew-template-detail dl {
     grid-template-columns: 1fr;
+  }
+
+  .brew-template-panel__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .brew-template-panel__actions {
+    justify-content: flex-start;
   }
 
   .brew-template-panel__header h2 {

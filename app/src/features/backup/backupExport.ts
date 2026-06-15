@@ -3,6 +3,8 @@ import type { BackupDocument, BuildBackupDocumentInput } from './backupTypes'
 export function buildBackupDocument(
   input: BuildBackupDocumentInput,
 ): BackupDocument {
+  const brewTemplates = input.brewTemplates ?? []
+
   return {
     schemaVersion: 1,
     exportedAt: input.exportedAt,
@@ -11,10 +13,12 @@ export function buildBackupDocument(
     recordCounts: {
       beans: input.beans.length,
       brewLogs: input.brewLogs.length,
+      brewTemplates: brewTemplates.length,
     },
     data: {
       beans: input.beans,
       brewLogs: input.brewLogs,
+      brewTemplates,
     },
   }
 }
