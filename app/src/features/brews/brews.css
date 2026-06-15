@@ -1,6 +1,6 @@
 .brew-panel {
   display: grid;
-  gap: 1rem;
+  gap: 0.95rem;
   width: min(100%, 56rem);
 }
 
@@ -16,7 +16,7 @@
   color: var(--color-caramel);
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -36,7 +36,7 @@
   gap: 0.875rem;
   padding: 1rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--color-cream-card);
   box-shadow: var(--shadow-card);
 }
@@ -63,7 +63,7 @@
   min-height: 2.75rem;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-coffee-dark);
   background: var(--color-cream-soft);
 }
@@ -74,7 +74,6 @@
 .brew-filters input:focus,
 .brew-filters select:focus {
   border-color: var(--color-caramel);
-  outline: 2px solid rgba(227, 170, 120, 0.28);
 }
 
 .brew-form textarea {
@@ -87,7 +86,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   color: var(--color-coffee-dark);
   background: rgba(227, 170, 120, 0.22);
 }
@@ -96,7 +95,7 @@
   min-height: 2.2rem;
   padding: 0 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-coffee);
   background: var(--color-cream-soft);
   font-weight: 700;
@@ -123,7 +122,7 @@
 .brew-card__actions button {
   min-height: 2.75rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-cream-soft);
   background: var(--color-coffee);
   font-weight: 700;
@@ -144,7 +143,7 @@
 }
 
 .brew-card__actions .brew-danger-button {
-  color: #7d2e22;
+  color: var(--color-danger);
   background: rgba(193, 104, 74, 0.16);
 }
 
@@ -153,12 +152,12 @@
 .brew-empty {
   margin: 0;
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.22);
 }
 
 .brew-error {
-  color: #7d2e22;
+  color: var(--color-danger);
   background: rgba(193, 104, 74, 0.18);
 }
 
@@ -171,9 +170,10 @@
   display: grid;
   gap: 0.75rem;
   padding: 1rem;
-  border-radius: 8px;
-  background: rgba(255, 248, 237, 0.86);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.88);
   border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
 }
 
 .brew-card__main {
@@ -194,7 +194,7 @@
 
 .brew-card__notes {
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.12);
 }
 
@@ -206,7 +206,7 @@
 
 .brew-tags span {
   padding: 0.25rem 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-coffee-dark);
   background: var(--color-caramel);
   font-size: 0.78rem;
@@ -222,7 +222,7 @@
   gap: 1rem;
   padding: 1rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--color-cream-card);
   box-shadow: var(--shadow-card);
 }
@@ -238,7 +238,7 @@
 .brew-detail__actions button {
   min-height: 2.75rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-cream-soft);
   background: var(--color-coffee);
   font-weight: 800;
@@ -252,7 +252,7 @@
 }
 
 .brew-detail__actions .brew-danger-button {
-  color: #7d2e22;
+  color: var(--color-danger);
   background: rgba(193, 104, 74, 0.16);
 }
 
@@ -266,7 +266,7 @@
   display: grid;
   gap: 0.5rem;
   padding: 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.18);
 }
 
@@ -297,7 +297,7 @@
 
 .brew-detail__meta span {
   padding: 0.28rem 0.55rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-coffee-dark);
   background: var(--color-cream-soft);
   font-size: 0.82rem;
@@ -323,7 +323,7 @@
 .brew-detail__steps li {
   padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(255, 248, 237, 0.72);
 }
 
@@ -363,7 +363,7 @@
 
 .brew-detail__notes {
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.12);
 }
 

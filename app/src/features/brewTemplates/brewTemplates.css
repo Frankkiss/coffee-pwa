@@ -1,7 +1,7 @@
 .brew-template-panel {
   display: grid;
-  gap: 18px;
-  margin: 18px auto;
+  gap: 0.95rem;
+  margin: 0 auto;
   max-width: 980px;
   width: min(100%, 980px);
 }
@@ -15,7 +15,7 @@
 }
 
 .brew-template-panel__header h2 {
-  color: #5b3729;
+  color: var(--color-coffee-dark);
   font-size: clamp(1.7rem, 4vw, 2.4rem);
   line-height: 1.05;
   margin: 4px 0 0;
@@ -30,9 +30,9 @@
 }
 
 .brew-template-panel__actions > span {
-  background: #7b4f3f;
-  border-radius: 999px;
-  color: #fff7ec;
+  background: var(--color-coffee);
+  border-radius: var(--radius-pill);
+  color: var(--color-cream-soft);
   font-weight: 800;
   padding: 8px 12px;
   white-space: nowrap;
@@ -41,10 +41,10 @@
 .brew-template-panel__actions button,
 .brew-template-card__actions button,
 .brew-template-form button {
-  background: #7b4f3f;
+  background: var(--color-coffee);
   border: 0;
-  border-radius: 8px;
-  color: #fff7ec;
+  border-radius: var(--radius-control);
+  color: var(--color-cream-soft);
   cursor: pointer;
   font-weight: 900;
   min-height: 38px;
@@ -53,8 +53,8 @@
 
 .brew-template-form button[type='button'],
 .brew-template-card__actions button {
-  background: #ead8c4;
-  color: #5b3729;
+  background: var(--color-cream-pressed);
+  color: var(--color-coffee-dark);
 }
 
 .brew-template-form button:disabled {
@@ -64,7 +64,7 @@
 
 .brew-template-panel__eyebrow,
 .brew-template-card__kicker {
-  color: #b9784d;
+  color: var(--color-caramel);
   font-size: 0.75rem;
   font-weight: 900;
   letter-spacing: 0;
@@ -73,7 +73,7 @@
 }
 
 .brew-template-panel__intro {
-  color: #6d5a4e;
+  color: var(--color-muted);
   line-height: 1.7;
   margin: 0;
 }
@@ -85,7 +85,7 @@
 }
 
 .brew-template-filters label {
-  color: #6b5143;
+  color: var(--color-muted);
   display: grid;
   font-size: 0.85rem;
   font-weight: 800;
@@ -93,18 +93,18 @@
 }
 
 .brew-template-filters select {
-  background: #fffaf2;
+  background: var(--color-cream-soft);
   border: 1px solid rgba(99, 65, 50, 0.22);
-  border-radius: 8px;
-  color: #4d342a;
+  border-radius: var(--radius-control);
+  color: var(--color-coffee-dark);
   min-height: 42px;
   padding: 9px 10px;
 }
 
 .brew-template-form {
-  background: #fffaf2;
+  background: var(--color-cream-card);
   border: 1px solid rgba(99, 65, 50, 0.16);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   display: grid;
   gap: 14px;
   padding: 14px;
@@ -122,7 +122,7 @@
 
 .brew-template-form__header strong,
 .brew-template-step-editor__header strong {
-  color: #5b3729;
+  color: var(--color-coffee-dark);
 }
 
 .brew-template-form__grid {
@@ -133,7 +133,7 @@
 
 .brew-template-form label,
 .brew-template-step-row label {
-  color: #6b5143;
+  color: var(--color-muted);
   display: grid;
   font-size: 0.85rem;
   font-weight: 800;
@@ -143,10 +143,10 @@
 .brew-template-form input,
 .brew-template-form select,
 .brew-template-form textarea {
-  background: #fff7ec;
+  background: var(--color-cream-soft);
   border: 1px solid rgba(99, 65, 50, 0.22);
-  border-radius: 8px;
-  color: #4d342a;
+  border-radius: var(--radius-control);
+  color: var(--color-coffee-dark);
   font: inherit;
   min-height: 40px;
   padding: 9px 10px;
@@ -158,8 +158,8 @@
 }
 
 .brew-template-step-editor {
-  background: #f8efe2;
-  border-radius: 8px;
+  background: rgba(248, 237, 218, 0.68);
+  border-radius: var(--radius-card);
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -178,9 +178,9 @@
 
 .brew-template-checkbox {
   align-items: center;
-  background: #f6ead9;
+  background: var(--color-cream-soft);
   border: 1px solid rgba(99, 65, 50, 0.14);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   display: flex !important;
   flex-direction: row;
   min-height: 42px;
@@ -188,7 +188,7 @@
 }
 
 .brew-template-checkbox input {
-  accent-color: #7b4f3f;
+  accent-color: var(--color-coffee);
 }
 
 .brew-template-list {
@@ -197,10 +197,10 @@
 }
 
 .brew-template-card {
-  background: #fffaf2;
+  background: rgba(255, 253, 248, 0.9);
   border: 1px solid rgba(99, 65, 50, 0.16);
-  border-radius: 8px;
-  box-shadow: 0 12px 28px rgba(76, 49, 36, 0.08);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
   padding: 14px;
 }
 
@@ -215,22 +215,22 @@
 }
 
 .brew-template-card__summary strong {
-  color: #5b3729;
+  color: var(--color-coffee-dark);
   display: block;
   font-size: 1.05rem;
   margin-top: 4px;
 }
 
 .brew-template-card__summary p {
-  color: #72594b;
+  color: var(--color-muted);
   line-height: 1.5;
   margin: 6px 0 0;
 }
 
 .brew-template-card__summary > span {
-  background: #e3b179;
-  border-radius: 999px;
-  color: #4c3027;
+  background: var(--color-caramel-soft);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee-dark);
   font-size: 0.82rem;
   font-weight: 900;
   padding: 7px 10px;
@@ -252,9 +252,9 @@
 
 .brew-template-card__metrics span,
 .brew-template-tags span {
-  background: #f2e4d1;
-  border-radius: 999px;
-  color: #684839;
+  background: var(--color-cream-pressed);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee);
   font-size: 0.78rem;
   font-weight: 800;
   padding: 6px 9px;
@@ -262,7 +262,7 @@
 
 .brew-template-card__steps,
 .brew-template-source {
-  color: #806759;
+  color: var(--color-muted);
   font-size: 0.9rem;
   line-height: 1.6;
   margin: 12px 0 0;
@@ -284,19 +284,19 @@
 }
 
 .brew-template-detail dl div {
-  background: #f8efe2;
-  border-radius: 8px;
+  background: rgba(248, 237, 218, 0.68);
+  border-radius: var(--radius-card);
   padding: 10px;
 }
 
 .brew-template-detail dt {
-  color: #a26d48;
+  color: var(--color-caramel);
   font-size: 0.72rem;
   font-weight: 900;
 }
 
 .brew-template-detail dd {
-  color: #4d342a;
+  color: var(--color-coffee-dark);
   font-weight: 800;
   margin: 4px 0 0;
 }
@@ -310,19 +310,19 @@
 }
 
 .brew-template-steps li {
-  background: #fff4e5;
-  border-radius: 8px;
+  background: var(--color-cream-soft);
+  border-radius: var(--radius-card);
   padding: 10px;
 }
 
 .brew-template-steps strong,
 .brew-template-adjustments strong {
-  color: #5b3729;
+  color: var(--color-coffee-dark);
   display: block;
 }
 
 .brew-template-steps span {
-  color: #a26d48;
+  color: var(--color-caramel);
   display: block;
   font-size: 0.82rem;
   font-weight: 900;
@@ -330,29 +330,29 @@
 }
 
 .brew-template-steps p {
-  color: #70574a;
+  color: var(--color-muted);
   line-height: 1.5;
   margin: 6px 0 0;
 }
 
 .brew-template-adjustments {
-  background: #f6ead9;
-  border-radius: 8px;
+  background: rgba(248, 237, 218, 0.72);
+  border-radius: var(--radius-card);
   padding: 12px;
 }
 
 .brew-template-adjustments ul {
-  color: #70574a;
+  color: var(--color-muted);
   line-height: 1.6;
   margin: 8px 0 0;
   padding-left: 20px;
 }
 
 .brew-template-empty {
-  background: #fffaf2;
+  background: var(--color-cream-card);
   border: 1px dashed rgba(99, 65, 50, 0.3);
-  border-radius: 8px;
-  color: #7c6355;
+  border-radius: var(--radius-card);
+  color: var(--color-muted);
   margin: 0;
   padding: 18px;
   text-align: center;
@@ -360,7 +360,7 @@
 
 .brew-template-status,
 .brew-template-error {
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   font-weight: 800;
   line-height: 1.5;
   margin: 0;
@@ -368,13 +368,13 @@
 }
 
 .brew-template-status {
-  background: #e4f3dd;
-  color: #426936;
+  background: rgba(111, 151, 116, 0.14);
+  color: var(--color-success);
 }
 
 .brew-template-error {
-  background: #f3dddd;
-  color: #7a3d35;
+  background: rgba(193, 104, 74, 0.16);
+  color: var(--color-danger);
 }
 
 @media (max-width: 720px) {

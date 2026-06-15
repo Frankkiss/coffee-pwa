@@ -1,6 +1,6 @@
 ﻿.recommendation-panel {
   display: grid;
-  gap: 1rem;
+  gap: 0.95rem;
   width: min(100%, 56rem);
 }
 
@@ -16,7 +16,7 @@
   color: var(--color-caramel);
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -41,7 +41,7 @@
   gap: 0.875rem;
   padding: 1rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--color-cream-card);
   box-shadow: var(--shadow-card);
 }
@@ -58,20 +58,19 @@
   min-height: 2.75rem;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-coffee-dark);
   background: var(--color-cream-soft);
 }
 
 .recommendation-controls select:focus {
   border-color: var(--color-caramel);
-  outline: 2px solid rgba(227, 170, 120, 0.28);
 }
 
 .recommendation-controls button {
   min-height: 2.75rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-cream-soft);
   background: var(--color-coffee);
   font-weight: 700;
@@ -95,7 +94,7 @@
 .recommendation-save button {
   min-height: 2.75rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-cream-soft);
   background: var(--color-coffee);
   font-weight: 700;
@@ -129,7 +128,7 @@
 }
 
 .recommendation-card dt {
-  color: #8fa1b3;
+  color: var(--color-muted);
   font-size: 0.78rem;
 }
 
@@ -167,7 +166,7 @@
 .recommendation-ai-structured dl div {
   padding: 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(255, 248, 237, 0.72);
 }
 
@@ -240,9 +239,10 @@
   display: grid;
   gap: 0.25rem;
   padding: 0.75rem;
-  border-radius: 8px;
-  background: rgba(255, 248, 237, 0.86);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.88);
   border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
 }
 
 .recommendation-saved-card__title {
@@ -284,7 +284,7 @@
 .recommendation-saved-card__actions button {
   min-height: 2.25rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--color-coffee-dark);
   background: var(--color-cream-soft);
   font-weight: 700;
@@ -298,7 +298,7 @@
 }
 
 .recommendation-saved-card__actions .recommendation-danger-button {
-  color: #8f3327;
+  color: var(--color-danger);
   border-color: rgba(143, 51, 39, 0.28);
 }
 
@@ -347,8 +347,8 @@
   display: grid;
   gap: 0.25rem;
   padding: 0.75rem;
-  border-radius: 8px;
-  background: rgba(255, 248, 237, 0.86);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.88);
   border: 1px solid var(--color-border);
 }
 
@@ -366,8 +366,8 @@
   display: grid;
   gap: 0.35rem;
   padding: 0.75rem;
-  border-radius: 8px;
-  background: rgba(255, 248, 237, 0.86);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.88);
   border: 1px solid var(--color-border);
 }
 
@@ -394,12 +394,12 @@
 .recommendation-status,
 .recommendation-error {
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.22);
 }
 
 .recommendation-error {
-  color: #7d2e22;
+  color: var(--color-danger);
   background: rgba(193, 104, 74, 0.18);
 }
 

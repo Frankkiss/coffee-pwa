@@ -1,5 +1,8 @@
 :root {
   font-family:
+    'LXGW WenKai Screen',
+    'HarmonyOS Sans SC',
+    'MiSans',
     'Microsoft YaHei UI',
     'Yuanti SC',
     'YouYuan',
@@ -7,18 +10,26 @@
     'Arial Rounded MT Bold',
     system-ui,
     sans-serif;
-  color: #4b3027;
-  background: #f7ead6;
-  --color-cream: #f7ead6;
+  color: #472e26;
+  background: #f8edda;
+  --color-cream: #f8edda;
   --color-cream-soft: #fff8ed;
-  --color-cream-card: #fffaf3;
-  --color-coffee: #7a4f3f;
-  --color-coffee-dark: #56362d;
-  --color-caramel: #e3aa78;
-  --color-caramel-soft: #f4d4ad;
-  --color-muted: #8f7668;
-  --color-border: rgba(122, 79, 63, 0.16);
-  --shadow-card: 0 18px 36px rgba(89, 54, 40, 0.12);
+  --color-cream-card: #fffdf8;
+  --color-cream-pressed: #f1dec3;
+  --color-coffee: #7a4c39;
+  --color-coffee-dark: #472e26;
+  --color-caramel: #d9955f;
+  --color-caramel-soft: #f2cf9f;
+  --color-muted: #806b5d;
+  --color-border: rgba(112, 74, 55, 0.16);
+  --color-success: #5f7f4c;
+  --color-danger: #8d3d2e;
+  --radius-card: 10px;
+  --radius-control: 9px;
+  --radius-pill: 999px;
+  --shadow-card: 0 14px 34px rgba(83, 53, 38, 0.1);
+  --shadow-soft: 0 8px 20px rgba(83, 53, 38, 0.08);
+  --focus-ring: 0 0 0 3px rgba(217, 149, 95, 0.28);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -35,9 +46,10 @@ html {
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
-  background: var(--color-cream);
+  background:
+    linear-gradient(180deg, #fff9ef 0%, var(--color-cream) 46%, #f3dfbf 100%);
 }
 
 button,
@@ -47,6 +59,29 @@ select {
   font: inherit;
 }
 
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+input,
+select,
+textarea {
+  line-height: 1.35;
+}
+
 #root {
-  min-height: 100vh;
+  min-height: 100dvh;
 }

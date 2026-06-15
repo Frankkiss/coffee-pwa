@@ -1,21 +1,21 @@
 .home-overview {
   display: grid;
-  gap: 0.875rem;
+  gap: 0.85rem;
   width: min(100%, 56rem);
 }
 
 .home-hero {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 1rem;
-  min-height: 10rem;
-  padding: 1.2rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.8rem;
+  min-height: 9.25rem;
+  padding: 1rem;
   border: 1px solid rgba(122, 79, 63, 0.12);
-  border-radius: 8px;
+  border-radius: 14px;
   color: var(--color-cream-soft);
   background:
-    linear-gradient(140deg, rgba(86, 54, 45, 0.98), rgba(122, 79, 63, 0.9)),
+    linear-gradient(145deg, rgba(71, 46, 38, 0.98), rgba(122, 76, 57, 0.92)),
     var(--color-coffee);
   box-shadow: var(--shadow-card);
 }
@@ -25,13 +25,13 @@
   color: var(--color-caramel-soft);
   font-size: 0.78rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .home-hero h1 {
   margin: 0;
-  font-size: clamp(2.2rem, 10vw, 4rem);
+  font-size: clamp(2.25rem, 11vw, 4rem);
   line-height: 1;
 }
 
@@ -44,9 +44,9 @@
 
 .home-hero__cup {
   position: relative;
-  width: 4.8rem;
+  width: 4.45rem;
   aspect-ratio: 1;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-caramel);
   box-shadow: inset 0 -0.8rem 0 rgba(86, 54, 45, 0.16);
 }
@@ -68,7 +68,7 @@
   content: '';
   border: 0.28rem solid var(--color-coffee-dark);
   border-left: 0;
-  border-radius: 0 999px 999px 0;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
 }
 
 .home-hero__cup span {
@@ -82,10 +82,11 @@
 }
 
 .home-actions {
-  display: flex;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(4.7rem, 1fr));
+  gap: 0.5rem;
   overflow-x: auto;
-  padding-bottom: 0.1rem;
+  padding: 0.1rem 0.02rem 0.2rem;
   scrollbar-width: none;
 }
 
@@ -95,15 +96,15 @@
 
 .home-actions button,
 .home-panel__header button {
-  min-height: 2.35rem;
+  min-height: 2.55rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.85rem;
+  padding: 0 0.7rem;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   color: var(--color-coffee-dark);
-  background: var(--color-cream-card);
+  background: rgba(255, 253, 248, 0.92);
   font-size: 0.88rem;
   font-weight: 800;
   text-decoration: none;
@@ -114,23 +115,23 @@
 .home-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem;
+  gap: 0.65rem;
 }
 
 .home-stat,
 .home-panel,
 .home-backup {
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: rgba(255, 250, 243, 0.9);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.9);
   box-shadow: var(--shadow-card);
 }
 
 .home-stat {
   display: grid;
   gap: 0.25rem;
-  min-height: 6.2rem;
-  padding: 0.85rem;
+  min-height: 5.8rem;
+  padding: 0.82rem;
 }
 
 .home-stat span,
@@ -162,13 +163,13 @@
 
 .home-panels {
   display: grid;
-  gap: 0.875rem;
+  gap: 0.85rem;
 }
 
 .home-panel {
   display: grid;
   gap: 0.7rem;
-  padding: 0.9rem;
+  padding: 0.85rem;
 }
 
 .home-panel__header {
@@ -193,8 +194,8 @@
   display: grid;
   gap: 0.7rem;
   padding: 0.72rem;
-  border-radius: 8px;
-  background: rgba(247, 234, 214, 0.58);
+  border-radius: var(--radius-card);
+  background: rgba(248, 237, 218, 0.58);
 }
 
 .home-bean {
@@ -207,9 +208,9 @@
   place-items: center;
   width: 3rem;
   aspect-ratio: 1;
-  border-radius: 8px;
-  color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  border-radius: var(--radius-card);
+  color: var(--color-coffee-dark);
+  background: linear-gradient(180deg, var(--color-caramel-soft), var(--color-caramel));
   font-size: 1.2rem;
   font-weight: 900;
 }
@@ -221,7 +222,7 @@
 
 .home-brew span {
   padding: 0.25rem 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-coffee-dark);
   background: var(--color-caramel-soft);
   font-size: 0.78rem;
@@ -252,11 +253,11 @@
 .home-overview__cache {
   margin: 0;
   padding: 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 
 .home-overview__error {
-  color: #7d2e22;
+  color: var(--color-danger);
   background: rgba(193, 104, 74, 0.18);
 }
 
@@ -267,11 +268,11 @@
 
 @media (max-width: 520px) {
   .home-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .home-hero__cup {
-    width: 4.2rem;
+    width: 3.65rem;
   }
 }
 
