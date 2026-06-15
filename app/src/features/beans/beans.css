@@ -382,7 +382,17 @@
 .bean-detail__anchor {
   display: grid;
   place-items: center;
+  color: var(--color-cream-soft);
   text-decoration: none;
+}
+
+.bean-detail__section .bean-detail__anchor {
+  color: var(--color-cream-soft);
+}
+
+.bean-detail__anchor:focus-visible {
+  outline: 3px solid rgba(227, 170, 120, 0.48);
+  outline-offset: 2px;
 }
 
 @media (min-width: 760px) {
