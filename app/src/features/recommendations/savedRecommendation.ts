@@ -37,6 +37,7 @@ export function buildSavedRecommendationPayload({
       referenceBeans: ruleRecommendation.references.map((candidate) =>
         candidate.bean ? summarizeBean(candidate.bean) : null,
       ),
+      templateCandidates: ruleRecommendation.templateCandidates,
     },
     recommendation: {
       type: 'brew_recommendation',
@@ -47,6 +48,7 @@ export function buildSavedRecommendationPayload({
         recommended: ruleRecommendation.primary.recommended,
         score: ruleRecommendation.primary.score,
         reasons: ruleRecommendation.primary.reasons,
+        templateCandidates: ruleRecommendation.templateCandidates,
       },
       ai: {
         configured: aiRecommendation?.configured ?? false,

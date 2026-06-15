@@ -5,6 +5,7 @@ import type {
   RecommendedBrewParameters,
   RuleRecommendationResult,
 } from './recommendationTypes'
+import { selectTemplateCandidates } from './templateRecommendation'
 
 export function generateRuleRecommendation(
   targetBean: Bean,
@@ -27,6 +28,7 @@ export function generateRuleRecommendation(
     targetBean,
     primary: candidates[0],
     references: candidates.slice(0, 3),
+    templateCandidates: selectTemplateCandidates(targetBean),
   }
 }
 

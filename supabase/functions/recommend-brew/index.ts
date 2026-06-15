@@ -2,6 +2,7 @@ type RecommendationRequest = {
   targetBean: unknown
   primaryRecommendation: unknown
   references: unknown[]
+  templateCandidates?: unknown[]
 }
 
 const corsHeaders = {
@@ -52,7 +53,7 @@ Deno.serve(async (request) => {
             {
               role: 'system',
               content:
-                '你是一个谨慎的手冲咖啡助手。只能基于用户提供的豆子信息、规则推荐参数和历史记录给建议，不要编造不存在的设备或数据。输出中文，简洁、可执行。',
+                '你是一个谨慎的手冲咖啡助手。只能基于用户提供的豆子信息、候选冲煮模板、规则推荐参数和历史记录给建议，不要编造不存在的设备、数据或冲煮方法。输出中文，简洁、可执行。',
             },
             {
               role: 'user',
@@ -91,10 +92,13 @@ function buildPrompt(payload: RecommendationRequest) {
   return [
     '请基于以下 JSON 生成第一杯手冲建议。',
     '要求：',
-    '1. 先给出建议参数。',
-    '2. 解释为什么这些参数适合这支豆子。',
-    '3. 给出偏酸、偏苦、口感薄、口感重时的调整方向。',
-    '4. 不要输出超出 JSON 的虚构事实。',
+    '1. 必须先从 templateCandidates 中选择 1 个模板作为基础，并写出模板名。',
+    '2. 不要创造 templateCandidates 之外的新冲煮方法；可以只微调粉量、水量、粉水比、水温、研磨、分段时间和注水解释。',
+    '3. 先给出最终建议参数和分段注水步骤。',
+    '4. 解释为什么这个模板适合这支豆子，以及你做了哪些微调。',
+    '5. 给出偏酸、偏苦、口感薄、口感重时的下一次调整方向。',
+    '6. 如果 templateCandidates 为空，明确说明缺少模板上下文，并只基于历史规则参数给保守建议。',
+    '7. 不要输出超出 JSON 的虚构事实。',
     JSON.stringify(payload, null, 2),
   ].join('\n')
 }

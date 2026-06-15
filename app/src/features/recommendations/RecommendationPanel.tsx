@@ -273,6 +273,25 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
               </article>
             ))}
           </div>
+
+          <div className="recommendation-templates">
+            <h3>候选冲煮模板</h3>
+            <p>DeepSeek 会从这些模板里选择并微调，不会凭空编新方案。</p>
+            {ruleRecommendation.templateCandidates.map((template) => (
+              <article key={template.id}>
+                <div>
+                  <strong>{template.name}</strong>
+                  {template.isChampionReference ? <em>冠军参考</em> : null}
+                </div>
+                <span>
+                  {[template.brewer, template.ratio, template.waterTemperature, template.targetTime]
+                    .filter(Boolean)
+                    .join(' / ')}
+                </span>
+                <small>{template.reasons.join('，')}</small>
+              </article>
+            ))}
+          </div>
         </div>
       ) : null}
 

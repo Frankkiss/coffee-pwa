@@ -43,6 +43,7 @@ export async function requestAiRecommendation(
       targetBean: recommendation.targetBean,
       primaryRecommendation: recommendation.primary,
       references: recommendation.references,
+      templateCandidates: recommendation.templateCandidates,
     },
   })
 

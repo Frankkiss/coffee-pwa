@@ -35,7 +35,8 @@
 .recommendation-ai,
 .recommendation-save,
 .recommendation-saved,
-.recommendation-references {
+.recommendation-references,
+.recommendation-templates {
   display: grid;
   gap: 0.875rem;
   padding: 1rem;
@@ -215,6 +216,40 @@
 }
 
 .recommendation-references span {
+  color: var(--color-muted);
+}
+
+.recommendation-templates > p {
+  color: var(--color-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.recommendation-templates article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 248, 237, 0.86);
+  border: 1px solid var(--color-border);
+}
+
+.recommendation-templates article div {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.recommendation-templates em {
+  color: var(--color-caramel);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.recommendation-templates span,
+.recommendation-templates small {
   color: var(--color-muted);
 }
 

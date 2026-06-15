@@ -111,6 +111,8 @@ describe('generateRuleRecommendation', () => {
     expect(result?.primary.recommended.ratio).toBe('1:16')
     expect(result?.primary.reasons).toContain('处理法相同')
     expect(result?.primary.reasons).toContain('已钉为候选方案')
+    expect(result?.templateCandidates.length).toBeGreaterThan(0)
+    expect(result?.templateCandidates[0].isChampionReference).toBe(false)
   })
 
   it('returns null when brew logs do not contain usable parameters', () => {

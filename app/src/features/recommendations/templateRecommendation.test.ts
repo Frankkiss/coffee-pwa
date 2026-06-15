@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest'
+import type { Bean } from '../beans/beanTypes'
+import { selectTemplateCandidates } from './templateRecommendation'
+
+function createBean(overrides: Partial<Bean> = {}): Bean {
+  return {
+    id: 'bean-1',
+    user_id: 'user-1',
+    name: '埃塞俄比亚 水洗',
+    roaster: null,
+    origin: '埃塞俄比亚',
+    farm_or_station: null,
+    process: '水洗',
+    variety: 'Heirloom',
+    altitude_meters: 1950,
+    roast_date: null,
+    roast_level: '浅烘',
+    flavor_tags: ['柑橘', '花香'],
+    flavor_notes: null,
+    net_weight_grams: null,
+    remaining_grams: null,
+    price: null,
+    purchase_date: null,
+    source_url: null,
+    image_url: null,
+    notes: null,
+    created_at: '2026-06-12T01:00:00.000Z',
+    updated_at: '2026-06-12T01:00:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+    ...overrides,
+  }
+}
+
+describe('selectTemplateCandidates', () => {
+  it('selects daily templates that match a washed bright light roast bean', () => {
+    const candidates = selectTemplateCandidates(createBean())
+
+    expect(candidates).toHaveLength(3)
+    expect(candidates[0].isChampionReference).toBe(false)
+    expect(candidates[0].reasons.join(' / ')).toContain('处理法匹配')
+    expect(candidates.some((candidate) => candidate.name.includes('水洗浅烘'))).toBe(true)
+  })
+
+  it('keeps champion references optional and never first', () => {
+    const candidates = selectTemplateCandidates(
+      createBean({
+        process: '日晒',
+        roast_level: '中浅烘',
+        flavor_tags: ['甜感', '莓果', '层次'],
+      }),
+    )
+
+    expect(candidates).toHaveLength(3)
+    expect(candidates[0].isChampionReference).toBe(false)
+    expect(candidates.filter((candidate) => candidate.isChampionReference).length).toBeLessThanOrEqual(1)
+  })
+})

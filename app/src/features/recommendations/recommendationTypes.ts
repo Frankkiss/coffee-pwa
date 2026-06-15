@@ -18,10 +18,24 @@ export type BrewRecommendationCandidate = {
   recommended: RecommendedBrewParameters
 }
 
+export type BrewTemplateCandidate = {
+  id: string
+  name: string
+  brewer: string
+  ratio: string
+  waterTemperature: string
+  targetTime: string
+  pourSummary: string
+  isChampionReference: boolean
+  score: number
+  reasons: string[]
+}
+
 export type RuleRecommendationResult = {
   targetBean: Bean
   primary: BrewRecommendationCandidate
   references: BrewRecommendationCandidate[]
+  templateCandidates: BrewTemplateCandidate[]
 }
 
 export type AiRecommendationResponse = {

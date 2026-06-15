@@ -109,6 +109,20 @@ function createRuleRecommendation(): RuleRecommendationResult {
         },
       },
     ],
+    templateCandidates: [
+      {
+        id: 'classic-v60-three-pour',
+        name: '经典三段式 V60',
+        brewer: 'V60',
+        ratio: '1:16',
+        waterTemperature: '91-93°C',
+        targetTime: '2:20-2:50',
+        pourSummary: '1. 0:00 到 40g',
+        isChampionReference: false,
+        score: 20,
+        reasons: ['处理法匹配'],
+      },
+    ],
   }
 }
 
@@ -132,6 +146,12 @@ describe('buildSavedRecommendationPayload', () => {
       targetBean: { id: 'bean-1', name: '埃塞俄比亚 花魁' },
       primaryBrewLogId: 'brew-1',
       referenceBrewLogIds: ['brew-1'],
+      templateCandidates: [
+        {
+          id: 'classic-v60-three-pour',
+          name: '经典三段式 V60',
+        },
+      ],
     })
     expect(payload.recommendation).toMatchObject({
       type: 'brew_recommendation',
@@ -142,6 +162,12 @@ describe('buildSavedRecommendationPayload', () => {
           waterTemperatureC: 92,
         },
         reasons: ['处理法相同', '评分较高'],
+        templateCandidates: [
+          {
+            id: 'classic-v60-three-pour',
+            name: '经典三段式 V60',
+          },
+        ],
       },
       ai: {
         configured: true,
