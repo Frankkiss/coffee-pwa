@@ -12,6 +12,8 @@ import {
   loadRuleRecommendationData,
   requestAiRecommendation,
   saveRecommendation,
+  softDeleteSavedRecommendation,
+  updateSavedRecommendationAccepted,
 } from './recommendationService'
 import { buildSavedRecommendationPayload } from './savedRecommendation'
 import {
@@ -45,6 +47,8 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
   const [isLoadingSaved, setIsLoadingSaved] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [updatingSavedId, setUpdatingSavedId] = useState<string | null>(null)
+  const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [savedError, setSavedError] = useState('')
@@ -173,6 +177,41 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       setError(err instanceof Error ? err.message : '保存推荐失败')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleToggleSavedAccepted(recommendation: SavedRecommendationCard) {
+    setSavedError('')
+    setUpdatingSavedId(recommendation.id)
+
+    try {
+      await updateSavedRecommendationAccepted(supabase, recommendation.id, !recommendation.accepted)
+      await refreshSavedRecommendations()
+    } catch (err) {
+      setSavedError(err instanceof Error ? err.message : '更新推荐状态失败')
+    } finally {
+      setUpdatingSavedId(null)
+    }
+  }
+
+  async function handleDeleteSavedRecommendation(recommendation: SavedRecommendationCard) {
+    const confirmed = window.confirm(`确定删除「${recommendation.targetName}」的这条推荐吗？数据会软删除。`)
+
+    if (!confirmed) {
+      return
+    }
+
+    setSavedError('')
+    setUpdatingSavedId(recommendation.id)
+
+    try {
+      await softDeleteSavedRecommendation(supabase, recommendation.id)
+      await refreshSavedRecommendations()
+      setExpandedSavedId((current) => (current === recommendation.id ? null : current))
+    } catch (err) {
+      setSavedError(err instanceof Error ? err.message : '删除推荐失败')
+    } finally {
+      setUpdatingSavedId(null)
     }
   }
 
@@ -344,6 +383,53 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
             </div>
             <p>{recommendation.parameterSummary}</p>
             <span>{recommendation.aiSummary}</span>
+            <div className="recommendation-saved-card__actions">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedSavedId((current) =>
+                    current === recommendation.id ? null : recommendation.id,
+                  )
+                }
+              >
+                {expandedSavedId === recommendation.id ? '收起详情' : '查看详情'}
+              </button>
+              <button
+                type="button"
+                disabled={updatingSavedId === recommendation.id}
+                onClick={() => handleToggleSavedAccepted(recommendation)}
+              >
+                {recommendation.accepted ? '取消采纳' : '标记采纳'}
+              </button>
+              <button
+                type="button"
+                className="recommendation-danger-button"
+                disabled={updatingSavedId === recommendation.id}
+                onClick={() => handleDeleteSavedRecommendation(recommendation)}
+              >
+                删除
+              </button>
+            </div>
+            {expandedSavedId === recommendation.id ? (
+              <div className="recommendation-saved-detail">
+                <dl>
+                  <div>
+                    <dt>状态</dt>
+                    <dd>{recommendation.acceptedLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>候选模板</dt>
+                    <dd>{recommendation.templateNames.join(' / ') || '未记录'}</dd>
+                  </div>
+                  <div>
+                    <dt>规则理由</dt>
+                    <dd>{recommendation.ruleReasons.join('；') || '未记录'}</dd>
+                  </div>
+                </dl>
+                <strong>DeepSeek 完整建议</strong>
+                <p>{recommendation.aiDetail || '仅保存了规则推荐。'}</p>
+              </div>
+            ) : null}
           </article>
         ))}
         {savedError ? <p className="recommendation-error">{savedError}</p> : null}

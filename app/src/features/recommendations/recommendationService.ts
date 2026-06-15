@@ -91,3 +91,32 @@ export async function listSavedRecommendations(supabase: SupabaseClient) {
 
   return (data ?? []) as SavedRecommendationRow[]
 }
+
+export async function updateSavedRecommendationAccepted(
+  supabase: SupabaseClient,
+  id: string,
+  accepted: boolean,
+) {
+  const { error } = await supabase
+    .from('ai_recommendations')
+    .update({ accepted })
+    .eq('id', id)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+}
+
+export async function softDeleteSavedRecommendation(
+  supabase: SupabaseClient,
+  id: string,
+) {
+  const { error } = await supabase
+    .from('ai_recommendations')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+}

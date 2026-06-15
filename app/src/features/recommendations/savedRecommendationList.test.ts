@@ -24,6 +24,15 @@ describe('saved recommendation list view model', () => {
             totalTimeSeconds: 150,
             grindSetting: '22 clicks',
           },
+          reasons: ['处理法相同', '候选模板匹配'],
+          templateCandidates: [
+            {
+              name: '经典三段式 V60',
+            },
+            {
+              name: '水洗浅烘明亮模板',
+            },
+          ],
         },
         ai: {
           suggestion:
@@ -42,8 +51,13 @@ describe('saved recommendation list view model', () => {
       parameterSummary: '手冲 / V60 / 1:16 / 92°C / 150s / 22 clicks',
       aiSummary:
         '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
+      aiDetail:
+        '建议从 1:16、92°C、V60 开始，前段注水轻柔，观察酸甜平衡。如果偏酸，可以略微提高水温或拉长总时长。',
+      ruleReasons: ['处理法相同', '候选模板匹配'],
+      templateNames: ['经典三段式 V60', '水洗浅烘明亮模板'],
       modelName: 'deepseek-v4-pro',
       accepted: false,
+      acceptedLabel: '未采纳',
     })
   })
 

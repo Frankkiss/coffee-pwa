@@ -14,8 +14,12 @@ export type SavedRecommendationCard = {
   createdAtLabel: string
   parameterSummary: string
   aiSummary: string
+  aiDetail: string
+  ruleReasons: string[]
+  templateNames: string[]
   modelName: string | null
   accepted: boolean
+  acceptedLabel: string
 }
 
 const maxSummaryLength = 120
@@ -33,8 +37,12 @@ export function toSavedRecommendationCard(row: SavedRecommendationRow): SavedRec
     createdAtLabel: formatShortDate(row.created_at),
     parameterSummary: getParameterSummary(row),
     aiSummary: getAiSummary(row),
+    aiDetail: getAiDetail(row),
+    ruleReasons: getRuleReasons(row),
+    templateNames: getTemplateNames(row),
     modelName: row.model_name,
     accepted: row.accepted === true,
+    acceptedLabel: row.accepted === true ? '已采纳' : '未采纳',
   }
 }
 
@@ -76,7 +84,7 @@ function getParameterSummary(row: SavedRecommendationRow) {
 }
 
 function getAiSummary(row: SavedRecommendationRow) {
-  const suggestion = getNestedString(row.recommendation, ['ai', 'suggestion'])
+  const suggestion = getAiDetail(row)
 
   if (!suggestion) {
     return '仅保存了规则推荐。'
@@ -85,6 +93,22 @@ function getAiSummary(row: SavedRecommendationRow) {
   return suggestion.length > maxSummaryLength
     ? `${suggestion.slice(0, maxSummaryLength)}...`
     : suggestion
+}
+
+function getAiDetail(row: SavedRecommendationRow) {
+  return getNestedString(row.recommendation, ['ai', 'suggestion']) ?? ''
+}
+
+function getRuleReasons(row: SavedRecommendationRow) {
+  return getNestedStringArray(row.recommendation, ['rule', 'reasons'])
+}
+
+function getTemplateNames(row: SavedRecommendationRow) {
+  const candidates = getNestedArray(row.recommendation, ['rule', 'templateCandidates'])
+
+  return candidates
+    .map((candidate) => getString(isRecord(candidate) ? candidate.name : null))
+    .filter((name): name is string => Boolean(name))
 }
 
 function formatShortDate(value: string) {
@@ -119,6 +143,23 @@ function getNestedString(value: unknown, path: string[]) {
   }, value)
 
   return getString(leaf)
+}
+
+function getNestedArray(value: unknown, path: string[]) {
+  const leaf = path.reduce<unknown>((current, key) => {
+    if (!isRecord(current)) {
+      return null
+    }
+    return current[key]
+  }, value)
+
+  return Array.isArray(leaf) ? leaf : []
+}
+
+function getNestedStringArray(value: unknown, path: string[]) {
+  return getNestedArray(value, path)
+    .map(getString)
+    .filter((item): item is string => Boolean(item))
 }
 
 function getString(value: unknown) {

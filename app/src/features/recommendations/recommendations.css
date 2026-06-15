@@ -206,6 +206,75 @@
   line-height: 1.5;
 }
 
+.recommendation-saved-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.recommendation-saved-card__actions button {
+  min-height: 2.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-coffee-dark);
+  background: var(--color-cream-soft);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.45rem 0.7rem;
+}
+
+.recommendation-saved-card__actions button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.recommendation-saved-card__actions .recommendation-danger-button {
+  color: #8f3327;
+  border-color: rgba(143, 51, 39, 0.28);
+}
+
+.recommendation-saved-detail {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.recommendation-saved-detail dl {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.recommendation-saved-detail dl div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.recommendation-saved-detail dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.recommendation-saved-detail dd {
+  margin: 0;
+  color: var(--color-coffee-dark);
+  font-weight: 700;
+}
+
+.recommendation-saved-detail strong {
+  color: var(--color-coffee-dark);
+}
+
+.recommendation-saved-detail p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .recommendation-references article {
   display: grid;
   gap: 0.25rem;
