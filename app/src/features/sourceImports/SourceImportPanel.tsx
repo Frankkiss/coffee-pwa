@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { createBean } from '../beans/beanService'
 import { toBeanInsertPayload } from '../beans/beanForm'
+import { BlendComponentEditor } from '../beans/BlendComponentEditor'
 import type { Bean, BeanForm } from '../beans/beanTypes'
 import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
@@ -358,15 +359,21 @@ export function SourceImportPanel({
           </div>
 
           {form.beanType === 'blend' ? (
-            <label>
-              拼配说明
-              <textarea
-                value={form.blendComponentsText}
-                onChange={(event) => updateField('blendComponentsText', event.target.value)}
-                placeholder={'可写比例，也可以不写比例。例如：\n巴西 日晒 黄波旁，提供坚果和甜感\n埃塞俄比亚 水洗 原生种，提供花香和柑橘'}
-                rows={4}
+            <>
+              <BlendComponentEditor
+                components={form.blendComponents}
+                onChange={(components) => updateField('blendComponents', components)}
               />
-            </label>
+              <label>
+                拼配说明
+                <textarea
+                  value={form.blendNotes}
+                  onChange={(event) => updateField('blendNotes', event.target.value)}
+                  placeholder="例如：整体坚果、奶油、柑橘调，适合冰手冲或奶咖。"
+                  rows={3}
+                />
+              </label>
+            </>
           ) : null}
 
           <label>

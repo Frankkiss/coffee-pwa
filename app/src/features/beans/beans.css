@@ -135,6 +135,80 @@
   background: rgba(193, 104, 74, 0.16);
 }
 
+.blend-editor {
+  display: grid;
+  gap: 0.875rem;
+  padding: 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(227, 170, 120, 0.12);
+}
+
+.blend-editor__header {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.blend-editor__header h3,
+.blend-editor__header p,
+.blend-editor__card-title strong {
+  margin: 0;
+}
+
+.blend-editor__header h3 {
+  color: var(--color-coffee-dark);
+  font-size: 1rem;
+}
+
+.blend-editor__header p {
+  color: var(--color-muted);
+  font-size: 0.84rem;
+}
+
+.blend-editor__header button,
+.blend-editor__card-title button {
+  min-height: 2.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-coffee);
+  background: var(--color-cream-soft);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.blend-editor__list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.blend-editor__card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 248, 237, 0.78);
+}
+
+.blend-editor__card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--color-coffee-dark);
+}
+
+.blend-editor__card-title button {
+  min-width: 4.5rem;
+  color: #7d2e22;
+  background: rgba(193, 104, 74, 0.12);
+}
+
+.blend-editor__grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .bean-filters {
   display: grid;
   gap: 0.75rem;
@@ -407,6 +481,15 @@
 
   .bean-form__actions {
     grid-template-columns: 1fr auto;
+  }
+
+  .blend-editor__header {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .blend-editor__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bean-detail__fields {

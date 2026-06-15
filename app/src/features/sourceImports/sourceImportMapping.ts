@@ -1,7 +1,6 @@
 import { createInitialBeanForm } from '../beans/beanForm'
 import type { BeanBlendComponent, BeanForm } from '../beans/beanTypes'
 import {
-  formatBlendComponents,
   normalizeBeanType,
   normalizeBlendComponents,
 } from '../beans/blendComponents'
@@ -54,8 +53,8 @@ export function createBeanFormFromSourceDraft(draft: SourceImportDraft): BeanFor
     price: numberToFormValue(draft.price),
     sourceUrl: draft.sourceUrl,
     beanType: draft.beanType,
-    blendComponentsText:
-      draft.blendNotes || formatBlendComponents(draft.blendComponents),
+    blendComponents: draft.blendComponents,
+    blendNotes: draft.blendNotes,
     notes: draft.notes,
   }
 }

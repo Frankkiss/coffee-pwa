@@ -28,8 +28,25 @@ describe('toBeanInsertPayload', () => {
       purchaseDate: '2026-06-10',
       sourceUrl: 'https://example.com/bean',
       beanType: 'blend' as const,
-      blendComponentsText:
-        '60% 巴西 日晒 黄波旁，提供坚果和甜感\n40% 埃塞俄比亚 水洗 原生种，提供花香和柑橘',
+      blendComponents: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '黄波旁',
+          percentage: 60,
+          role: '主体甜感',
+          notes: '提供坚果和甜感',
+        },
+        {
+          origin: '埃塞俄比亚',
+          process: '水洗',
+          variety: '原生种',
+          percentage: null,
+          role: '香气',
+          notes: '提供花香和柑橘',
+        },
+      ],
+      blendNotes: '整体坚果、花香和柑橘调，适合冰手冲。',
       notes: '第一次录入',
     }
 
@@ -58,20 +75,19 @@ describe('toBeanInsertPayload', () => {
           process: '日晒',
           variety: '黄波旁',
           percentage: 60,
-          role: '',
+          role: '主体甜感',
           notes: '提供坚果和甜感',
         },
         {
           origin: '埃塞俄比亚',
           process: '水洗',
           variety: '原生种',
-          percentage: 40,
-          role: '',
+          percentage: null,
+          role: '香气',
           notes: '提供花香和柑橘',
         },
       ],
-      blend_notes:
-        '60% 巴西 日晒 黄波旁，提供坚果和甜感\n40% 埃塞俄比亚 水洗 原生种，提供花香和柑橘',
+      blend_notes: '整体坚果、花香和柑橘调，适合冰手冲。',
       notes: '第一次录入',
     })
   })
@@ -152,7 +168,17 @@ describe('bean edit helpers', () => {
       flavorTags: '柑橘, 花香',
       remainingGrams: '60',
       beanType: 'blend',
-      blendComponentsText: '60% 巴西 日晒 黄波旁，主体甜感',
+      blendComponents: [
+        {
+          origin: '巴西',
+          process: '日晒',
+          variety: '黄波旁',
+          percentage: 60,
+          role: '',
+          notes: '主体甜感',
+        },
+      ],
+      blendNotes: '60% 巴西 日晒 黄波旁，主体甜感',
       notes: '需要复购',
     })
   })

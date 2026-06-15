@@ -57,7 +57,8 @@ export type BeanForm = {
   purchaseDate: string
   sourceUrl: string
   beanType: BeanType
-  blendComponentsText: string
+  blendComponents: BeanBlendComponent[]
+  blendNotes: string
   notes: string
 }
 

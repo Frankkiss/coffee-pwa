@@ -1,6 +1,12 @@
-import type { Bean, BeanForm, BeanInsertPayload, BeanUpdatePayload } from './beanTypes'
+import type {
+  Bean,
+  BeanBlendComponent,
+  BeanForm,
+  BeanInsertPayload,
+  BeanUpdatePayload,
+} from './beanTypes'
 import {
-  formatBlendComponents,
+  normalizeBlendComponents,
   normalizeBeanType,
   parseBlendComponentsText,
 } from './blendComponents'
@@ -24,7 +30,8 @@ export function createInitialBeanForm(): BeanForm {
     purchaseDate: '',
     sourceUrl: '',
     beanType: 'single_origin',
-    blendComponentsText: '',
+    blendComponents: [],
+    blendNotes: '',
     notes: '',
   }
 }
@@ -55,7 +62,8 @@ export function createBeanFormFromBean(bean: Bean): BeanForm {
     purchaseDate: bean.purchase_date ?? '',
     sourceUrl: bean.source_url ?? '',
     beanType: normalizeBeanType(bean.bean_type),
-    blendComponentsText: bean.blend_notes ?? formatBlendComponents(bean.blend_components ?? []),
+    blendComponents: createEditableBlendComponents(bean),
+    blendNotes: bean.blend_notes ?? '',
     notes: bean.notes ?? '',
   }
 }
@@ -87,12 +95,22 @@ export function toBeanUpdatePayload(form: BeanForm): BeanUpdatePayload {
     bean_type: normalizeBeanType(form.beanType),
     blend_components:
       normalizeBeanType(form.beanType) === 'blend'
-        ? parseBlendComponentsText(form.blendComponentsText)
+        ? normalizeBlendComponents(form.blendComponents)
         : [],
     blend_notes:
-      normalizeBeanType(form.beanType) === 'blend' ? optionalText(form.blendComponentsText) : null,
+      normalizeBeanType(form.beanType) === 'blend' ? optionalText(form.blendNotes) : null,
     notes: optionalText(form.notes),
   }
+}
+
+function createEditableBlendComponents(bean: Bean): BeanBlendComponent[] {
+  const structuredComponents = normalizeBlendComponents(bean.blend_components ?? [])
+
+  if (structuredComponents.length > 0) {
+    return structuredComponents
+  }
+
+  return parseBlendComponentsText(bean.blend_notes ?? '')
 }
 
 function numberToFormValue(value: number | null) {
