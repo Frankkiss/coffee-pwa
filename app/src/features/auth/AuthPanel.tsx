@@ -1,13 +1,37 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
-import { BackupPanel } from '../backup/BackupPanel'
-import { BeanDashboard } from '../beans/BeanDashboard'
-import { BrewTemplatePanel } from '../brewTemplates/BrewTemplatePanel'
 import { HomeOverview } from '../home/HomeOverview'
-import { RecommendationPanel } from '../recommendations/RecommendationPanel'
+import type { HomeNavigationTarget } from '../home/HomeOverview'
 import { getAuthRedirectTo } from './authRedirect'
 import './auth.css'
+
+const BackupPanel = lazy(() =>
+  import('../backup/BackupPanel').then((module) => ({ default: module.BackupPanel })),
+)
+const BeanDashboard = lazy(() =>
+  import('../beans/BeanDashboard').then((module) => ({ default: module.BeanDashboard })),
+)
+const BrewTemplatePanel = lazy(() =>
+  import('../brewTemplates/BrewTemplatePanel').then((module) => ({
+    default: module.BrewTemplatePanel,
+  })),
+)
+const RecommendationPanel = lazy(() =>
+  import('../recommendations/RecommendationPanel').then((module) => ({
+    default: module.RecommendationPanel,
+  })),
+)
+
+type AppView = 'home' | HomeNavigationTarget
+
+const appNavItems: Array<{ view: AppView; label: string; shortLabel: string }> = [
+  { view: 'home', label: '首页概览', shortLabel: '首页' },
+  { view: 'beans', label: '豆仓', shortLabel: '豆仓' },
+  { view: 'brewTemplates', label: '模板', shortLabel: '模板' },
+  { view: 'recommendations', label: '推荐', shortLabel: '推荐' },
+  { view: 'backup', label: '备份', shortLabel: '备份' },
+]
 
 export function AuthPanel() {
   const [email, setEmail] = useState('')
@@ -15,6 +39,7 @@ export function AuthPanel() {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeView, setActiveView] = useState<AppView>('home')
   const configError = getSupabaseConfigError()
   const redirectTo = useMemo(
     () => getAuthRedirectTo(window.location.origin, import.meta.env.BASE_URL),
@@ -75,9 +100,39 @@ export function AuthPanel() {
     setStatus('已退出登录。')
   }
 
+  function renderActiveView() {
+    if (!session || !supabase) {
+      return null
+    }
+
+    if (activeView === 'home') {
+      return (
+        <HomeOverview
+          session={session}
+          supabase={supabase}
+          onNavigate={setActiveView}
+        />
+      )
+    }
+
+    if (activeView === 'brewTemplates') {
+      return <BrewTemplatePanel session={session} supabase={supabase} />
+    }
+
+    if (activeView === 'beans') {
+      return <BeanDashboard session={session} supabase={supabase} />
+    }
+
+    if (activeView === 'recommendations') {
+      return <RecommendationPanel session={session} supabase={supabase} />
+    }
+
+    return <BackupPanel session={session} supabase={supabase} />
+  }
+
   if (session && supabase) {
     return (
-      <div className="auth-layout">
+      <div className="auth-layout auth-layout--app">
         <header className="account-bar">
           <div>
             <span>当前登录邮箱</span>
@@ -88,11 +143,25 @@ export function AuthPanel() {
           </button>
         </header>
         {status ? <p className="auth-status">{status}</p> : null}
-        <HomeOverview session={session} supabase={supabase} />
-        <BrewTemplatePanel session={session} supabase={supabase} />
-        <BeanDashboard session={session} supabase={supabase} />
-        <RecommendationPanel session={session} supabase={supabase} />
-        <BackupPanel session={session} supabase={supabase} />
+        <main className="app-view" aria-label="咖Day 当前页面">
+          <Suspense fallback={<p className="app-view__loading">正在打开页面...</p>}>
+            {renderActiveView()}
+          </Suspense>
+        </main>
+        <nav className="app-bottom-nav" aria-label="咖Day 页面导航">
+          {appNavItems.map((item) => (
+            <button
+              key={item.view}
+              type="button"
+              className={activeView === item.view ? 'is-active' : ''}
+              aria-current={activeView === item.view ? 'page' : undefined}
+              onClick={() => setActiveView(item.view)}
+            >
+              <span>{item.shortLabel}</span>
+              <small>{item.label}</small>
+            </button>
+          ))}
+        </nav>
       </div>
     )
   }

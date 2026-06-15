@@ -19,6 +19,7 @@ import './home.css'
 type HomeOverviewProps = {
   session: Session
   supabase: SupabaseClient
+  onNavigate: (view: HomeNavigationTarget) => void
 }
 
 type HomeRows = {
@@ -26,15 +27,21 @@ type HomeRows = {
   brewLogs: BrewLog[]
 }
 
-const quickActions = [
-  { label: '新增咖啡豆', href: '#bean-dashboard' },
-  { label: '来源导入', href: '#source-import' },
-  { label: '记录冲煮', href: '#brew-log' },
-  { label: 'AI 推荐', href: '#recommendation' },
-  { label: '备份导出', href: '#backup' },
+export type HomeNavigationTarget =
+  | 'beans'
+  | 'brewTemplates'
+  | 'recommendations'
+  | 'backup'
+
+const quickActions: Array<{ label: string; view: HomeNavigationTarget }> = [
+  { label: '新增咖啡豆', view: 'beans' },
+  { label: '来源导入', view: 'beans' },
+  { label: '冲煮模板', view: 'brewTemplates' },
+  { label: 'AI 推荐', view: 'recommendations' },
+  { label: '备份导出', view: 'backup' },
 ]
 
-export function HomeOverview({ session, supabase }: HomeOverviewProps) {
+export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProps) {
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
@@ -152,9 +159,9 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
 
       <nav className="home-actions" aria-label="首页快捷操作">
         {quickActions.map((action) => (
-          <a key={action.href} href={action.href}>
+          <button key={action.label} type="button" onClick={() => onNavigate(action.view)}>
             {action.label}
-          </a>
+          </button>
         ))}
       </nav>
 
@@ -177,7 +184,9 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
         <section className="home-panel" aria-labelledby="home-beans-title">
           <div className="home-panel__header">
             <h2 id="home-beans-title">最近豆子</h2>
-            <a href="#bean-dashboard">管理</a>
+            <button type="button" onClick={() => onNavigate('beans')}>
+              管理
+            </button>
           </div>
           {isLoading ? <p className="home-empty">正在读取豆仓...</p> : null}
           {!isLoading && overview.currentBeans.length === 0 ? (
@@ -200,7 +209,9 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
         <section className="home-panel" aria-labelledby="home-brews-title">
           <div className="home-panel__header">
             <h2 id="home-brews-title">最近冲煮</h2>
-            <a href="#brew-log">记录</a>
+            <button type="button" onClick={() => onNavigate('beans')}>
+              记录
+            </button>
           </div>
           {isLoading ? <p className="home-empty">正在读取冲煮记录...</p> : null}
           {!isLoading && overview.recentBrews.length === 0 ? (
@@ -218,14 +229,15 @@ export function HomeOverview({ session, supabase }: HomeOverviewProps) {
         </section>
       </div>
 
-      <a
+      <button
+        type="button"
         className={`home-backup home-backup--${overview.backup.tone}`}
-        href="#backup"
+        onClick={() => onNavigate('backup')}
         aria-label="查看备份导出"
       >
         <strong>{overview.backup.title}</strong>
         <span>{overview.backup.message}</span>
-      </a>
+      </button>
     </section>
   )
 }

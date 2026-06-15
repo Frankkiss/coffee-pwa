@@ -4,6 +4,79 @@
   width: min(100%, 56rem);
 }
 
+.auth-layout--app {
+  padding-bottom: 5.8rem;
+}
+
+.app-view {
+  display: grid;
+  min-height: 20rem;
+}
+
+.app-view__loading {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-muted);
+  background: var(--color-cream-card);
+  box-shadow: var(--shadow-card);
+}
+
+.app-bottom-nav {
+  position: fixed;
+  z-index: 20;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  left: max(0.75rem, env(safe-area-inset-left));
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35rem;
+  width: min(calc(100% - 1.5rem), 56rem);
+  margin: 0 auto;
+  padding: 0.45rem;
+  border: 1px solid rgba(122, 79, 63, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 250, 243, 0.94);
+  box-shadow: 0 18px 45px rgba(79, 49, 36, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.app-bottom-nav button {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  min-height: 3.1rem;
+  place-items: center;
+  padding: 0.35rem 0.2rem;
+  border: 0;
+  border-radius: 12px;
+  color: var(--color-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-bottom-nav button.is-active {
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
+}
+
+.app-bottom-nav span {
+  font-size: 0.88rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.app-bottom-nav small {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .account-bar {
   display: flex;
   align-items: center;
@@ -130,6 +203,14 @@
   .account-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .app-bottom-nav small {
+    display: none;
+  }
+
+  .app-bottom-nav button {
+    min-height: 2.8rem;
   }
 }
 

@@ -8,7 +8,6 @@ import type { Bean, BeanForm } from '../beans/beanTypes'
 import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
 import type { SourceImportResponse } from './sourceImportTypes'
-import { appendOcrText, recognizeCoffeeImageText } from './imageOcr'
 import './sourceImports.css'
 
 type SourceImportPanelProps = {
@@ -59,6 +58,7 @@ export function SourceImportPanel({
     setError('')
 
     try {
+      const { appendOcrText, recognizeCoffeeImageText } = await import('./imageOcr')
       const recognizedText = await recognizeCoffeeImageText(selectedImage)
 
       if (!recognizedText) {
