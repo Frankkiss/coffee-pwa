@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import {
   buildBackupReminder,
   readBackupReminderMeta,
@@ -35,12 +36,12 @@ export type HomeNavigationTarget =
   | 'recommendations'
   | 'backup'
 
-const quickActions: Array<{ label: string; view: HomeNavigationTarget }> = [
-  { label: '加豆', view: 'beans' },
-  { label: '导入', view: 'beans' },
-  { label: '模板', view: 'brewTemplates' },
-  { label: '推荐', view: 'recommendations' },
-  { label: '备份', view: 'backup' },
+const quickActions: Array<{ label: string; mark: string; view: HomeNavigationTarget }> = [
+  { label: '加豆', mark: '豆', view: 'beans' },
+  { label: '导入', mark: '扫', view: 'beans' },
+  { label: '模板', mark: '模', view: 'brewTemplates' },
+  { label: '推荐', mark: '荐', view: 'recommendations' },
+  { label: '备份', mark: '存', view: 'backup' },
 ]
 
 export function HomeOverview({
@@ -160,9 +161,8 @@ export function HomeOverview({
             退出
           </button>
         </div>
-        <div>
-          <p className="home-overview__eyebrow">Coffee Day</p>
-          <h1 id="home-overview-title">咖Day</h1>
+        <div className="home-hero__brand">
+          <CoffeeDayLogo headingId="home-overview-title" title="咖Day" variant="hero" />
           <p>
             {overview.accountLabel}
             <span>{isUsingCache ? '离线缓存' : overview.syncLabel}</span>
@@ -182,7 +182,8 @@ export function HomeOverview({
       <nav className="home-actions" aria-label="首页快捷操作">
         {quickActions.map((action) => (
           <button key={action.label} type="button" onClick={() => onNavigate(action.view)}>
-            {action.label}
+            <span aria-hidden="true">{action.mark}</span>
+            <strong>{action.label}</strong>
           </button>
         ))}
       </nav>

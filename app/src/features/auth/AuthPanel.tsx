@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
 import { HomeOverview } from '../home/HomeOverview'
 import type { HomeNavigationTarget } from '../home/HomeOverview'
@@ -33,12 +34,12 @@ const RecommendationPanel = lazy(() =>
 type AppView = 'home' | HomeNavigationTarget
 type AuthMode = 'password-login' | 'signup' | 'magic-link' | 'reset-request'
 
-const appNavItems: Array<{ view: AppView; label: string }> = [
-  { view: 'home', label: '主页' },
-  { view: 'beans', label: '豆仓与冲煮' },
-  { view: 'brewTemplates', label: '冲煮模板' },
-  { view: 'recommendations', label: '冲煮推荐' },
-  { view: 'backup', label: '备份' },
+const appNavItems: Array<{ view: AppView; label: string; mark: string }> = [
+  { view: 'home', label: '主页', mark: '咖' },
+  { view: 'beans', label: '豆仓与冲煮', mark: '豆' },
+  { view: 'brewTemplates', label: '冲煮模板', mark: '模' },
+  { view: 'recommendations', label: '冲煮推荐', mark: '荐' },
+  { view: 'backup', label: '备份', mark: '存' },
 ]
 
 export function AuthPanel() {
@@ -301,6 +302,7 @@ export function AuthPanel() {
               aria-current={activeView === item.view ? 'page' : undefined}
               onClick={() => setActiveView(item.view)}
             >
+              <b aria-hidden="true">{item.mark}</b>
               <span>{item.label}</span>
             </button>
           ))}
@@ -409,15 +411,7 @@ export function AuthPanel() {
 }
 
 function AuthLogo({ title }: { title: string }) {
-  return (
-    <div className="auth-logo" aria-label="咖Day Coffee Day">
-      <span className="auth-logo__mark">咖</span>
-      <div>
-        <h1 id="auth-title">{title}</h1>
-        <small>Coffee Day</small>
-      </div>
-    </div>
-  )
+  return <CoffeeDayLogo headingId="auth-title" title={title} variant="login" />
 }
 
 function getAuthValidationError(

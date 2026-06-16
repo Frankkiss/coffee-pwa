@@ -405,3 +405,75 @@
     font-size: 1.65rem;
   }
 }
+
+.brew-template-panel {
+  gap: 0.78rem;
+}
+
+.brew-template-panel__actions > span {
+  font-variant-numeric: tabular-nums;
+}
+
+.brew-template-panel__intro {
+  padding: 0.72rem 0.78rem;
+  border: 1px solid rgba(122, 79, 63, 0.1);
+  border-radius: var(--radius-card);
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.brew-template-filters,
+.brew-template-form,
+.brew-template-step-editor {
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(255, 248, 237, 0.86)),
+    var(--color-paper);
+}
+
+.brew-template-filters {
+  padding: 0.78rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.brew-template-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(217, 149, 95, 0.14), transparent 0.62rem),
+    rgba(255, 253, 248, 0.91);
+}
+
+.brew-template-card::before {
+  position: absolute;
+  top: 0.72rem;
+  right: 0.72rem;
+  width: 0.48rem;
+  aspect-ratio: 1;
+  content: '';
+  border-radius: var(--radius-pill);
+  background: var(--color-caramel-soft);
+}
+
+.brew-template-card__metrics span:first-child {
+  color: var(--color-cream-soft);
+  background: var(--color-coffee);
+}
+
+.brew-template-card__steps {
+  padding: 0.68rem;
+  border-radius: var(--radius-control);
+  background: rgba(248, 237, 218, 0.62);
+}
+
+.brew-template-steps li {
+  border: 1px solid rgba(122, 79, 63, 0.08);
+}
+
+.brew-template-adjustments {
+  border: 1px dashed rgba(122, 79, 63, 0.18);
+}
+
+.brew-template-empty {
+  background: rgba(255, 253, 248, 0.72);
+}

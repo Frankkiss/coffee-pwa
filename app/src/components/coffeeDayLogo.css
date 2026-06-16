@@ -1,0 +1,124 @@
+.coffee-day-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.72rem;
+  min-width: 0;
+}
+
+.coffee-day-logo__cup {
+  display: grid;
+  flex: 0 0 auto;
+  width: 3.2rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid rgba(255, 248, 237, 0.48);
+  border-radius: 18px 18px 16px 16px;
+  background:
+    radial-gradient(circle at 35% 22%, rgba(255, 255, 255, 0.74), transparent 1.05rem),
+    linear-gradient(180deg, #ffe5bf, #d9955f);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 253, 248, 0.72),
+    inset 0 -10px 16px rgba(93, 55, 38, 0.14),
+    0 12px 28px rgba(56, 35, 27, 0.18);
+}
+
+.coffee-day-logo svg {
+  width: 88%;
+  height: 88%;
+  overflow: visible;
+}
+
+.coffee-day-logo__steam,
+.coffee-day-logo__handle,
+.coffee-day-logo__coffee,
+.coffee-day-logo__smile {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.coffee-day-logo__steam {
+  stroke: rgba(255, 248, 237, 0.78);
+  stroke-width: 4.2;
+}
+
+.coffee-day-logo__saucer {
+  fill: #f6c98e;
+}
+
+.coffee-day-logo__body {
+  fill: #fff8ed;
+  stroke: rgba(86, 54, 45, 0.26);
+  stroke-width: 2.2;
+}
+
+.coffee-day-logo__handle {
+  stroke: #fff8ed;
+  stroke-width: 8;
+}
+
+.coffee-day-logo__coffee {
+  stroke: #7a4c39;
+  stroke-width: 4.4;
+}
+
+.coffee-day-logo__eye {
+  fill: #472e26;
+}
+
+.coffee-day-logo__smile {
+  stroke: #472e26;
+  stroke-width: 3.2;
+}
+
+.coffee-day-logo__text {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.coffee-day-logo__text strong {
+  color: inherit;
+  font-size: 1.7rem;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+.coffee-day-logo__text small {
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  opacity: 0.76;
+}
+
+.coffee-day-logo--login {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.74rem 0.82rem;
+  border: 1px solid rgba(255, 248, 237, 0.46);
+  border-radius: var(--radius-card);
+  color: var(--color-cream-soft);
+  background: rgba(72, 45, 34, 0.52);
+  box-shadow: 0 12px 28px rgba(40, 24, 18, 0.22);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.coffee-day-logo--hero {
+  color: var(--color-cream-soft);
+}
+
+.coffee-day-logo--hero .coffee-day-logo__cup {
+  width: 4.8rem;
+  border-radius: 22px 22px 18px 18px;
+}
+
+.coffee-day-logo--hero .coffee-day-logo__text strong {
+  font-size: clamp(2.55rem, 12vw, 3.35rem);
+  letter-spacing: 0;
+}
+
+.coffee-day-logo--mark .coffee-day-logo__cup {
+  width: 2.65rem;
+}

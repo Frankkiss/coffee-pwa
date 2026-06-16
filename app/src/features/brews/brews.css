@@ -395,3 +395,60 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.brew-form,
+.brew-filters,
+.brew-detail {
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(255, 248, 237, 0.86)),
+    var(--color-paper);
+}
+
+.brew-form {
+  gap: 0.72rem;
+  padding: 0.86rem;
+}
+
+.brew-form__grid,
+.brew-filters {
+  gap: 0.72rem;
+}
+
+.brew-form input,
+.brew-form select,
+.brew-form textarea,
+.brew-filters input,
+.brew-filters select {
+  min-height: 2.64rem;
+  padding: 0.62rem 0.7rem;
+}
+
+.brew-card {
+  position: relative;
+  padding: 0.86rem;
+  background:
+    linear-gradient(90deg, rgba(122, 76, 57, 0.08), transparent 0.42rem),
+    rgba(255, 253, 248, 0.9);
+}
+
+.brew-card strong {
+  padding: 0.22rem 0.48rem;
+  border-radius: 0.48rem;
+  background: rgba(242, 207, 159, 0.54);
+}
+
+.brew-tags span {
+  border-radius: 0.48rem;
+  background: rgba(242, 207, 159, 0.84);
+}
+
+.brew-card__notes,
+.brew-detail__notes {
+  border: 1px solid rgba(122, 79, 63, 0.08);
+}
+
+.brew-detail__hero {
+  background:
+    radial-gradient(circle at 86% 16%, rgba(217, 149, 95, 0.22), transparent 5rem),
+    rgba(227, 170, 120, 0.16);
+}
