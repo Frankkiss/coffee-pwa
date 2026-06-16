@@ -33,12 +33,12 @@ const RecommendationPanel = lazy(() =>
 type AppView = 'home' | HomeNavigationTarget
 type AuthMode = 'password-login' | 'signup' | 'magic-link' | 'reset-request'
 
-const appNavItems: Array<{ view: AppView; label: string; shortLabel: string }> = [
-  { view: 'home', label: '首页概览', shortLabel: '首页' },
-  { view: 'beans', label: '豆仓', shortLabel: '豆仓' },
-  { view: 'brewTemplates', label: '模板', shortLabel: '模板' },
-  { view: 'recommendations', label: '推荐', shortLabel: '推荐' },
-  { view: 'backup', label: '备份', shortLabel: '备份' },
+const appNavItems: Array<{ view: AppView; label: string }> = [
+  { view: 'home', label: '主页' },
+  { view: 'beans', label: '豆仓与冲煮' },
+  { view: 'brewTemplates', label: '冲煮模板' },
+  { view: 'recommendations', label: '冲煮推荐' },
+  { view: 'backup', label: '备份' },
 ]
 
 export function AuthPanel() {
@@ -301,8 +301,7 @@ export function AuthPanel() {
               aria-current={activeView === item.view ? 'page' : undefined}
               onClick={() => setActiveView(item.view)}
             >
-              <span>{item.shortLabel}</span>
-              <small>{item.label}</small>
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>
