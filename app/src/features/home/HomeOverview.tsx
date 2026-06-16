@@ -45,10 +45,10 @@ const quickActions: Array<{ label: string; mark: string; view: HomeNavigationTar
 ]
 
 const lifeNotes = [
-  '今天这杯，先给自己留三分钟。',
-  '豆子会醒，记录也会慢慢变香。',
-  '水烧开之前，想好第一段注水。',
-  '不赶时间的时候，咖啡更容易好喝。',
+  '今天这杯，先给自己留三分钟 ( ˘ω˘ )',
+  '豆子会醒，记录也会慢慢变香 ´▽`',
+  '水烧开之前，想好第一段注水 ᕕ( ᐛ )ᕗ',
+  '不赶时间的时候，咖啡更容易好喝 (•̀ᴗ•́)و',
 ]
 
 export function HomeOverview({

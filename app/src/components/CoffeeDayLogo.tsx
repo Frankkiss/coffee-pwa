@@ -25,16 +25,16 @@ export function CoffeeDayLogo({
           />
           <path
             className="coffee-day-logo__body"
-            d="M23 37h44c-1 24-8 34-22 34S24 61 23 37Z"
+            d="M23 38c7-4 37-4 44 0-1 24-8 34-22 34S24 62 23 38Z"
           />
           <path
             className="coffee-day-logo__handle"
             d="M66 43h5c9 0 11 14 2 18l-9 4"
           />
           <path className="coffee-day-logo__coffee" d="M29 40c7 6 24 6 32 0" />
-          <circle className="coffee-day-logo__eye" cx="38" cy="53" r="2.6" />
-          <circle className="coffee-day-logo__eye" cx="54" cy="53" r="2.6" />
-          <path className="coffee-day-logo__smile" d="M41 60c4 4 9 4 13 0" />
+          <circle className="coffee-day-logo__eye" cx="39" cy="53" r="2.6" />
+          <circle className="coffee-day-logo__eye" cx="53" cy="53" r="2.6" />
+          <path className="coffee-day-logo__smile" d="M40 59.5c4 4 10 4 14 0" />
         </svg>
       </span>
       {variant === 'mark' ? null : (

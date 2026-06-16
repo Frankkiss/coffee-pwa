@@ -8,7 +8,7 @@
   width: 100%;
   padding: max(0.85rem, env(safe-area-inset-top)) 0.85rem 0.85rem;
   background:
-    linear-gradient(180deg, rgba(255, 253, 248, 0.9), rgba(248, 237, 218, 0.94)),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.82), rgba(248, 237, 218, 0.88)),
     url('./assets/coffee-beans-bg.jpg') center top / cover no-repeat,
     var(--color-cream);
   color: var(--color-coffee-dark);

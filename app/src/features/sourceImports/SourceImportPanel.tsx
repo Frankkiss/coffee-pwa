@@ -17,7 +17,7 @@ type SourceImportPanelProps = {
 }
 
 const processOptions = ['水洗', '日晒', '蜜处理', '厌氧', '特殊处理']
-const roastOptions = ['浅烘', '中浅烘', '中烘', '中深烘', '深烘']
+const roastOptions = ['极浅烘', '浅烘', '中浅烘', '中烘', '中深烘', '深烘']
 
 export function SourceImportPanel({
   session,

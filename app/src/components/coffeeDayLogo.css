@@ -12,7 +12,7 @@
   aspect-ratio: 1;
   place-items: center;
   border: 1px solid rgba(255, 248, 237, 0.48);
-  border-radius: 18px 18px 16px 16px;
+  border-radius: 22px;
   background:
     radial-gradient(circle at 35% 22%, rgba(255, 255, 255, 0.74), transparent 1.05rem),
     linear-gradient(180deg, #ffe5bf, #d9955f);
@@ -111,7 +111,7 @@
 
 .coffee-day-logo--hero .coffee-day-logo__cup {
   width: 4.8rem;
-  border-radius: 22px 22px 18px 18px;
+  border-radius: 28px;
 }
 
 .coffee-day-logo--hero .coffee-day-logo__text strong {

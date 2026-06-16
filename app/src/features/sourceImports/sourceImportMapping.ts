@@ -185,6 +185,12 @@ const processTerms: Record<string, string> = {
 }
 
 const roastLevelTerms: Record<string, string> = {
+  'extremely light': '极浅烘',
+  'extremely light roast': '极浅烘',
+  'ultra light': '极浅烘',
+  'ultra light roast': '极浅烘',
+  'very light': '极浅烘',
+  'very light roast': '极浅烘',
   light: '浅烘',
   'light roast': '浅烘',
   'medium light': '中浅烘',
