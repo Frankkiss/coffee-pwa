@@ -20,6 +20,8 @@ type HomeOverviewProps = {
   session: Session
   supabase: SupabaseClient
   onNavigate: (view: HomeNavigationTarget) => void
+  onSignOut: () => void
+  authStatus?: string
 }
 
 type HomeRows = {
@@ -41,7 +43,13 @@ const quickActions: Array<{ label: string; view: HomeNavigationTarget }> = [
   { label: '备份', view: 'backup' },
 ]
 
-export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProps) {
+export function HomeOverview({
+  session,
+  supabase,
+  onNavigate,
+  onSignOut,
+  authStatus,
+}: HomeOverviewProps) {
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
@@ -144,6 +152,14 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
   return (
     <section className="home-overview" aria-labelledby="home-overview-title">
       <div className="home-hero">
+        <div className="home-hero__topline">
+          <span className={`home-sync-dot ${isOnline ? 'is-online' : 'is-offline'}`}>
+            {isOnline ? '在线' : '离线'}
+          </span>
+          <button type="button" onClick={onSignOut}>
+            退出
+          </button>
+        </div>
         <div>
           <p className="home-overview__eyebrow">Coffee Day</p>
           <h1 id="home-overview-title">咖Day</h1>
@@ -152,10 +168,16 @@ export function HomeOverview({ session, supabase, onNavigate }: HomeOverviewProp
             <span>{isUsingCache ? '离线缓存' : overview.syncLabel}</span>
           </p>
         </div>
-        <div className="home-hero__cup" aria-hidden="true">
-          <span />
+        <div className="home-hero__orbit" aria-hidden="true">
+          <span className="home-hero__orbit-core">咖</span>
+          <i />
+          <i />
+          <i />
+          <i />
         </div>
       </div>
+
+      {authStatus ? <p className="home-overview__status">{authStatus}</p> : null}
 
       <nav className="home-actions" aria-label="首页快捷操作">
         {quickActions.map((action) => (

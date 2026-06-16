@@ -111,6 +111,8 @@ export function AuthPanel() {
           session={session}
           supabase={supabase}
           onNavigate={setActiveView}
+          onSignOut={handleSignOut}
+          authStatus={status}
         />
       )
     }
@@ -133,16 +135,6 @@ export function AuthPanel() {
   if (session && supabase) {
     return (
       <div className="auth-layout auth-layout--app">
-        <header className="account-bar">
-          <div>
-            <span>当前登录邮箱</span>
-            <strong>{session.user.email}</strong>
-          </div>
-          <button type="button" onClick={handleSignOut}>
-            退出登录
-          </button>
-        </header>
-        {status ? <p className="auth-status">{status}</p> : null}
         <main className="app-view" aria-label="咖Day 当前页面">
           <Suspense fallback={<p className="app-view__loading">正在打开页面...</p>}>
             {renderActiveView()}
