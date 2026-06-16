@@ -94,10 +94,11 @@
 .brew-editing-banner button {
   min-height: 2.2rem;
   padding: 0 0.75rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   border-radius: var(--radius-control);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
   font-weight: 700;
   cursor: pointer;
 }
@@ -121,10 +122,11 @@
 .brew-form button,
 .brew-card__actions button {
   min-height: 2.75rem;
-  border: 0;
+  border: 1px solid var(--button-primary-border);
   border-radius: var(--radius-control);
   color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
   font-weight: 700;
   cursor: pointer;
 }
@@ -137,14 +139,16 @@
 
 .brew-form .brew-secondary-button,
 .brew-card__actions button {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
 }
 
 .brew-card__actions .brew-danger-button {
   color: var(--color-danger);
-  background: rgba(193, 104, 74, 0.16);
+  border-color: rgba(143, 61, 46, 0.22);
+  background: var(--button-danger-bg);
 }
 
 .brew-status,
@@ -237,23 +241,26 @@
 .brew-detail__topbar button,
 .brew-detail__actions button {
   min-height: 2.75rem;
-  border: 0;
+  border: 1px solid var(--button-primary-border);
   border-radius: var(--radius-control);
   color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
   font-weight: 800;
   cursor: pointer;
 }
 
 .brew-detail__topbar .brew-secondary-button {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
 }
 
 .brew-detail__actions .brew-danger-button {
   color: var(--color-danger);
-  background: rgba(193, 104, 74, 0.16);
+  border-color: rgba(143, 61, 46, 0.22);
+  background: var(--button-danger-bg);
 }
 
 .brew-detail__topbar button:disabled,

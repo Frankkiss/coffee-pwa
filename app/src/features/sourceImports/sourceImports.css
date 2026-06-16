@@ -66,10 +66,11 @@
 
 .source-import button {
   min-height: 2.75rem;
-  border: 0;
+  border: 1px solid var(--button-primary-border);
   border-radius: var(--radius-control);
   color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
   font-weight: 700;
   cursor: pointer;
 }

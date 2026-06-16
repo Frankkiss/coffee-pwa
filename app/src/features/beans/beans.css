@@ -43,13 +43,15 @@
   width: 100%;
   min-height: 3.35rem;
   padding: 0.72rem 0.82rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   border-radius: var(--radius-card);
   color: var(--color-coffee-dark);
-  background: rgba(255, 253, 248, 0.9);
-  box-shadow: var(--shadow-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
   text-align: left;
   cursor: pointer;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .bean-section__summary span {
@@ -76,7 +78,7 @@
   padding: 0.28rem 0.52rem;
   border-radius: var(--radius-pill);
   color: var(--color-coffee);
-  background: var(--color-cream-pressed);
+  background: rgba(255, 248, 237, 0.76);
   font-size: 0.76rem;
   font-style: normal;
   font-weight: 900;
@@ -163,10 +165,11 @@
 .bean-editing-banner button {
   min-height: 2.2rem;
   padding: 0 0.75rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   border-radius: var(--radius-control);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
   font-weight: 700;
   cursor: pointer;
 }
@@ -179,10 +182,11 @@
 .bean-form button,
 .bean-card__actions button {
   min-height: 2.75rem;
-  border: 0;
+  border: 1px solid var(--button-primary-border);
   border-radius: var(--radius-control);
   color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
   font-weight: 700;
   cursor: pointer;
 }
@@ -194,14 +198,16 @@
 
 .bean-form .bean-secondary-button,
 .bean-card__actions button {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
 }
 
 .bean-card__actions .bean-danger-button {
   color: var(--color-danger);
-  background: rgba(193, 104, 74, 0.16);
+  border-color: rgba(143, 61, 46, 0.22);
+  background: var(--button-danger-bg);
 }
 
 .blend-editor {
@@ -237,10 +243,11 @@
 .blend-editor__header button,
 .blend-editor__card-title button {
   min-height: 2.4rem;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   border-radius: var(--radius-control);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
   font-weight: 800;
   cursor: pointer;
 }
@@ -270,7 +277,8 @@
 .blend-editor__card-title button {
   min-width: 4.5rem;
   color: var(--color-danger);
-  background: rgba(193, 104, 74, 0.12);
+  border-color: rgba(143, 61, 46, 0.22);
+  background: var(--button-danger-bg);
 }
 
 .blend-editor__grid {
@@ -362,18 +370,20 @@
 .bean-detail__topbar button,
 .bean-detail__anchor {
   min-height: 2.75rem;
-  border: 0;
+  border: 1px solid var(--button-primary-border);
   border-radius: var(--radius-control);
   color: var(--color-cream-soft);
-  background: var(--color-coffee);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
   font-weight: 700;
   cursor: pointer;
 }
 
 .bean-detail__topbar .bean-secondary-button {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--button-glass-border);
   color: var(--color-coffee);
-  background: var(--color-cream-soft);
+  background: var(--button-glass-bg);
+  box-shadow: var(--button-glass-shadow);
 }
 
 .bean-detail__hero {
