@@ -672,3 +672,24 @@
     rgba(227, 170, 120, 0.16);
 }
 
+.bean-section__summary {
+  display: grid;
+  grid-template-columns: 0.7rem minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 3.6rem;
+}
+
+.bean-section__summary span {
+  justify-items: center;
+}
+
+.bean-section__summary strong {
+  color: var(--color-coffee-dark);
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+}
+
+.bean-section__summary::before {
+  flex: initial;
+}
+

@@ -44,6 +44,13 @@ const quickActions: Array<{ label: string; mark: string; view: HomeNavigationTar
   { label: '备份', mark: '存', view: 'backup' },
 ]
 
+const lifeNotes = [
+  '今天这杯，先给自己留三分钟。',
+  '豆子会醒，记录也会慢慢变香。',
+  '水烧开之前，想好第一段注水。',
+  '不赶时间的时候，咖啡更容易好喝。',
+]
+
 export function HomeOverview({
   session,
   supabase,
@@ -56,6 +63,7 @@ export function HomeOverview({
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [isUsingCache, setIsUsingCache] = useState(false)
   const [error, setError] = useState('')
+  const [lifeNoteIndex, setLifeNoteIndex] = useState(0)
 
   useEffect(() => {
     let isMounted = true
@@ -168,13 +176,14 @@ export function HomeOverview({
             <span>{isUsingCache ? '离线缓存' : overview.syncLabel}</span>
           </p>
         </div>
-        <div className="home-hero__orbit" aria-hidden="true">
-          <span className="home-hero__orbit-core">咖</span>
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
+        <button
+          type="button"
+          className="home-life-note"
+          onClick={() => setLifeNoteIndex((current) => (current + 1) % lifeNotes.length)}
+        >
+          <span>今日小纸条</span>
+          <strong>{lifeNotes[lifeNoteIndex]}</strong>
+        </button>
       </div>
 
       {authStatus ? <p className="home-overview__status">{authStatus}</p> : null}

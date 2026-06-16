@@ -247,7 +247,6 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
         <>
           <CollapsibleSection
             isOpen={expandedSections.sourceImport}
-            subtitle="图片 / 文本解析"
             title="来源导入"
             onToggle={() => toggleSection('sourceImport')}
           >
@@ -263,8 +262,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
 
           <CollapsibleSection
             isOpen={expandedSections.beanForm}
-            subtitle={editingBeanId ? '正在编辑' : '手动录入'}
-            title={editingBeanId ? '编辑豆子' : '添加豆子'}
+            title={editingBeanId ? '编辑豆子' : '手动加豆'}
             onToggle={() => toggleSection('beanForm')}
           >
             <form className="bean-form" onSubmit={handleSubmit}>
@@ -458,8 +456,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
 
           <CollapsibleSection
             isOpen={expandedSections.beanList}
-            subtitle={`${filteredBeans.length} / ${beans.length} 支`}
-            title="豆子列表"
+            title="豆子清单"
             onToggle={() => toggleSection('beanList')}
           >
             <div className="bean-filters" aria-label="豆仓筛选">
@@ -548,7 +545,6 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
 
           <CollapsibleSection
             isOpen={expandedSections.brewLogs}
-            subtitle="记录和回看参数"
             title="冲煮记录"
             onToggle={() => toggleSection('brewLogs')}
           >
@@ -568,7 +564,6 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
 type CollapsibleSectionProps = {
   children: ReactNode
   isOpen: boolean
-  subtitle: string
   title: string
   onToggle: () => void
 }
@@ -576,7 +571,6 @@ type CollapsibleSectionProps = {
 function CollapsibleSection({
   children,
   isOpen,
-  subtitle,
   title,
   onToggle,
 }: CollapsibleSectionProps) {
@@ -590,7 +584,6 @@ function CollapsibleSection({
       >
         <span>
           <strong>{title}</strong>
-          <small>{subtitle}</small>
         </span>
         <em aria-hidden="true">{isOpen ? '收起' : '展开'}</em>
       </button>
