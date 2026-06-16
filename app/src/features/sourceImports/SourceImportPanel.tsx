@@ -342,14 +342,6 @@ export function SourceImportPanel({
               />
             </label>
             <label>
-              净含量
-              <input
-                inputMode="decimal"
-                value={form.netWeightGrams}
-                onChange={(event) => updateField('netWeightGrams', event.target.value)}
-              />
-            </label>
-            <label>
               来源网址
               <input
                 value={form.sourceUrl}

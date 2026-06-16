@@ -21,7 +21,6 @@ export type HomeOverviewBean = {
   name: string
   meta: string
   note: string
-  remainingLabel: string | null
 }
 
 export type HomeOverviewBrew = {
@@ -81,8 +80,6 @@ function toHomeBean(bean: Bean): HomeOverviewBean {
     name: bean.name,
     meta: [bean.origin, bean.process, bean.roast_level].filter(Boolean).join(' / ') || '信息待补充',
     note: bean.flavor_tags.slice(0, 3).join('、') || bean.flavor_notes || '风味待记录',
-    remainingLabel:
-      typeof bean.remaining_grams === 'number' ? `剩余约 ${bean.remaining_grams}g` : null,
   }
 }
 

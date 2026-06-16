@@ -92,8 +92,6 @@ function buildFlavorText(bean: Bean) {
 
 function buildStockLines(bean: Bean) {
   return [
-    bean.net_weight_grams ? `净含量 ${bean.net_weight_grams}g` : null,
-    bean.remaining_grams ? `剩余 ${bean.remaining_grams}g` : null,
     bean.purchase_date ? `购买日期 ${bean.purchase_date}` : null,
     bean.price ? `价格 ${bean.price}` : null,
   ].filter(isPresent)

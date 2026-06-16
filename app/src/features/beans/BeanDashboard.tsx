@@ -410,25 +410,6 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                   />
                 </label>
 
-                <label>
-                  净含量
-                  <input
-                    inputMode="decimal"
-                    value={form.netWeightGrams}
-                    onChange={(event) => updateField('netWeightGrams', event.target.value)}
-                    placeholder="克"
-                  />
-                </label>
-
-                <label>
-                  剩余量
-                  <input
-                    inputMode="decimal"
-                    value={form.remainingGrams}
-                    onChange={(event) => updateField('remainingGrams', event.target.value)}
-                    placeholder="克"
-                  />
-                </label>
               </div>
 
               {form.beanType === 'blend' ? (

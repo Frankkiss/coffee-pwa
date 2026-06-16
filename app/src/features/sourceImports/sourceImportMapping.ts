@@ -31,7 +31,9 @@ export function normalizeSourceImportDraft(input: unknown): SourceImportDraft {
     blendNotes: stringValue(record.blendNotes ?? record.blend_notes),
     notes: stringValue(record.notes),
     confidence: confidenceValue(record.confidence),
-    missingFields: listValue(record.missingFields ?? record.missing_fields, missingFieldTerms),
+    missingFields: listValue(record.missingFields ?? record.missing_fields, missingFieldTerms).filter(
+      (field) => !ignoredMissingFields.has(termKey(field)),
+    ),
   }
 }
 
@@ -49,7 +51,7 @@ export function createBeanFormFromSourceDraft(draft: SourceImportDraft): BeanFor
     roastLevel: draft.roastLevel,
     flavorTags: draft.flavorTags.join(', '),
     flavorNotes: draft.flavorNotes,
-    netWeightGrams: numberToFormValue(draft.netWeightGrams),
+    netWeightGrams: '',
     price: numberToFormValue(draft.price),
     sourceUrl: draft.sourceUrl,
     beanType: draft.beanType,
@@ -257,7 +259,6 @@ const missingFieldTerms: Record<string, string> = {
   'farm or station': '庄园或处理站',
   'flavor notes': '风味描述',
   'flavor tags': '风味标签',
-  'net weight': '净含量',
   origin: '产地',
   price: '价格',
   process: '处理法',
@@ -266,8 +267,9 @@ const missingFieldTerms: Record<string, string> = {
   'roast level': '烘焙度',
   station: '处理站',
   variety: '品种',
-  weight: '净含量',
 }
+
+const ignoredMissingFields = new Set(['net weight', 'weight', '净含量', '剩余量'])
 
 function confidenceValue(value: unknown): SourceImportConfidence {
   const normalized = stringValue(value).toLowerCase()

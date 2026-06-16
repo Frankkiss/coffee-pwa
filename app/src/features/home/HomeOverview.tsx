@@ -222,7 +222,7 @@ export function HomeOverview({
               <div>
                 <h3>{bean.name}</h3>
                 <p>{bean.meta}</p>
-                <span>{bean.remainingLabel ?? bean.note}</span>
+                <span>{bean.note}</span>
               </div>
             </article>
           ))}

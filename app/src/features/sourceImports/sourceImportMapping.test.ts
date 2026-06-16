@@ -60,7 +60,7 @@ describe('source import mapping', () => {
       sourceUrl: 'https://example.com/bean',
       notes: 'Imported draft',
       confidence: 'medium',
-      missingFields: ['烘焙日期', '净含量'],
+      missingFields: ['烘焙日期'],
     })
   })
 

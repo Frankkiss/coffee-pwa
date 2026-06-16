@@ -100,7 +100,7 @@ describe('buildBeanDetailView', () => {
       '埃塞俄比亚 水洗 原生种，提供花香',
     ])
     expect(view.blendLines.join('\n')).not.toContain('主体')
-    expect(view.stockLines).toContain('剩余 42g')
+    expect(view.stockLines).toEqual(['购买日期 2026-06-10', '价格 88'])
     expect(view.flavorText).toBe('坚果、花香 · 甜感和花香平衡')
   })
 
