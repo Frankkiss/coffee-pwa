@@ -300,10 +300,10 @@ export function AuthPanel() {
               type="button"
               className={activeView === item.view ? 'is-active' : ''}
               aria-current={activeView === item.view ? 'page' : undefined}
+              aria-label={item.label}
               onClick={() => setActiveView(item.view)}
             >
-              <b aria-hidden="true">{item.mark}</b>
-              <span>{item.label}</span>
+              <span>{item.mark}</span>
             </button>
           ))}
         </nav>
