@@ -19,7 +19,6 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     flavor_tags: ['坚果', '花香'],
     flavor_notes: '甜感和花香平衡',
     net_weight_grams: 100,
-    remaining_grams: 42,
     price: 88,
     purchase_date: '2026-06-10',
     source_url: 'https://example.com/bean',

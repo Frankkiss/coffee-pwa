@@ -18,7 +18,6 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     flavor_tags: ['柑橘', '花香'],
     flavor_notes: null,
     net_weight_grams: null,
-    remaining_grams: null,
     price: null,
     purchase_date: null,
     source_url: null,
@@ -57,6 +56,19 @@ describe('selectTemplateCandidates', () => {
     expect(candidates).toHaveLength(3)
     expect(candidates[0].isChampionReference).toBe(false)
     expect(candidates.filter((candidate) => candidate.isChampionReference).length).toBeLessThanOrEqual(1)
+  })
+
+  it('treats ultra-light roast beans as compatible with light-roast templates', () => {
+    const candidates = selectTemplateCandidates(
+      createBean({
+        roast_level: '极浅烘',
+        process: null,
+        flavor_tags: [],
+      }),
+    )
+
+    expect(candidates.length).toBeGreaterThan(0)
+    expect(candidates.some((candidate) => candidate.reasons.includes('烘焙度匹配'))).toBe(true)
   })
 
   it('uses blend component processes when selecting template candidates', () => {

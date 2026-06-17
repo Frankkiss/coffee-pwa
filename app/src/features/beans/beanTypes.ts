@@ -24,7 +24,6 @@ export type Bean = {
   flavor_tags: string[]
   flavor_notes: string | null
   net_weight_grams: number | null
-  remaining_grams: number | null
   price: number | null
   purchase_date: string | null
   source_url: string | null
@@ -52,7 +51,6 @@ export type BeanForm = {
   flavorTags: string
   flavorNotes: string
   netWeightGrams: string
-  remainingGrams: string
   price: string
   purchaseDate: string
   sourceUrl: string
@@ -76,7 +74,6 @@ export type BeanInsertPayload = {
   flavor_tags: string[]
   flavor_notes: string | null
   net_weight_grams: number | null
-  remaining_grams: number | null
   price: number | null
   purchase_date: string | null
   source_url: string | null

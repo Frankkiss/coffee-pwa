@@ -4,6 +4,7 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { createBean } from '../beans/beanService'
 import { toBeanInsertPayload } from '../beans/beanForm'
 import { BlendComponentEditor } from '../beans/BlendComponentEditor'
+import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from '../beans/beanOptions'
 import type { Bean, BeanForm } from '../beans/beanTypes'
 import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
@@ -15,9 +16,6 @@ type SourceImportPanelProps = {
   supabase: SupabaseClient
   onBeanCreated: (bean: Bean) => void
 }
-
-const processOptions = ['水洗', '日晒', '蜜处理', '厌氧', '特殊处理']
-const roastOptions = ['极浅烘', '浅烘', '中浅烘', '中烘', '中深烘', '深烘']
 
 export function SourceImportPanel({
   session,
@@ -283,10 +281,10 @@ export function SourceImportPanel({
                   onChange={(event) => updateField('process', event.target.value)}
                 >
                   <option value="">未选择</option>
-                  {form.process && !processOptions.includes(form.process) ? (
+                  {form.process && !PROCESS_OPTIONS.includes(form.process) ? (
                     <option value={form.process}>{form.process}</option>
                   ) : null}
-                  {processOptions.map((option) => (
+                  {PROCESS_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
@@ -324,10 +322,10 @@ export function SourceImportPanel({
                 onChange={(event) => updateField('roastLevel', event.target.value)}
               >
                 <option value="">未选择</option>
-                {form.roastLevel && !roastOptions.includes(form.roastLevel) ? (
+                {form.roastLevel && !ROAST_LEVEL_OPTIONS.includes(form.roastLevel) ? (
                   <option value={form.roastLevel}>{form.roastLevel}</option>
                 ) : null}
-                {roastOptions.map((option) => (
+                {ROAST_LEVEL_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>

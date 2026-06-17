@@ -23,7 +23,6 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     flavor_tags: ['草莓'],
     flavor_notes: null,
     net_weight_grams: null,
-    remaining_grams: null,
     price: null,
     purchase_date: null,
     source_url: null,

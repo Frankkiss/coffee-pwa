@@ -19,6 +19,7 @@ import {
 import { createBean, listBeans, softDeleteBean, updateBean } from './beanService'
 import { BeanDetailPanel } from './BeanDetailPanel'
 import { BlendComponentEditor } from './BlendComponentEditor'
+import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from './beanOptions'
 import type { Bean, BeanFilters, BeanForm } from './beanTypes'
 import './beans.css'
 
@@ -28,9 +29,6 @@ type BeanDashboardProps = {
 }
 
 type BeanSectionKey = 'sourceImport' | 'beanForm' | 'beanList' | 'brewLogs'
-
-const processOptions = ['水洗', '日晒', '蜜处理', '厌氧', '特殊处理']
-const roastOptions = ['极浅烘', '浅烘', '中浅烘', '中烘', '中深烘', '深烘']
 
 export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   const [beans, setBeans] = useState<Bean[]>([])
@@ -345,7 +343,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                       onChange={(event) => updateField('process', event.target.value)}
                     >
                       <option value="">未选择</option>
-                      {processOptions.map((option) => (
+                      {PROCESS_OPTIONS.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
@@ -391,7 +389,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                     onChange={(event) => updateField('roastLevel', event.target.value)}
                   >
                     <option value="">未选择</option>
-                    {roastOptions.map((option) => (
+                    {ROAST_LEVEL_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
@@ -475,7 +473,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                   onChange={(event) => updateFilter('process', event.target.value)}
                 >
                   <option value="">全部</option>
-                  {processOptions.map((option) => (
+                  {PROCESS_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
@@ -489,7 +487,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                   onChange={(event) => updateFilter('roastLevel', event.target.value)}
                 >
                   <option value="">全部</option>
-                  {roastOptions.map((option) => (
+                  {ROAST_LEVEL_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>

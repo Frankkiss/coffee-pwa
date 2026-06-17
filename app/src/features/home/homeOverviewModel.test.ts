@@ -20,7 +20,6 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     flavor_tags: ['草莓', '奶油'],
     flavor_notes: null,
     net_weight_grams: 100,
-    remaining_grams: 62,
     price: null,
     purchase_date: null,
     source_url: null,
@@ -81,14 +80,13 @@ describe('buildHomeOverview', () => {
   it('builds compact cards for beans, brews, backup, and quick summaries', () => {
     const overview = buildHomeOverview({
       beans: [
-        createBean({ id: 'bean-1', name: '埃塞俄比亚 花魁', remaining_grams: 62 }),
+        createBean({ id: 'bean-1', name: '埃塞俄比亚 花魁' }),
         createBean({
           id: 'bean-2',
           name: '哥伦比亚 粉波旁',
           origin: 'Colombia',
           process: '水洗',
           flavor_tags: ['橙子'],
-          remaining_grams: null,
           created_at: '2026-06-12T08:00:00.000Z',
         }),
       ],

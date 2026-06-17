@@ -33,7 +33,6 @@ create table if not exists public.beans (
   flavor_tags text[] not null default '{}',
   flavor_notes text,
   net_weight_grams numeric,
-  remaining_grams numeric,
   price numeric,
   purchase_date date,
   source_url text,

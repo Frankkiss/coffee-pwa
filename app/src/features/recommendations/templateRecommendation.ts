@@ -66,7 +66,7 @@ function scoreTemplate(targetBean: Bean, template: BrewTemplate): ScoredTemplate
   }
 
   const roastLevel = targetBean.roast_level?.trim()
-  if (roastLevel && template.suitableFor.includes(roastLevel)) {
+  if (roastLevel && matchesRoastLevel(roastLevel, template)) {
     score += 5
     reasons.push('烘焙度匹配')
   }
@@ -131,6 +131,14 @@ function rankTemplate(candidate: ScoredTemplate) {
   }
 
   return 2
+}
+
+function matchesRoastLevel(roastLevel: string, template: BrewTemplate) {
+  if (template.suitableFor.includes(roastLevel)) {
+    return true
+  }
+
+  return roastLevel === '极浅烘' && template.suitableFor.includes('浅烘')
 }
 
 function getBlendProcesses(targetBean: Bean) {

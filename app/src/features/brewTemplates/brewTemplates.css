@@ -149,10 +149,13 @@
   background: var(--color-cream-soft);
   border: 1px solid rgba(99, 65, 50, 0.22);
   border-radius: var(--radius-control);
+  box-sizing: border-box;
   color: var(--color-coffee-dark);
   font: inherit;
   min-height: 40px;
+  min-width: 0;
   padding: 8px 10px;
+  width: 100%;
 }
 
 .brew-template-form textarea {
@@ -172,11 +175,42 @@
   align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: 1fr 0.7fr 0.7fr 0.8fr minmax(160px, 1.5fr) auto;
+  grid-template-areas:
+    "label start end water delete"
+    "action action action action delete";
+  grid-template-columns:
+    minmax(120px, 1fr)
+    minmax(84px, 0.7fr)
+    minmax(84px, 0.7fr)
+    minmax(104px, 0.8fr)
+    minmax(64px, auto);
+}
+
+.brew-template-step-row__label {
+  grid-area: label;
+}
+
+.brew-template-step-row__start {
+  grid-area: start;
+}
+
+.brew-template-step-row__end {
+  grid-area: end;
+}
+
+.brew-template-step-row__water {
+  grid-area: water;
 }
 
 .brew-template-step-row__action {
+  grid-area: action;
   min-width: 0;
+}
+
+.brew-template-step-row__remove {
+  align-self: stretch;
+  grid-area: delete;
+  min-width: 64px;
 }
 
 .brew-template-checkbox {
@@ -217,17 +251,23 @@
   width: 100%;
 }
 
+.brew-template-card__summary > div {
+  min-width: 0;
+}
+
 .brew-template-card__summary strong {
   color: var(--color-coffee-dark);
   display: block;
   font-size: 1.05rem;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .brew-template-card__summary p {
   color: var(--color-muted);
   line-height: 1.5;
   margin: 6px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .brew-template-card__summary > span {
@@ -380,6 +420,18 @@
   color: var(--color-danger);
 }
 
+@media (max-width: 1020px) {
+  .brew-template-step-row {
+    align-items: stretch;
+    grid-template-areas:
+      "label start"
+      "end water"
+      "action action"
+      "delete delete";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
   .brew-template-panel {
     margin: 14px auto;
@@ -387,8 +439,18 @@
 
   .brew-template-filters,
   .brew-template-form__grid,
-  .brew-template-step-row,
   .brew-template-detail dl {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-template-step-row {
+    grid-template-areas:
+      "label"
+      "start"
+      "end"
+      "water"
+      "action"
+      "delete";
     grid-template-columns: 1fr;
   }
 

@@ -25,7 +25,6 @@ describe('backup export', () => {
         flavor_tags: ['柑橘'],
         flavor_notes: null,
         net_weight_grams: 100,
-        remaining_grams: 88,
         price: null,
         purchase_date: null,
         source_url: null,

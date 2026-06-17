@@ -19,7 +19,6 @@ export function buildBeansCsv(beans: Bean[]) {
       '烘焙度',
       '风味标签',
       '净含量',
-      '剩余量',
       '拼配组成',
       '备注',
       '创建时间',
@@ -38,7 +37,6 @@ export function buildBeansCsv(beans: Bean[]) {
       bean.roast_level,
       bean.flavor_tags.join('、'),
       bean.net_weight_grams,
-      bean.remaining_grams,
       bean.bean_type === 'blend'
         ? bean.blend_notes ?? formatBlendComponents(bean.blend_components ?? [])
         : null,

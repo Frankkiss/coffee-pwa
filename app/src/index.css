@@ -95,6 +95,9 @@ select {
 
 button {
   -webkit-tap-highlight-color: transparent;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   touch-action: manipulation;
   transition:
     background 0.18s ease,
@@ -121,6 +124,13 @@ input,
 select,
 textarea {
   line-height: 1.35;
+}
+
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  max-width: 100%;
+  min-width: 0;
 }
 
 #root {

@@ -521,14 +521,14 @@ function BrewTemplateFormView({
         </div>
         {form.pourSteps.map((step, index) => (
           <div className="brew-template-step-row" key={index}>
-            <label>
+            <label className="brew-template-step-row__label">
               名称
               <input
                 value={step.label}
                 onChange={(event) => updateStep(index, { ...step, label: event.target.value })}
               />
             </label>
-            <label>
+            <label className="brew-template-step-row__start">
               开始秒
               <input
                 type="number"
@@ -539,7 +539,7 @@ function BrewTemplateFormView({
                 }
               />
             </label>
-            <label>
+            <label className="brew-template-step-row__end">
               结束秒
               <input
                 type="number"
@@ -553,7 +553,7 @@ function BrewTemplateFormView({
                 }
               />
             </label>
-            <label>
+            <label className="brew-template-step-row__water">
               到达水量 g
               <input
                 type="number"
@@ -571,7 +571,11 @@ function BrewTemplateFormView({
                 onChange={(event) => updateStep(index, { ...step, action: event.target.value })}
               />
             </label>
-            <button type="button" onClick={() => removeStep(index)}>
+            <button
+              type="button"
+              className="brew-template-step-row__remove"
+              onClick={() => removeStep(index)}
+            >
               删除
             </button>
           </div>

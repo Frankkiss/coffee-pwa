@@ -23,7 +23,6 @@ describe('toBeanInsertPayload', () => {
       flavorTags: '柑橘, 茉莉, 蜂蜜',
       flavorNotes: '明亮酸质，尾段甜感清晰',
       netWeightGrams: '100',
-      remainingGrams: '80',
       price: '68',
       purchaseDate: '2026-06-10',
       sourceUrl: 'https://example.com/bean',
@@ -64,7 +63,6 @@ describe('toBeanInsertPayload', () => {
       flavor_tags: ['柑橘', '茉莉', '蜂蜜'],
       flavor_notes: '明亮酸质，尾段甜感清晰',
       net_weight_grams: 100,
-      remaining_grams: 80,
       price: 68,
       purchase_date: '2026-06-10',
       source_url: 'https://example.com/bean',
@@ -134,7 +132,6 @@ describe('bean edit helpers', () => {
     flavor_tags: ['柑橘', '花香'],
     flavor_notes: '明亮',
     net_weight_grams: 100,
-    remaining_grams: 60,
     price: 88,
     purchase_date: '2026-06-10',
     source_url: 'https://example.com',
@@ -166,7 +163,6 @@ describe('bean edit helpers', () => {
       farmOrStation: 'Aricha',
       altitudeMeters: '1950',
       flavorTags: '柑橘, 花香',
-      remainingGrams: '60',
       beanType: 'blend',
       blendComponents: [
         {
@@ -187,12 +183,10 @@ describe('bean edit helpers', () => {
     const payload = toBeanUpdatePayload({
       ...createBeanFormFromBean(bean),
       name: '埃塞俄比亚 更新',
-      remainingGrams: '42',
     })
 
     expect(payload).toMatchObject({
       name: '埃塞俄比亚 更新',
-      remaining_grams: 42,
       flavor_tags: ['柑橘', '花香'],
     })
     expect(payload).not.toHaveProperty('user_id')
