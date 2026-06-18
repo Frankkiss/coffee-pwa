@@ -371,14 +371,21 @@
   min-width: 0;
   height: var(--home-tool-row-height);
   max-width: 56rem;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   opacity: 1;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
   transform: translateX(0) scaleX(1);
   transform-origin: left center;
   transition:
     max-width 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 0.24s ease,
     transform 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.home-tool-tray__actions::-webkit-scrollbar {
+  display: none;
 }
 
 .home-tool-tray__actions::before,
@@ -424,9 +431,13 @@
 
 .home-actions {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-columns: minmax(5.05rem, 1fr);
+  grid-auto-flow: column;
+  grid-template-columns: none;
   gap: 0.46rem;
   height: 100%;
+  width: max-content;
+  min-width: 100%;
   overflow: visible;
   padding: 0;
 }
@@ -1127,7 +1138,7 @@
   }
 
   .home-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-columns: minmax(4.85rem, 5.25rem);
   }
 
   .home-actions button {
