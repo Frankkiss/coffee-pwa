@@ -42,8 +42,6 @@
   background: transparent;
   box-shadow: none;
   transform: translateX(-50%);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
 }
 
 .app-bottom-nav button {

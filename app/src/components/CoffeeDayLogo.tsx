@@ -16,7 +16,9 @@ export function CoffeeDayLogo({
 }: CoffeeDayLogoProps) {
   return (
     <div className={`coffee-day-logo coffee-day-logo--${variant}`} aria-label="咖Day Coffee Day">
-      <img className="coffee-day-logo__image" src={coffeeDayLogoC} alt="" aria-hidden="true" />
+      <span className="coffee-day-logo__image" aria-hidden="true">
+        <img className="coffee-day-logo__asset" src={coffeeDayLogoC} alt="" />
+      </span>
       {variant === 'mark' ? null : (
         <span className="coffee-day-logo__text">
           <strong id={headingId}>{title}</strong>
