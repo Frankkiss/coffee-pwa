@@ -990,12 +990,13 @@
 .home-bean::after {
   position: absolute;
   right: 0.92rem;
-  bottom: 0.56rem;
-  width: 2.18rem;
+  bottom: 0.18rem;
+  z-index: 0;
+  width: 2.08rem;
   aspect-ratio: 1;
   content: '';
-  border: 0.36rem solid rgba(122, 79, 63, 0.05);
-  border-radius: 50%;
+  background: url('../../assets/coffee-bag-deco.svg') center / contain no-repeat;
+  opacity: 0.24;
   pointer-events: none;
 }
 
@@ -1019,6 +1020,7 @@
 .home-bean__thumb,
 .home-brew__thumb {
   position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 3.15rem;
@@ -1103,6 +1105,8 @@
 }
 
 .home-ledger-entry__content {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.18rem;
   min-width: 0;
@@ -1142,6 +1146,8 @@
 }
 
 .home-ledger-entry__tag {
+  position: relative;
+  z-index: 2;
   max-width: 4.9rem;
   padding: 0.24rem 0.5rem;
   overflow: hidden;

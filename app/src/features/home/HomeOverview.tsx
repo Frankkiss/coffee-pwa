@@ -357,7 +357,9 @@ export function HomeOverview({
                         <span className="home-ledger-entry__tag">{bean.tag}</span>
                       </div>
                       <p className="home-ledger-entry__meta">{bean.meta}</p>
-                      <span className="home-ledger-entry__note">{bean.note}</span>
+                      {bean.note ? (
+                        <span className="home-ledger-entry__note">{bean.note}</span>
+                      ) : null}
                     </div>
                   </article>
                 ))}

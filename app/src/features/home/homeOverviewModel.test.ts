@@ -116,8 +116,9 @@ describe('buildHomeOverview', () => {
     expect(overview.currentBeans[0]).toMatchObject({
       id: 'bean-2',
       name: '哥伦比亚 粉波旁',
-      meta: 'Colombia / 水洗 / 浅烘',
-      note: '橙子',
+      meta: '橙子',
+      note: '',
+      tag: '浅烘',
     })
     expect(overview.recentBrews[0]).toMatchObject({
       id: 'brew-1',

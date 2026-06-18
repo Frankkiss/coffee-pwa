@@ -79,8 +79,8 @@ function toHomeBean(bean: Bean): HomeOverviewBean {
   return {
     id: bean.id,
     name: bean.name,
-    meta: [bean.origin, bean.process, bean.roast_level].filter(Boolean).join(' / ') || '信息待补充',
-    note: bean.flavor_tags.slice(0, 3).join('、') || bean.flavor_notes || '风味待记录',
+    meta: bean.flavor_tags.slice(0, 3).join('、') || bean.flavor_notes || '风味待记录',
+    note: '',
     tag: bean.roast_level || (bean.bean_type === 'blend' ? '拼配' : '单品'),
   }
 }
