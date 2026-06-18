@@ -347,14 +347,17 @@ export function HomeOverview({
                   <p className="home-empty">先加一支豆子</p>
                 ) : null}
                 {overview.currentBeans.map((bean) => (
-                  <article className="home-bean" key={bean.id}>
+                  <article className="home-bean home-ledger-entry" key={bean.id}>
                     <div className="home-bean__thumb" aria-hidden="true">
                       <span>{bean.name.slice(0, 1)}</span>
                     </div>
-                    <div>
-                      <h3>{bean.name}</h3>
-                      <p>{bean.meta}</p>
-                      <span>{bean.note}</span>
+                    <div className="home-ledger-entry__content">
+                      <div className="home-ledger-entry__title-row">
+                        <h3>{bean.name}</h3>
+                        <span className="home-ledger-entry__tag">{bean.tag}</span>
+                      </div>
+                      <p className="home-ledger-entry__meta">{bean.meta}</p>
+                      <span className="home-ledger-entry__note">{bean.note}</span>
                     </div>
                   </article>
                 ))}
@@ -403,12 +406,20 @@ export function HomeOverview({
                   <p className="home-empty">还没有冲煮记录</p>
                 ) : null}
                 {overview.recentBrews.map((brew) => (
-                  <article className="home-brew" key={brew.id}>
-                    <div>
-                      <h3>{brew.beanName}</h3>
-                      <p>{brew.summary}</p>
+                  <article className="home-brew home-ledger-entry" key={brew.id}>
+                    <div className="home-brew__thumb" aria-hidden="true">
+                      <span>{brew.summary.slice(0, 1)}</span>
                     </div>
-                    <span>{brew.rating ?? brew.brewedAt}</span>
+                    <div className="home-ledger-entry__content">
+                      <div className="home-ledger-entry__title-row">
+                        <h3>{brew.beanName}</h3>
+                        <span className="home-ledger-entry__tag">
+                          {brew.rating ?? brew.brewedAt}
+                        </span>
+                      </div>
+                      <p className="home-ledger-entry__meta">{brew.summary}</p>
+                      <span className="home-ledger-entry__note">{brew.brewedAt}</span>
+                    </div>
                   </article>
                 ))}
               </div>
