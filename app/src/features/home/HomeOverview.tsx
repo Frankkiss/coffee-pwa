@@ -36,19 +36,24 @@ export type HomeNavigationTarget =
   | 'recommendations'
   | 'backup'
 
-const quickActions: Array<{ label: string; mark: string; view: HomeNavigationTarget }> = [
-  { label: '加豆', mark: '豆', view: 'beans' },
-  { label: '导入', mark: '扫', view: 'beans' },
-  { label: '模板', mark: '模', view: 'brewTemplates' },
-  { label: '推荐', mark: '荐', view: 'recommendations' },
-  { label: '备份', mark: '存', view: 'backup' },
+const quickActions: Array<{
+  label: string
+  hint: string
+  mark: string
+  view: HomeNavigationTarget
+}> = [
+  { label: '加豆', hint: '新豆入仓', mark: '豆', view: 'beans' },
+  { label: '导入', hint: '来源草稿', mark: '扫', view: 'beans' },
+  { label: '模板', hint: '常用方案', mark: '模', view: 'brewTemplates' },
+  { label: '推荐', hint: '今日手法', mark: '荐', view: 'recommendations' },
+  { label: '备份', hint: '轻量导出', mark: '存', view: 'backup' },
 ]
 
 const lifeNotes = [
-  '今天这杯，先给自己留三分钟 ( ˘ω˘ )',
-  '豆子会醒，记录也会慢慢变香 ´▽`',
-  '水烧开之前，想好第一段注水 ᕕ( ᐛ )ᕗ',
-  '不赶时间的时候，咖啡更容易好喝 (•̀ᴗ•́)و',
+  '今天这杯，先给自己留三分钟。',
+  '豆子会醒，记录也会慢慢变香。',
+  '水烧开之前，先想好第一段注水。',
+  '不赶时间的时候，咖啡更容易好喝。',
 ]
 
 export function HomeOverview({
@@ -162,8 +167,12 @@ export function HomeOverview({
     <section className="home-overview" aria-labelledby="home-overview-title">
       <div className="home-hero">
         <div className="home-hero__topline">
-          <span className={`home-sync-dot ${isOnline ? 'is-online' : 'is-offline'}`}>
-            {isOnline ? '在线' : '离线'}
+          <span
+            className={`home-sync-dot ${isOnline ? 'is-online' : 'is-offline'}`}
+            aria-label={`当前网络状态：${isOnline ? '在线' : '离线'}`}
+          >
+            <span>状态</span>
+            <strong>{isOnline ? '在线' : '离线'}</strong>
           </span>
           <button type="button" onClick={onSignOut}>
             退出
@@ -171,9 +180,9 @@ export function HomeOverview({
         </div>
         <div className="home-hero__brand">
           <CoffeeDayLogo headingId="home-overview-title" title="咖Day" variant="hero" />
-          <p>
-            {overview.accountLabel}
-            <span>{isUsingCache ? '离线缓存' : overview.syncLabel}</span>
+          <p className="home-hero__account">
+            <span>{overview.accountLabel}</span>
+            <strong>{isUsingCache ? '离线缓存' : overview.syncLabel}</strong>
           </p>
         </div>
         <button
@@ -193,6 +202,7 @@ export function HomeOverview({
           <button key={action.label} type="button" onClick={() => onNavigate(action.view)}>
             <span aria-hidden="true">{action.mark}</span>
             <strong>{action.label}</strong>
+            <small>{action.hint}</small>
           </button>
         ))}
       </nav>
