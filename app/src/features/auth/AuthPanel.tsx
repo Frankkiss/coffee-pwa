@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
+import type { Bean } from '../beans/beanTypes'
+import type { BrewLog } from '../brews/brewTypes'
 import { HomeOverview } from '../home/HomeOverview'
 import type { HomeNavigationTarget } from '../home/HomeOverview'
 import {
@@ -42,6 +44,173 @@ const appNavItems: Array<{ view: AppView; label: string; mark: string }> = [
   { view: 'backup', label: '备份', mark: '存' },
 ]
 
+const previewSession = {
+  access_token: 'home-preview',
+  refresh_token: 'home-preview',
+  expires_in: 3600,
+  token_type: 'bearer',
+  user: {
+    id: 'home-preview-user',
+    email: 'coffee@day.local',
+    app_metadata: {},
+    user_metadata: {},
+    aud: 'authenticated',
+    created_at: '2026-06-18T00:00:00.000Z',
+  },
+} as Session
+
+const previewBeans: Bean[] = [
+  {
+    id: 'bean-1',
+    user_id: previewSession.user.id,
+    name: '埃塞俄比亚 桃子甜感',
+    roaster: '咖Day 小柜',
+    origin: 'Ethiopia',
+    farm_or_station: 'Banko Gotiti',
+    process: '水洗',
+    variety: 'Heirloom',
+    altitude_meters: 2100,
+    roast_date: '2026-06-14',
+    roast_level: '浅烘',
+    flavor_tags: ['白桃', '茉莉', '蜂蜜'],
+    flavor_notes: '轻盈花香，冷下来更甜。',
+    net_weight_grams: 100,
+    price: null,
+    purchase_date: '2026-06-15',
+    source_url: null,
+    image_url: null,
+    bean_type: 'single_origin',
+    blend_components: [],
+    blend_notes: null,
+    notes: null,
+    created_at: '2026-06-18T08:00:00.000Z',
+    updated_at: '2026-06-18T08:00:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  },
+  {
+    id: 'bean-2',
+    user_id: previewSession.user.id,
+    name: '哥伦比亚 黄水果拼盘',
+    roaster: '周末烘焙',
+    origin: 'Colombia',
+    farm_or_station: 'La Esperanza',
+    process: '厌氧日晒',
+    variety: 'Caturra',
+    altitude_meters: 1850,
+    roast_date: '2026-06-10',
+    roast_level: '中浅烘',
+    flavor_tags: ['芒果', '红茶', '焦糖'],
+    flavor_notes: '适合慢一点的早晨。',
+    net_weight_grams: 200,
+    price: null,
+    purchase_date: '2026-06-12',
+    source_url: null,
+    image_url: null,
+    bean_type: 'single_origin',
+    blend_components: [],
+    blend_notes: null,
+    notes: null,
+    created_at: '2026-06-17T08:00:00.000Z',
+    updated_at: '2026-06-17T08:00:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  },
+  {
+    id: 'bean-3',
+    user_id: previewSession.user.id,
+    name: '早餐拼配 榛果可可',
+    roaster: 'Coffee Day',
+    origin: 'Brazil / Guatemala',
+    farm_or_station: null,
+    process: '拼配',
+    variety: null,
+    altitude_meters: null,
+    roast_date: '2026-06-08',
+    roast_level: '中烘',
+    flavor_tags: ['榛果', '可可', '奶油'],
+    flavor_notes: '牛奶和手冲都稳。',
+    net_weight_grams: 227,
+    price: null,
+    purchase_date: '2026-06-11',
+    source_url: null,
+    image_url: null,
+    bean_type: 'blend',
+    blend_components: [],
+    blend_notes: null,
+    notes: null,
+    created_at: '2026-06-16T08:00:00.000Z',
+    updated_at: '2026-06-16T08:00:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  },
+]
+
+const previewBrewLogs: BrewLog[] = [
+  {
+    id: 'brew-1',
+    user_id: previewSession.user.id,
+    bean_id: 'bean-1',
+    brewed_at: '2026-06-18T07:42:00.000Z',
+    method: '手冲',
+    dripper: 'V60',
+    filter_paper: '01',
+    grinder: 'C40',
+    grind_setting: '22 click',
+    coffee_grams: 15,
+    water_grams: 240,
+    ratio: '1:16',
+    water_temperature_c: 92,
+    total_time_seconds: 138,
+    pour_steps: [],
+    rating: 4.6,
+    acidity: 4,
+    sweetness: 5,
+    bitterness: 1,
+    astringency: 1,
+    body: 3,
+    aftertaste: 4,
+    flavor_tags: ['桃子', '蜂蜜'],
+    is_pinned_recipe: true,
+    notes: '第一段小水量，甜感更干净。',
+    created_at: '2026-06-18T07:45:00.000Z',
+    updated_at: '2026-06-18T07:45:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  },
+  {
+    id: 'brew-2',
+    user_id: previewSession.user.id,
+    bean_id: 'bean-2',
+    brewed_at: '2026-06-17T21:08:00.000Z',
+    method: '手冲',
+    dripper: 'Origami',
+    filter_paper: 'Kalita',
+    grinder: 'C40',
+    grind_setting: '24 click',
+    coffee_grams: 16,
+    water_grams: 250,
+    ratio: '1:15.6',
+    water_temperature_c: 90,
+    total_time_seconds: 152,
+    pour_steps: [],
+    rating: 4.3,
+    acidity: 3,
+    sweetness: 4,
+    bitterness: 1,
+    astringency: 1,
+    body: 4,
+    aftertaste: 4,
+    flavor_tags: ['芒果', '红茶'],
+    is_pinned_recipe: false,
+    notes: '尾段不用拉太长。',
+    created_at: '2026-06-17T21:12:00.000Z',
+    updated_at: '2026-06-17T21:12:00.000Z',
+    deleted_at: null,
+    schema_version: 1,
+  },
+]
+
 export function AuthPanel() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -54,6 +223,8 @@ export function AuthPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeView, setActiveView] = useState<AppView>('home')
   const configError = getSupabaseConfigError()
+  const isHomePreview =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).has('homePreview')
   const redirectTo = useMemo(
     () => getAuthRedirectTo(window.location.origin, import.meta.env.BASE_URL),
     [],
@@ -281,6 +452,23 @@ export function AuthPanel() {
           {status ? <p className="auth-status">{status}</p> : null}
           {error ? <p className="auth-error">{error}</p> : null}
         </section>
+      </div>
+    )
+  }
+
+  if (isHomePreview) {
+    return (
+      <div className="auth-layout auth-layout--app">
+        <main className="app-view" aria-label="咖Day 首页预览">
+          <HomeOverview
+            session={previewSession}
+            supabase={{} as SupabaseClient}
+            onNavigate={(view) => setStatus(`预览模式：${view} 页面未打开。`)}
+            onSignOut={() => setStatus('预览模式不需要退出登录。')}
+            authStatus={status || '本地首页预览，不连接 Supabase。'}
+            previewRows={{ beans: previewBeans, brewLogs: previewBrewLogs }}
+          />
+        </main>
       </div>
     )
   }

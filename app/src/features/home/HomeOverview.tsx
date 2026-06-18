@@ -23,6 +23,7 @@ type HomeOverviewProps = {
   onNavigate: (view: HomeNavigationTarget) => void
   onSignOut: () => void
   authStatus?: string
+  previewRows?: HomeRows
 }
 
 type HomeRows = {
@@ -38,22 +39,35 @@ export type HomeNavigationTarget =
 
 const quickActions: Array<{
   label: string
-  hint: string
   mark: string
   view: HomeNavigationTarget
 }> = [
-  { label: '加豆', hint: '新豆入仓', mark: '豆', view: 'beans' },
-  { label: '导入', hint: '来源草稿', mark: '扫', view: 'beans' },
-  { label: '模板', hint: '常用方案', mark: '模', view: 'brewTemplates' },
-  { label: '推荐', hint: '今日手法', mark: '荐', view: 'recommendations' },
-  { label: '备份', hint: '轻量导出', mark: '存', view: 'backup' },
+  { label: '加豆', mark: '豆', view: 'beans' },
+  { label: '导入', mark: '扫', view: 'beans' },
+  { label: '模板', mark: '模', view: 'brewTemplates' },
+  { label: '推荐', mark: '荐', view: 'recommendations' },
+  { label: '备份', mark: '存', view: 'backup' },
 ]
 
 const lifeNotes = [
-  '今天这杯，先给自己留三分钟。',
-  '豆子会醒，记录也会慢慢变香。',
-  '水烧开之前，先想好第一段注水。',
-  '不赶时间的时候，咖啡更容易好喝。',
+  '今天这杯，先给自己留三分钟',
+  '豆子会醒，记录也会慢慢变香',
+  '水烧开之前，先想好第一段注水',
+  '不赶时间的时候，咖啡更容易好喝',
+  '杯子热起来，今天也就开始了',
+  '好喝的那一口，值得多写两个字',
+  '磨豆声响起，先把烦心事放旁边',
+  '如果酸甜刚好，记得给未来的自己留线索',
+  '今天不追求完美，先追求舒服',
+  '水流慢一点，心也慢一点',
+]
+
+const greetingNotes = [
+  '今天也来一杯吧 ( ´ ▽ ` )ﾉ',
+  '咖Day 已经把杯子摆好啦 (๑˃̵ᴗ˂̵)و',
+  '先闻香，再动手 ( ˘ω˘ )',
+  '欢迎回到小咖啡台 (•̀ᴗ•́)و',
+  '今天适合慢慢冲一杯 ( ᐛ )',
 ]
 
 export function HomeOverview({
@@ -62,6 +76,7 @@ export function HomeOverview({
   onNavigate,
   onSignOut,
   authStatus,
+  previewRows,
 }: HomeOverviewProps) {
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
@@ -69,11 +84,24 @@ export function HomeOverview({
   const [isUsingCache, setIsUsingCache] = useState(false)
   const [error, setError] = useState('')
   const [lifeNoteIndex, setLifeNoteIndex] = useState(0)
+  const [openDrawers, setOpenDrawers] = useState({
+    beans: true,
+    brews: true,
+  })
+  const [isToolTrayOpen, setIsToolTrayOpen] = useState(true)
 
   useEffect(() => {
     let isMounted = true
 
     async function loadRows() {
+      if (previewRows) {
+        setRows(previewRows)
+        setIsUsingCache(false)
+        setError('')
+        setIsLoading(false)
+        return
+      }
+
       setIsLoading(true)
       setError('')
 
@@ -128,7 +156,7 @@ export function HomeOverview({
     return () => {
       isMounted = false
     }
-  }, [session.user.id, supabase])
+  }, [previewRows, session.user.id, supabase])
 
   useEffect(() => {
     function handleOnline() {
@@ -162,6 +190,14 @@ export function HomeOverview({
       }),
     [isOnline, rows.beans, rows.brewLogs, session.user.email],
   )
+  const [beanStat, brewStat, recommendationStat, backupStat] = overview.stats
+  const greetingNote = greetingNotes[lifeNoteIndex % greetingNotes.length]
+  const toggleDrawer = (drawer: 'beans' | 'brews') => {
+    setOpenDrawers((current) => ({
+      ...current,
+      [drawer]: !current[drawer],
+    }))
+  }
 
   return (
     <section className="home-overview" aria-labelledby="home-overview-title">
@@ -180,9 +216,9 @@ export function HomeOverview({
         </div>
         <div className="home-hero__brand">
           <CoffeeDayLogo headingId="home-overview-title" title="咖Day" variant="hero" />
-          <p className="home-hero__account">
-            <span>{overview.accountLabel}</span>
-            <strong>{isUsingCache ? '离线缓存' : overview.syncLabel}</strong>
+          <p className="home-hero__greeting">
+            <span>Hi，{overview.accountLabel}</span>
+            <strong>{greetingNote}</strong>
           </p>
         </div>
         <button
@@ -197,89 +233,200 @@ export function HomeOverview({
 
       {authStatus ? <p className="home-overview__status">{authStatus}</p> : null}
 
-      <nav className="home-actions" aria-label="首页快捷操作">
-        {quickActions.map((action) => (
-          <button key={action.label} type="button" onClick={() => onNavigate(action.view)}>
-            <span aria-hidden="true">{action.mark}</span>
-            <strong>{action.label}</strong>
-            <small>{action.hint}</small>
-          </button>
-        ))}
-      </nav>
+      <section
+        className={`home-tool-tray ${isToolTrayOpen ? 'is-open' : 'is-collapsed'}`}
+        aria-label="台面工具"
+      >
+        <button
+          type="button"
+          className="home-tool-tray__toggle"
+          onClick={() => setIsToolTrayOpen((current) => !current)}
+          aria-expanded={isToolTrayOpen}
+          aria-controls="home-tool-actions"
+        >
+          <span aria-hidden="true">具</span>
+          <strong>{isToolTrayOpen ? '收起' : '工具'}</strong>
+        </button>
+        <div
+          id="home-tool-actions"
+          className="home-tool-tray__actions"
+          aria-hidden={!isToolTrayOpen}
+        >
+          <nav className="home-actions" aria-label="首页快捷操作">
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                tabIndex={isToolTrayOpen ? undefined : -1}
+                onClick={() => onNavigate(action.view)}
+              >
+                <span aria-hidden="true">{action.mark}</span>
+                <strong>{action.label}</strong>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </section>
 
       {error ? <p className="home-overview__error">{error}</p> : null}
       {isUsingCache ? (
         <p className="home-overview__cache">当前显示本机缓存，编辑需要联网。</p>
       ) : null}
 
-      <div className="home-stats" aria-label="咖啡记录概览">
-        {overview.stats.map((stat) => (
-          <article className="home-stat" key={stat.label}>
-            <span>{stat.label}</span>
-            <strong>{isLoading ? '...' : stat.value}</strong>
-            <p>{stat.caption}</p>
-          </article>
-        ))}
-      </div>
-
-      <div className="home-panels">
-        <section className="home-panel" aria-labelledby="home-beans-title">
-          <div className="home-panel__header">
-            <h2 id="home-beans-title">最近豆子</h2>
-            <button type="button" onClick={() => onNavigate('beans')}>
-              管理
-            </button>
+      <section className="home-workbench" aria-labelledby="home-workbench-title">
+        <div className="home-workbench__header">
+          <div className="home-section-heading">
+            <span>今日台面</span>
+            <h2 id="home-workbench-title" className="home-visually-hidden">
+              首页记录概览
+            </h2>
           </div>
-          {isLoading ? <p className="home-empty">读取豆仓...</p> : null}
-          {!isLoading && overview.currentBeans.length === 0 ? (
-            <p className="home-empty">先加一支豆子。</p>
-          ) : null}
-          {overview.currentBeans.map((bean) => (
-            <article className="home-bean" key={bean.id}>
-              <div className="home-bean__thumb" aria-hidden="true">
-                {bean.name.slice(0, 1)}
-              </div>
-              <div>
-                <h3>{bean.name}</h3>
-                <p>{bean.meta}</p>
-                <span>{bean.note}</span>
-              </div>
+          <div className="home-workbench__stamp" aria-hidden="true">
+            Coffee Day desk
+          </div>
+        </div>
+
+        <div className="home-counter-board" aria-label="咖啡记录概览">
+          {[beanStat, brewStat].map((stat) => (
+            <article className="home-counter" key={stat.label}>
+              <span>{stat.label}</span>
+              <strong>{isLoading ? '...' : stat.value}</strong>
+              <p>{stat.caption}</p>
             </article>
           ))}
-        </section>
-
-        <section className="home-panel" aria-labelledby="home-brews-title">
-          <div className="home-panel__header">
-            <h2 id="home-brews-title">最近冲煮</h2>
-            <button type="button" onClick={() => onNavigate('beans')}>
-              记录
-            </button>
+          <div className="home-counter-board__side">
+            {[recommendationStat, backupStat].map((stat) => (
+              <article className="home-mini-stat" key={stat.label}>
+                <span>{stat.label}</span>
+                <strong>{isLoading ? '...' : stat.value}</strong>
+                <p>{stat.caption}</p>
+              </article>
+            ))}
           </div>
-          {isLoading ? <p className="home-empty">读取冲煮...</p> : null}
-          {!isLoading && overview.recentBrews.length === 0 ? (
-            <p className="home-empty">还没有冲煮记录。</p>
-          ) : null}
-          {overview.recentBrews.map((brew) => (
-            <article className="home-brew" key={brew.id}>
-              <div>
-                <h3>{brew.beanName}</h3>
-                <p>{brew.summary}</p>
-              </div>
-              <span>{brew.rating ?? brew.brewedAt}</span>
-            </article>
-          ))}
-        </section>
-      </div>
+        </div>
 
-      <button
-        type="button"
-        className={`home-backup home-backup--${overview.backup.tone}`}
-        onClick={() => onNavigate('backup')}
-        aria-label="查看备份导出"
-      >
-        <strong>{overview.backup.title}</strong>
-        <span>{overview.backup.message}</span>
-      </button>
+        <div className="home-cabinet">
+          <section
+            className={`home-drawer home-drawer--beans ${
+              openDrawers.beans ? 'is-open' : 'is-collapsed'
+            }`}
+            aria-labelledby="home-beans-title"
+          >
+            <div className="home-drawer__top">
+              <button
+                type="button"
+                className="home-drawer__toggle"
+                onClick={() => toggleDrawer('beans')}
+                aria-expanded={openDrawers.beans}
+                aria-controls="home-beans-drawer"
+                aria-label={openDrawers.beans ? '收起豆仓抽屉' : '展开豆仓抽屉'}
+              >
+                <span className="home-drawer__handle" aria-hidden="true">
+                  豆
+                </span>
+                <span className="home-drawer__toggle-icon" aria-hidden="true" />
+              </button>
+              <div className="home-panel__header">
+                <div>
+                  <span>豆仓抽屉</span>
+                  <h2 id="home-beans-title">最近豆子</h2>
+                </div>
+                <button type="button" onClick={() => onNavigate('beans')}>
+                  管理
+                </button>
+              </div>
+            </div>
+            <div
+              id="home-beans-drawer"
+              className="home-drawer__body-shell"
+              aria-hidden={!openDrawers.beans}
+            >
+              <div className="home-drawer__body">
+                {isLoading ? <p className="home-empty">读取豆仓...</p> : null}
+                {!isLoading && overview.currentBeans.length === 0 ? (
+                  <p className="home-empty">先加一支豆子</p>
+                ) : null}
+                {overview.currentBeans.map((bean) => (
+                  <article className="home-bean" key={bean.id}>
+                    <div className="home-bean__thumb" aria-hidden="true">
+                      <span>{bean.name.slice(0, 1)}</span>
+                    </div>
+                    <div>
+                      <h3>{bean.name}</h3>
+                      <p>{bean.meta}</p>
+                      <span>{bean.note}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section
+            className={`home-drawer home-drawer--brews ${
+              openDrawers.brews ? 'is-open' : 'is-collapsed'
+            }`}
+            aria-labelledby="home-brews-title"
+          >
+            <div className="home-drawer__top">
+              <button
+                type="button"
+                className="home-drawer__toggle"
+                onClick={() => toggleDrawer('brews')}
+                aria-expanded={openDrawers.brews}
+                aria-controls="home-brews-drawer"
+                aria-label={openDrawers.brews ? '收起冲煮抽屉' : '展开冲煮抽屉'}
+              >
+                <span className="home-drawer__handle" aria-hidden="true">
+                  杯
+                </span>
+                <span className="home-drawer__toggle-icon" aria-hidden="true" />
+              </button>
+              <div className="home-panel__header">
+                <div>
+                  <span>冲煮抽屉</span>
+                  <h2 id="home-brews-title">最近冲煮</h2>
+                </div>
+                <button type="button" onClick={() => onNavigate('beans')}>
+                  记录
+                </button>
+              </div>
+            </div>
+            <div
+              id="home-brews-drawer"
+              className="home-drawer__body-shell"
+              aria-hidden={!openDrawers.brews}
+            >
+              <div className="home-drawer__body">
+                {isLoading ? <p className="home-empty">读取冲煮...</p> : null}
+                {!isLoading && overview.recentBrews.length === 0 ? (
+                  <p className="home-empty">还没有冲煮记录</p>
+                ) : null}
+                {overview.recentBrews.map((brew) => (
+                  <article className="home-brew" key={brew.id}>
+                    <div>
+                      <h3>{brew.beanName}</h3>
+                      <p>{brew.summary}</p>
+                    </div>
+                    <span>{brew.rating ?? brew.brewedAt}</span>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <button
+          type="button"
+          className={`home-backup home-backup--${overview.backup.tone}`}
+          onClick={() => onNavigate('backup')}
+          aria-label="查看备份导出"
+        >
+          <strong>{overview.backup.title}</strong>
+          <span>{overview.backup.message}</span>
+        </button>
+      </section>
+
     </section>
   )
 }

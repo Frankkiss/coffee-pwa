@@ -5,70 +5,16 @@
   min-width: 0;
 }
 
-.coffee-day-logo__cup {
-  display: grid;
+.coffee-day-logo__image {
+  display: block;
   flex: 0 0 auto;
   width: 3.2rem;
   aspect-ratio: 1;
-  place-items: center;
-  border: 1px solid rgba(255, 248, 237, 0.48);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 35% 22%, rgba(255, 255, 255, 0.74), transparent 1.05rem),
-    linear-gradient(180deg, #ffe5bf, #d9955f);
+  border-radius: 24px;
+  object-fit: cover;
   box-shadow:
     inset 0 1px 0 rgba(255, 253, 248, 0.72),
-    inset 0 -10px 16px rgba(93, 55, 38, 0.14),
     0 12px 28px rgba(56, 35, 27, 0.18);
-}
-
-.coffee-day-logo svg {
-  width: 88%;
-  height: 88%;
-  overflow: visible;
-}
-
-.coffee-day-logo__steam,
-.coffee-day-logo__handle,
-.coffee-day-logo__coffee,
-.coffee-day-logo__smile {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.coffee-day-logo__steam {
-  stroke: rgba(255, 248, 237, 0.78);
-  stroke-width: 4.2;
-}
-
-.coffee-day-logo__saucer {
-  fill: #f6c98e;
-}
-
-.coffee-day-logo__body {
-  fill: #fff8ed;
-  stroke: rgba(86, 54, 45, 0.26);
-  stroke-width: 2.2;
-}
-
-.coffee-day-logo__handle {
-  stroke: #fff8ed;
-  stroke-width: 8;
-}
-
-.coffee-day-logo__coffee {
-  stroke: #7a4c39;
-  stroke-width: 4.4;
-}
-
-.coffee-day-logo__eye {
-  fill: #472e26;
-}
-
-.coffee-day-logo__smile {
-  stroke: #472e26;
-  stroke-width: 3.2;
 }
 
 .coffee-day-logo__text {
@@ -109,9 +55,9 @@
   color: var(--color-cream-soft);
 }
 
-.coffee-day-logo--hero .coffee-day-logo__cup {
+.coffee-day-logo--hero .coffee-day-logo__image {
   width: 4.8rem;
-  border-radius: 28px;
+  border-radius: 30px;
 }
 
 .coffee-day-logo--hero .coffee-day-logo__text strong {
@@ -119,6 +65,7 @@
   letter-spacing: 0;
 }
 
-.coffee-day-logo--mark .coffee-day-logo__cup {
+.coffee-day-logo--mark .coffee-day-logo__image {
   width: 2.65rem;
+  border-radius: 20px;
 }
