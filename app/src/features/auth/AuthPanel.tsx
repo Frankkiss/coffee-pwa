@@ -291,7 +291,6 @@ export function AuthPanel() {
           return
         }
 
-        setStatus('登录成功。')
         return
       }
 
