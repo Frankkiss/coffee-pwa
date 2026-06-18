@@ -546,27 +546,36 @@
 
 .home-workbench {
   display: grid;
-  gap: 0.82rem;
-  padding: 0.82rem;
+  gap: 0.9rem;
+  padding: 0.92rem;
   overflow: hidden;
-  border: 1px solid rgba(122, 79, 63, 0.14);
-  border-radius: 20px;
+  border: 1px solid rgba(122, 79, 63, 0.18);
+  border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(255, 252, 245, 0.96), rgba(247, 232, 206, 0.84)),
-    linear-gradient(110deg, rgba(255, 250, 241, 0.88), rgba(255, 250, 241, 0.38)),
+    radial-gradient(circle at 88% 5%, rgba(122, 79, 63, 0.16), transparent 4.8rem),
+    radial-gradient(circle at 9% 78%, rgba(217, 149, 95, 0.2), transparent 4.4rem),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 228, 199, 0.9)),
+    linear-gradient(110deg, rgba(255, 250, 241, 0.92), rgba(255, 250, 241, 0.42)),
     url('../../assets/coffee-hero-atmosphere.jpg') center 58% / cover,
     var(--color-paper);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -0.45rem 0 rgba(112, 74, 55, 0.04),
     0 18px 38px rgba(83, 53, 38, 0.12);
 }
 
 .home-workbench::before {
-  opacity: 0.18;
+  opacity: 0.24;
   background:
+    radial-gradient(circle at 83% 17%, rgba(83, 53, 38, 0.12) 0 0.08rem, transparent 0.09rem),
+    radial-gradient(circle at 87% 23%, rgba(83, 53, 38, 0.09) 0 0.06rem, transparent 0.07rem),
     linear-gradient(rgba(122, 79, 63, 0.12) 1px, transparent 1px),
     linear-gradient(90deg, rgba(122, 79, 63, 0.1) 1px, transparent 1px);
-  background-size: 18px 18px;
+  background-size:
+    100% 100%,
+    100% 100%,
+    18px 18px,
+    18px 18px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.82), transparent 95%);
 }
 
@@ -580,9 +589,37 @@
 
 .home-workbench__header {
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
+  padding: 0.05rem 0.05rem 0;
+}
+
+.home-workbench .home-section-heading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-height: 1.86rem;
+  padding: 0.38rem 0.68rem;
+  border: 1px solid rgba(122, 79, 63, 0.16);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee-dark);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.88), rgba(247, 232, 206, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 18px rgba(83, 53, 38, 0.08);
+}
+
+.home-workbench .home-section-heading span::before {
+  width: 0.48rem;
+  aspect-ratio: 1;
+  content: '';
+  border-radius: 50%;
+  background: var(--color-caramel);
+  box-shadow:
+    0.42rem 0.08rem 0 -0.18rem rgba(122, 79, 63, 0.42),
+    0 0 0 0.18rem rgba(217, 149, 95, 0.14);
 }
 
 .home-workbench__stamp {
@@ -616,7 +653,15 @@
 .home-counter-board {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.58rem;
+  gap: 0.64rem;
+  padding: 0.6rem;
+  border: 1px solid rgba(122, 79, 63, 0.12);
+  border-radius: 17px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.66), rgba(248, 237, 218, 0.36));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -0.35rem 0 rgba(112, 74, 55, 0.04);
 }
 
 .home-counter,
@@ -633,11 +678,25 @@
 }
 
 .home-counter {
+  position: relative;
   display: grid;
   gap: 0.16rem;
   min-height: 6.2rem;
   padding: 0.84rem;
   border-radius: 15px;
+  overflow: hidden;
+}
+
+.home-counter::after {
+  position: absolute;
+  right: -0.75rem;
+  bottom: -0.85rem;
+  width: 3.4rem;
+  aspect-ratio: 1;
+  content: '';
+  border: 0.5rem solid rgba(217, 149, 95, 0.14);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .home-counter span,
