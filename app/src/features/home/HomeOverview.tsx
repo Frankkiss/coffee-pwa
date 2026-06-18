@@ -258,10 +258,10 @@ export function HomeOverview({
                 key={action.label}
                 type="button"
                 tabIndex={isToolTrayOpen ? undefined : -1}
+                aria-label={action.label}
                 onClick={() => onNavigate(action.view)}
               >
                 <span aria-hidden="true">{action.mark}</span>
-                <strong>{action.label}</strong>
               </button>
             ))}
           </nav>

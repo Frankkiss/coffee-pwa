@@ -469,10 +469,9 @@
 .home-actions button {
   position: relative;
   flex-direction: column;
-  gap: 0.3rem;
   height: var(--home-tool-row-height);
   min-height: var(--home-tool-row-height);
-  padding: 0.5rem 0.32rem 0.56rem;
+  padding: 0.48rem;
   overflow: hidden;
   animation: home-tool-pop 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -515,18 +514,18 @@
 
 .home-actions button span {
   display: grid;
-  width: 1.76rem;
+  width: 2.24rem;
   aspect-ratio: 1;
   place-items: center;
-  border-radius: 0.76rem;
+  border-radius: 0.92rem;
   color: var(--color-cream-soft);
   background:
-    radial-gradient(circle at 34% 26%, rgba(255, 248, 237, 0.3), transparent 0.65rem),
+    radial-gradient(circle at 34% 26%, rgba(255, 248, 237, 0.34), transparent 0.78rem),
     linear-gradient(180deg, #8a563f, var(--color-coffee-dark));
   box-shadow:
     inset 0 1px 0 rgba(255, 248, 237, 0.24),
-    0 5px 10px rgba(83, 53, 38, 0.16);
-  font-size: 0.82rem;
+    0 8px 14px rgba(83, 53, 38, 0.18);
+  font-size: 1.02rem;
   font-weight: 900;
 }
 
@@ -1303,6 +1302,7 @@
   .home-actions button {
     height: var(--home-tool-row-height);
     min-height: 3.95rem;
+    padding: 0.42rem;
   }
 }
 
