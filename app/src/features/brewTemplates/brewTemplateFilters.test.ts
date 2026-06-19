@@ -96,19 +96,21 @@ describe('brew template dataset', () => {
 
   it('calibrates core daily templates for a stronger sweeter preference', () => {
     const expected = new Map([
-      ['classic-v60-three-pour', '1:15'],
-      ['v60-five-pulse', '1:15'],
-      ['hoffmann-v60-inspired', '1:15'],
-      ['kalita-wave-stable-sweet', '1:15'],
-      ['new-bean-default', '1:15'],
+      ['classic-v60-three-pour', { ratio: '1:15', time: { min: 110, max: 145 } }],
+      ['v60-five-pulse', { ratio: '1:15', time: { min: 130, max: 165 } }],
+      ['hoffmann-v60-inspired', { ratio: '1:15', time: { min: 120, max: 155 } }],
+      ['kasuya-46-daily', { ratio: '1:15', time: { min: 150, max: 190 } }],
+      ['kalita-wave-stable-sweet', { ratio: '1:15', time: { min: 135, max: 175 } }],
+      ['new-bean-default', { ratio: '1:15', time: { min: 115, max: 150 } }],
     ])
 
-    for (const [id, ratio] of expected) {
+    for (const [id, expectation] of expected) {
       const template = brewTemplates.find((item) => item.id === id)
 
-      expect(template?.ratio).toBe(ratio)
+      expect(template?.ratio).toBe(expectation.ratio)
       expect(template?.doseGrams).toBe(15)
       expect(template?.waterGrams).toBe(225)
+      expect(template?.targetTimeSeconds).toEqual(expectation.time)
       expect(template?.suitableFor).toContain('浓郁')
       expect(template?.suitableFor).toContain('甜感')
     }
