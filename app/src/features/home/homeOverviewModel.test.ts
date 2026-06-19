@@ -129,4 +129,46 @@ describe('buildHomeOverview', () => {
     expect(overview.accountLabel).toBe('1799263035')
     expect(overview.syncLabel).toBe('云同步在线')
   })
+
+  it('builds a barista recommendation preview from the best pinned brew', () => {
+    const overview = buildHomeOverview({
+      beans: [createBean({ name: '埃塞俄比亚 花魁' })],
+      brewLogs: [
+        createBrewLog({
+          id: 'brew-low',
+          ratio: '1:15',
+          water_temperature_c: 90,
+          total_time_seconds: 138,
+          grind_setting: '20 clicks',
+          rating: 3.8,
+          is_pinned_recipe: false,
+        }),
+        createBrewLog({
+          id: 'brew-pinned',
+          ratio: '1:16',
+          water_temperature_c: 92,
+          total_time_seconds: 150,
+          grind_setting: '22 clicks',
+          rating: 4.5,
+          is_pinned_recipe: true,
+        }),
+      ],
+      backupReminder,
+      email: '1799263035@qq.com',
+      isOnline: true,
+    })
+
+    expect(overview.recommendationPreview).toEqual({
+      title: '埃塞俄比亚 花魁',
+      status: '可生成',
+      source: '来自已钉选方案 · 4.5/5',
+      actionLabel: '打开推荐',
+      parameters: [
+        { label: '粉水比', value: '1:16' },
+        { label: '水温', value: '92°C' },
+        { label: '研磨', value: '22 clicks' },
+        { label: '时间', value: '150s' },
+      ],
+    })
+  })
 })

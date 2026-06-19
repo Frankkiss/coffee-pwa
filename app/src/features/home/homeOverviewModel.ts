@@ -32,12 +32,26 @@ export type HomeOverviewBrew = {
   rating: string | null
 }
 
+export type HomeRecommendationParameter = {
+  label: string
+  value: string
+}
+
+export type HomeRecommendationPreview = {
+  title: string
+  status: string
+  source: string
+  actionLabel: string
+  parameters: HomeRecommendationParameter[]
+}
+
 export type HomeOverviewView = {
   accountLabel: string
   syncLabel: string
   stats: HomeOverviewStat[]
   currentBeans: HomeOverviewBean[]
   recentBrews: HomeOverviewBrew[]
+  recommendationPreview: HomeRecommendationPreview
   backup: BackupReminderView
 }
 
@@ -71,6 +85,7 @@ export function buildHomeOverview(input: HomeOverviewInput): HomeOverviewView {
     recentBrews: sortedBrews.slice(0, 3).map((brewLog) =>
       toHomeBrew(brewLog, beanNameById),
     ),
+    recommendationPreview: buildRecommendationPreview(sortedBrews, beanNameById),
     backup: input.backupReminder,
   }
 }
@@ -117,6 +132,80 @@ export function formatBrewSummary(brewLog: BrewLog) {
       .filter(Boolean)
       .join(' / ') || '参数待补充'
   )
+}
+
+function buildRecommendationPreview(
+  sortedBrews: BrewLog[],
+  beanNameById: Map<string, string>,
+): HomeRecommendationPreview {
+  const bestBrew = [...sortedBrews].sort(compareRecommendationBrews)[0]
+
+  if (!bestBrew) {
+    return {
+      title: '冲煮方案推荐',
+      status: '待记录',
+      source: '规则推荐需要历史参数',
+      actionLabel: '去生成',
+      parameters: [
+        { label: '粉水比', value: '待生成' },
+        { label: '水温', value: '待生成' },
+        { label: '研磨', value: '待生成' },
+        { label: '时间', value: '待生成' },
+      ],
+    }
+  }
+
+  return {
+    title: bestBrew.bean_id
+      ? beanNameById.get(bestBrew.bean_id) ?? '未知咖啡豆'
+      : '未绑定豆子',
+    status: '可生成',
+    source: formatRecommendationSource(bestBrew),
+    actionLabel: '打开推荐',
+    parameters: [
+      { label: '粉水比', value: bestBrew.ratio ?? '待补充' },
+      {
+        label: '水温',
+        value:
+          typeof bestBrew.water_temperature_c === 'number'
+            ? `${bestBrew.water_temperature_c}°C`
+            : '待补充',
+      },
+      { label: '研磨', value: bestBrew.grind_setting ?? '待补充' },
+      {
+        label: '时间',
+        value:
+          typeof bestBrew.total_time_seconds === 'number'
+            ? `${bestBrew.total_time_seconds}s`
+            : '待补充',
+      },
+    ],
+  }
+}
+
+function compareRecommendationBrews(left: BrewLog, right: BrewLog) {
+  if (left.is_pinned_recipe !== right.is_pinned_recipe) {
+    return left.is_pinned_recipe ? -1 : 1
+  }
+
+  const leftRating = left.rating ?? 0
+  const rightRating = right.rating ?? 0
+
+  if (leftRating !== rightRating) {
+    return rightRating - leftRating
+  }
+
+  return right.brewed_at.localeCompare(left.brewed_at)
+}
+
+function formatRecommendationSource(brewLog: BrewLog) {
+  const prefix = brewLog.is_pinned_recipe ? '来自已钉选方案' : '来自高分记录'
+
+  if (typeof brewLog.rating === 'number') {
+    return `${prefix} · ${brewLog.rating}/5`
+  }
+
+  return prefix
 }
 
 export function formatShortDate(value: string) {

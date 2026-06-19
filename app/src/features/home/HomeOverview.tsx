@@ -191,6 +191,7 @@ export function HomeOverview({
     [isOnline, rows.beans, rows.brewLogs, session.user.email],
   )
   const [beanStat, brewStat, recommendationStat, backupStat] = overview.stats
+  const recommendationPreview = overview.recommendationPreview
   const greetingNote = greetingNotes[lifeNoteIndex % greetingNotes.length]
   const toggleDrawer = (drawer: 'beans' | 'brews') => {
     setOpenDrawers((current) => ({
@@ -295,13 +296,35 @@ export function HomeOverview({
             </article>
           ))}
           <div className="home-counter-board__side">
-            {[recommendationStat, backupStat].map((stat) => (
-              <article className="home-mini-stat" key={stat.label}>
-                <span>{stat.label}</span>
-                <strong>{isLoading ? '...' : stat.value}</strong>
-                <p>{stat.caption}</p>
-              </article>
-            ))}
+            <button
+              type="button"
+              className="home-recommendation-card"
+              onClick={() => onNavigate('recommendations')}
+              aria-label="打开冲煮方案推荐"
+            >
+              <span className="home-recommendation-card__eyebrow">
+                {recommendationStat.label}
+                <em>{isLoading ? '读取中' : recommendationPreview.status}</em>
+              </span>
+              <strong>{isLoading ? '正在读取推荐参数' : recommendationPreview.title}</strong>
+              <div className="home-recommendation-card__params" aria-hidden={isLoading}>
+                {recommendationPreview.parameters.map((parameter) => (
+                  <span key={parameter.label}>
+                    <small>{parameter.label}</small>
+                    <b>{isLoading ? '...' : parameter.value}</b>
+                  </span>
+                ))}
+              </div>
+              <p>{isLoading ? recommendationStat.caption : recommendationPreview.source}</p>
+              <span className="home-recommendation-card__action">
+                {recommendationPreview.actionLabel}
+              </span>
+            </button>
+            <article className="home-mini-stat" key={backupStat.label}>
+              <span>{backupStat.label}</span>
+              <strong>{isLoading ? '...' : backupStat.value}</strong>
+              <p>{backupStat.caption}</p>
+            </article>
           </div>
         </div>
 
