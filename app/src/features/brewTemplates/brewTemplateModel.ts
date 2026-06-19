@@ -186,3 +186,27 @@ export function normalizePourSteps(
     }))
     .sort((left, right) => left.order - right.order)
 }
+
+export function applyUserTemplateOverrides(
+  systemTemplates: BrewTemplate[],
+  userTemplates: BrewTemplate[],
+): BrewTemplate[] {
+  const replacementBySourceId = new Map<string, BrewTemplate>()
+  const originalUserTemplates: BrewTemplate[] = []
+
+  for (const template of userTemplates) {
+    if (template.copiedFromTemplateId) {
+      if (!replacementBySourceId.has(template.copiedFromTemplateId)) {
+        replacementBySourceId.set(template.copiedFromTemplateId, template)
+      }
+      continue
+    }
+
+    originalUserTemplates.push(template)
+  }
+
+  return [
+    ...systemTemplates.map((template) => replacementBySourceId.get(template.id) ?? template),
+    ...originalUserTemplates,
+  ]
+}

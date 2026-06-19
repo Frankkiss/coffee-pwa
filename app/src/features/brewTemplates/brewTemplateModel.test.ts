@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyUserTemplateOverrides,
   createBrewTemplateFormFromTemplate,
   toBrewTemplateFromRow,
   toUserBrewTemplatePayload,
@@ -92,5 +93,37 @@ describe('brew template model', () => {
     })
     expect(payload.pour_steps).toHaveLength(1)
     expect(payload.suitable_for).toEqual(['水洗', '浅烘'])
+  })
+
+  it('uses a copied user template as the editable replacement for its built-in source', () => {
+    const replacement = {
+      ...template,
+      id: 'user-v60',
+      name: '我的 V60 三段式',
+      waterGrams: 230,
+      source: 'user',
+      userId: 'user-1',
+      copiedFromTemplateId: template.id,
+    } satisfies BrewTemplate
+    const custom = {
+      ...template,
+      id: 'user-original',
+      name: '我的原创模板',
+      source: 'user',
+      userId: 'user-1',
+      copiedFromTemplateId: null,
+    } satisfies BrewTemplate
+
+    const merged = applyUserTemplateOverrides([template], [custom, replacement])
+
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).toMatchObject({
+      id: 'user-v60',
+      name: '我的 V60 三段式',
+      waterGrams: 230,
+      copiedFromTemplateId: 'system-v60',
+    })
+    expect(merged.map((item) => item.id)).not.toContain('system-v60')
+    expect(merged[1]).toMatchObject({ id: 'user-original' })
   })
 })

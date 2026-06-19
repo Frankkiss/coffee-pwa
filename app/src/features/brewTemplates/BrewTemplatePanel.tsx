@@ -7,6 +7,7 @@ import {
   summarizePourSteps,
 } from './brewTemplateFilters'
 import {
+  applyUserTemplateOverrides,
   createBrewTemplateFormFromTemplate,
   createEmptyBrewTemplateForm,
   type BrewTemplateForm,
@@ -99,13 +100,14 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
     }
   }, [supabase])
 
-  const allTemplates = useMemo(
-    () => [
-      ...brewTemplates.map((template) => ({ ...template, source: 'system' as const })),
-      ...userTemplates,
-    ],
-    [userTemplates],
-  )
+  const allTemplates = useMemo(() => {
+    const systemTemplates = brewTemplates.map((template) => ({
+      ...template,
+      source: 'system' as const,
+    }))
+
+    return applyUserTemplateOverrides(systemTemplates, userTemplates)
+  }, [userTemplates])
   const options = useMemo(() => getBrewTemplateFilterOptions(allTemplates), [allTemplates])
   const filteredTemplates = useMemo(
     () => filterBrewTemplates(allTemplates, filters),
@@ -188,7 +190,13 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
       })
       setEditingState(null)
       setForm(createEmptyBrewTemplateForm())
-      setStatus(editingState.mode === 'edit' ? '模板已更新。' : '模板已保存。')
+      setStatus(
+        editingState.mode === 'edit'
+          ? '模板已覆盖保存。'
+          : editingState.mode === 'copy'
+            ? '模板微调已保存，并会替代原系统模板显示。'
+            : '模板已保存。',
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存模板失败')
     } finally {
@@ -705,7 +713,7 @@ function TemplateCard({
           </>
         ) : (
           <button type="button" onClick={onCopy}>
-            复制为我的模板
+            微调并保存
           </button>
         )}
       </div>
