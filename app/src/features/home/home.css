@@ -680,7 +680,8 @@
 .home-counter {
   position: relative;
   display: grid;
-  gap: 0.16rem;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.22rem;
   min-height: 6.2rem;
   padding: 0.84rem;
   border-radius: 15px;
@@ -707,10 +708,40 @@
 }
 
 .home-counter strong {
-  overflow-wrap: anywhere;
-  font-size: 2rem;
+  position: relative;
+  display: inline-grid;
+  align-self: center;
+  justify-self: start;
+  min-width: 3.35rem;
+  min-height: 3.15rem;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(122, 79, 63, 0.12);
+  border-radius: 1.05rem;
+  color: #4a2f28;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 248, 237, 0.88), transparent 1.08rem),
+    linear-gradient(180deg, rgba(255, 231, 194, 0.96), rgba(217, 149, 95, 0.44));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 253, 248, 0.82),
+    inset 0 -0.5rem 0 rgba(122, 79, 63, 0.06),
+    0 9px 17px rgba(83, 53, 38, 0.09);
+  font-size: 2.22rem;
+  font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.home-counter strong::after {
+  position: absolute;
+  right: 0.42rem;
+  bottom: 0.48rem;
+  width: 0.58rem;
+  height: 0.16rem;
+  content: '';
+  border-radius: var(--radius-pill);
+  background: rgba(122, 79, 63, 0.18);
 }
 
 .home-counter p,
