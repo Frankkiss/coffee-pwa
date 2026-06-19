@@ -682,8 +682,8 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 0.22rem;
-  min-height: 6.2rem;
-  padding: 0.84rem;
+  min-height: 5.25rem;
+  padding: 0.72rem;
   border-radius: 15px;
   overflow: hidden;
 }
@@ -692,10 +692,10 @@
   position: absolute;
   right: -0.75rem;
   bottom: -0.85rem;
-  width: 3.4rem;
+  width: 2.85rem;
   aspect-ratio: 1;
   content: '';
-  border: 0.5rem solid rgba(217, 149, 95, 0.14);
+  border: 0.42rem solid rgba(217, 149, 95, 0.12);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -712,8 +712,8 @@
   display: inline-grid;
   align-self: center;
   justify-self: start;
-  min-width: 3.35rem;
-  min-height: 3.15rem;
+  min-width: 3rem;
+  min-height: 2.82rem;
   place-items: center;
   overflow: hidden;
   border: 1px solid rgba(122, 79, 63, 0.12);
@@ -726,7 +726,7 @@
     inset 0 1px 0 rgba(255, 253, 248, 0.82),
     inset 0 -0.5rem 0 rgba(122, 79, 63, 0.06),
     0 9px 17px rgba(83, 53, 38, 0.09);
-  font-size: 2.22rem;
+  font-size: 2.02rem;
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -760,7 +760,7 @@
 .home-counter-board__side {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.58rem;
 }
 
@@ -778,7 +778,7 @@
   grid-column: 1 / -1;
   gap: 0.54rem;
   width: 100%;
-  min-height: 9.4rem;
+  min-height: 100%;
   padding: 0.74rem;
   overflow: hidden;
   border-radius: 15px;

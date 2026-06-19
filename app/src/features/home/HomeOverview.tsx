@@ -190,7 +190,7 @@ export function HomeOverview({
       }),
     [isOnline, rows.beans, rows.brewLogs, session.user.email],
   )
-  const [beanStat, brewStat, recommendationStat, backupStat] = overview.stats
+  const [beanStat, brewStat, recommendationStat] = overview.stats
   const recommendationPreview = overview.recommendationPreview
   const greetingNote = greetingNotes[lifeNoteIndex % greetingNotes.length]
   const toggleDrawer = (drawer: 'beans' | 'brews') => {
@@ -320,11 +320,7 @@ export function HomeOverview({
                 {recommendationPreview.actionLabel}
               </span>
             </button>
-            <article className="home-mini-stat" key={backupStat.label}>
-              <span>{backupStat.label}</span>
-              <strong>{isLoading ? '...' : backupStat.value}</strong>
-              <p>{backupStat.caption}</p>
-            </article>
+
           </div>
         </div>
 
