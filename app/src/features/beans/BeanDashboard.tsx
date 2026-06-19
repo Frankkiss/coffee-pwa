@@ -26,13 +26,20 @@ import './beans.css'
 type BeanDashboardProps = {
   session: Session
   supabase: SupabaseClient
+  previewRows?: {
+    beans: Bean[]
+    brewLogs: BrewLog[]
+  }
 }
 
 type BeanSectionKey = 'sourceImport' | 'beanForm' | 'beanList' | 'brewLogs'
 
-export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
-  const [beans, setBeans] = useState<Bean[]>([])
-  const [detailBrewLogs, setDetailBrewLogs] = useState<BrewLog[]>([])
+export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardProps) {
+  const isPreview = Boolean(previewRows)
+  const [beans, setBeans] = useState<Bean[]>(() => previewRows?.beans ?? [])
+  const [detailBrewLogs, setDetailBrewLogs] = useState<BrewLog[]>(
+    () => previewRows?.brewLogs ?? [],
+  )
   const [form, setForm] = useState<BeanForm>(() => createInitialBeanForm())
   const [filters, setFilters] = useState<BeanFilters>({
     search: '',
@@ -40,11 +47,13 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     roastLevel: '',
   })
   const [editingBeanId, setEditingBeanId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(!previewRows)
   const [isBrewSummaryStale, setIsBrewSummaryStale] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(
+    previewRows ? '本地数字豆仓预览，不连接 Supabase。' : '',
+  )
   const [error, setError] = useState('')
   const [selectedBeanId, setSelectedBeanId] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Record<BeanSectionKey, boolean>>({
@@ -63,6 +72,10 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
   }, [])
 
   useEffect(() => {
+    if (previewRows) {
+      return
+    }
+
     let isMounted = true
 
     async function loadBeans() {
@@ -102,9 +115,13 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     return () => {
       isMounted = false
     }
-  }, [session.user.id, supabase])
+  }, [previewRows, session.user.id, supabase])
 
   useEffect(() => {
+    if (previewRows) {
+      return
+    }
+
     let isMounted = true
 
     async function loadDetailBrewLogs() {
@@ -130,7 +147,7 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
     return () => {
       isMounted = false
     }
-  }, [session.user.id, supabase])
+  }, [previewRows, session.user.id, supabase])
 
   function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -248,14 +265,18 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
             title="来源导入"
             onToggle={() => toggleSection('sourceImport')}
           >
-            <SourceImportPanel
-              session={session}
-              supabase={supabase}
-              onBeanCreated={(bean) => {
-                setBeans((current) => [bean, ...current])
-                setExpandedSections((current) => ({ ...current, beanList: true }))
-              }}
-            />
+            {isPreview ? (
+              <p className="bean-preview-note">本地预览模式不连接 Supabase，来源导入仅在正式登录后可用。</p>
+            ) : (
+              <SourceImportPanel
+                session={session}
+                supabase={supabase}
+                onBeanCreated={(bean) => {
+                  setBeans((current) => [bean, ...current])
+                  setExpandedSections((current) => ({ ...current, beanList: true }))
+                }}
+              />
+            )}
           </CollapsibleSection>
 
           <CollapsibleSection
@@ -505,13 +526,18 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                 <p className="bean-empty">没有匹配的咖啡豆。</p>
               ) : null}
               {filteredBeans.map((bean) => (
-                <article className="bean-card" key={bean.id}>
-                  <div>
-                    <h3>{bean.name}</h3>
-                    <p>
-                      {[bean.origin, bean.process, bean.roast_level].filter(Boolean).join(' / ') ||
-                        '信息待补充'}
-                    </p>
+                <article className="bean-card bean-card--ledger" key={bean.id}>
+                  <div className="bean-card__heading">
+                    <div className="bean-card__title">
+                      <h3>{bean.name}</h3>
+                      <p>
+                        {[bean.origin, bean.process, bean.roaster].filter(Boolean).join(' / ') ||
+                          '信息待补充'}
+                      </p>
+                    </div>
+                    <span className="bean-card__badge">
+                      {bean.roast_level || (bean.bean_type === 'blend' ? '拼配' : '单品')}
+                    </span>
                   </div>
                   {bean.flavor_tags.length > 0 ? (
                     <div className="bean-tags">
@@ -521,11 +547,15 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
                     </div>
                   ) : null}
                   <div className="bean-card__actions">
+                    <button
+                      type="button"
+                      className="bean-card__primary-action"
+                      onClick={() => setSelectedBeanId(bean.id)}
+                    >
+                      详情
+                    </button>
                     <button type="button" onClick={() => handleEdit(bean)}>
                       编辑
-                    </button>
-                    <button type="button" onClick={() => setSelectedBeanId(bean.id)}>
-                      详情
                     </button>
                     <button
                       type="button"
@@ -546,12 +576,16 @@ export function BeanDashboard({ session, supabase }: BeanDashboardProps) {
             title="冲煮记录"
             onToggle={() => toggleSection('brewLogs')}
           >
-            <BrewLogPanel
-              beans={beans}
-              session={session}
-              supabase={supabase}
-              onBrewLogsChange={handleDetailBrewLogsChange}
-            />
+            {isPreview ? (
+              <p className="bean-preview-note">本地预览模式只展示豆仓外观，冲煮记录请在正式登录后查看。</p>
+            ) : (
+              <BrewLogPanel
+                beans={beans}
+                session={session}
+                supabase={supabase}
+                onBrewLogsChange={handleDetailBrewLogsChange}
+              />
+            )}
           </CollapsibleSection>
         </>
       )}

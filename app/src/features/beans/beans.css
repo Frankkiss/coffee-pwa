@@ -693,3 +693,198 @@
   flex: initial;
 }
 
+/* Direction A: lightweight bean ledger */
+.bean-dashboard {
+  gap: 0.86rem;
+}
+
+.bean-dashboard__header {
+  align-items: center;
+  padding: 0.12rem 0.08rem 0.08rem;
+}
+
+.bean-dashboard__eyebrow {
+  color: rgba(122, 76, 57, 0.72);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.bean-dashboard h2 {
+  color: var(--color-coffee-dark);
+  font-size: 1.34rem;
+  line-height: 1.08;
+}
+
+.bean-dashboard__header span {
+  padding: 0.42rem 0.66rem;
+  border: 1px solid rgba(122, 79, 63, 0.14);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee-dark);
+  background: rgba(255, 253, 248, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.bean-section__summary {
+  min-height: 3.34rem;
+  border-color: rgba(122, 79, 63, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.9), rgba(248, 237, 218, 0.68));
+  box-shadow: 0 8px 18px rgba(83, 53, 38, 0.08);
+}
+
+.bean-section--open .bean-section__summary {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 12px 24px rgba(83, 53, 38, 0.1);
+}
+
+.bean-section__summary strong {
+  letter-spacing: 0;
+}
+
+.bean-filters {
+  gap: 0.58rem;
+  padding: 0.74rem;
+  border-color: rgba(122, 79, 63, 0.13);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.9), rgba(255, 248, 237, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 8px 18px rgba(83, 53, 38, 0.07);
+}
+
+.bean-form input,
+.bean-form select,
+.bean-form textarea,
+.bean-filters input,
+.bean-filters select {
+  min-height: 2.5rem;
+}
+
+.bean-list {
+  gap: 0.62rem;
+}
+
+.bean-card--ledger {
+  gap: 0.64rem;
+  padding: 0.78rem;
+  border-color: rgba(122, 79, 63, 0.13);
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, rgba(217, 149, 95, 0.16) 0 0.32rem, transparent 0.32rem),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.94), rgba(255, 248, 237, 0.78));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 18px rgba(83, 53, 38, 0.07);
+}
+
+.bean-card--ledger::before {
+  top: 0.82rem;
+  right: 0.82rem;
+  width: 0.44rem;
+  opacity: 0.7;
+}
+
+.bean-card__heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.bean-card__title {
+  min-width: 0;
+}
+
+.bean-card__title h3 {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-coffee-dark);
+  font-size: 1.02rem;
+  line-height: 1.24;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bean-card__title p {
+  max-width: 100%;
+  margin: 0.22rem 0 0;
+  overflow: hidden;
+  color: rgba(128, 107, 93, 0.9);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bean-card__badge {
+  max-width: 5.9rem;
+  padding: 0.28rem 0.52rem;
+  overflow: hidden;
+  border: 1px solid rgba(122, 79, 63, 0.14);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee-dark);
+  background: rgba(242, 207, 159, 0.56);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bean-card--ledger .bean-tags {
+  gap: 0.34rem;
+}
+
+.bean-card--ledger .bean-tags span {
+  padding: 0.22rem 0.48rem;
+  border: 1px solid rgba(122, 79, 63, 0.1);
+  border-radius: 0.5rem;
+  background: rgba(242, 207, 159, 0.72);
+  font-size: 0.76rem;
+}
+
+.bean-card--ledger .bean-card__actions {
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 0.42rem;
+}
+
+.bean-card--ledger .bean-card__actions button {
+  min-height: 2.42rem;
+  font-size: 0.9rem;
+}
+
+.bean-card--ledger .bean-card__primary-action {
+  border-color: rgba(255, 248, 237, 0.24);
+  color: var(--color-cream-soft);
+  background: var(--button-primary-bg);
+  box-shadow: var(--button-primary-shadow);
+}
+
+.bean-card--ledger .bean-danger-button {
+  box-shadow: none;
+}
+
+.bean-preview-note {
+  margin: 0;
+  padding: 0.76rem 0.82rem;
+  border: 1px dashed rgba(122, 79, 63, 0.2);
+  border-radius: var(--radius-card);
+  color: var(--color-muted);
+  background: rgba(255, 253, 248, 0.72);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 380px) {
+  .bean-card__heading {
+    grid-template-columns: 1fr;
+  }
+
+  .bean-card__badge {
+    justify-self: start;
+  }
+}

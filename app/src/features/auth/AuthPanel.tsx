@@ -225,6 +225,8 @@ export function AuthPanel() {
   const configError = getSupabaseConfigError()
   const isHomePreview =
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('homePreview')
+  const isBeanPreview =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).has('beanPreview')
   const redirectTo = useMemo(
     () => getAuthRedirectTo(window.location.origin, import.meta.env.BASE_URL),
     [],
@@ -467,6 +469,22 @@ export function AuthPanel() {
             authStatus={status || '本地首页预览，不连接 Supabase。'}
             previewRows={{ beans: previewBeans, brewLogs: previewBrewLogs }}
           />
+        </main>
+      </div>
+    )
+  }
+
+  if (isBeanPreview) {
+    return (
+      <div className="auth-layout auth-layout--app">
+        <main className="app-view" aria-label="咖Day 数字豆仓预览">
+          <Suspense fallback={<p className="app-view__loading">正在打开数字豆仓...</p>}>
+            <BeanDashboard
+              session={previewSession}
+              supabase={{} as SupabaseClient}
+              previewRows={{ beans: previewBeans, brewLogs: previewBrewLogs }}
+            />
+          </Suspense>
         </main>
       </div>
     )
