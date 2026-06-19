@@ -514,7 +514,12 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
                 <h3>{log.bean_id ? beanNameById.get(log.bean_id) ?? '未知咖啡豆' : '未绑定豆子'}</h3>
                 <p>{formatBrewSummary(log)}</p>
               </div>
-              {log.rating ? <strong>{log.rating}/5</strong> : null}
+              {log.rating ? (
+                <strong className="brew-card__rating" aria-label={`评分 ${log.rating}/5`}>
+                  <span>{log.rating}</span>
+                  <small>/5</small>
+                </strong>
+              ) : null}
             </div>
 
             {log.flavor_tags.length > 0 ? (

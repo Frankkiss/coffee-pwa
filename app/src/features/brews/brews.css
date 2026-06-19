@@ -182,8 +182,13 @@
 
 .brew-card__main {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.brew-card__main > div {
+  min-width: 0;
 }
 
 .brew-card p {
@@ -435,6 +440,37 @@
   padding: 0.22rem 0.48rem;
   border-radius: 0.48rem;
   background: rgba(242, 207, 159, 0.54);
+}
+
+.brew-card .brew-card__rating {
+  display: inline-grid;
+  min-width: 2.72rem;
+  min-height: 2.72rem;
+  flex: 0 0 auto;
+  place-items: center;
+  align-content: center;
+  gap: 0.02rem;
+  padding: 0.34rem 0.42rem;
+  border: 1px solid rgba(122, 79, 63, 0.1);
+  border-radius: 0.62rem;
+  color: var(--color-coffee-dark);
+  background:
+    linear-gradient(180deg, rgba(255, 248, 237, 0.92), rgba(242, 207, 159, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 0.38rem 0.8rem rgba(83, 53, 38, 0.08);
+  line-height: 1;
+}
+
+.brew-card__rating span {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.brew-card__rating small {
+  color: rgba(122, 76, 57, 0.7);
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
 .brew-tags span {
