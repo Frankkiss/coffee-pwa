@@ -122,7 +122,21 @@ function createRuleRecommendation(): RuleRecommendationResult {
         reasons: ['处理法匹配'],
       },
     ],
-  }
+    recommended: {
+      method: '鎵嬪啿',
+      dripper: 'V60',
+      grindSetting: '22 clicks',
+      ratio: '1:16',
+      waterTemperatureC: 92,
+      totalTimeSeconds: 150,
+    },
+    confidence: 'high',
+    baseSource: {
+      type: 'history',
+      label: sourceBean.name,
+      brewLogId: brewLog.id,
+    },
+    beanAdjustmentReasons: ['bean metadata supports keeping the base recipe unchanged for the first brew'],  }
 }
 
 describe('buildSavedRecommendationPayload', () => {

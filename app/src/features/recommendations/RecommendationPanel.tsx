@@ -260,31 +260,34 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       {ruleRecommendation ? (
         <div className="recommendation-result">
           <article className="recommendation-card">
+            <p className="recommendation-card__meta">
+              {`规则置信度：${ruleRecommendation.confidence} · 基础来源：${ruleRecommendation.baseSource.label}`}
+            </p>
             <h3>规则推荐</h3>
             <dl>
               <div>
                 <dt>粉水比</dt>
-                <dd>{ruleRecommendation.primary.recommended.ratio ?? '未记录'}</dd>
+                <dd>{ruleRecommendation.recommended.ratio ?? '未记录'}</dd>
               </div>
               <div>
                 <dt>水温</dt>
                 <dd>
-                  {ruleRecommendation.primary.recommended.waterTemperatureC
-                    ? `${ruleRecommendation.primary.recommended.waterTemperatureC}°C`
+                  {ruleRecommendation.recommended.waterTemperatureC
+                    ? `${ruleRecommendation.recommended.waterTemperatureC}°C`
                     : '未记录'}
                 </dd>
               </div>
               <div>
                 <dt>研磨度</dt>
                 <dd>
-                  {ruleRecommendation.primary.recommended.grindSetting ?? '未记录'}
+                  {ruleRecommendation.recommended.grindSetting ?? '未记录'}
                 </dd>
               </div>
               <div>
                 <dt>总时间</dt>
                 <dd>
-                  {ruleRecommendation.primary.recommended.totalTimeSeconds
-                    ? `${ruleRecommendation.primary.recommended.totalTimeSeconds} 秒`
+                  {ruleRecommendation.recommended.totalTimeSeconds
+                    ? `${ruleRecommendation.recommended.totalTimeSeconds} 秒`
                     : '未记录'}
                 </dd>
               </div>
@@ -292,19 +295,21 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
                 <dt>器具</dt>
                 <dd>
                   {[
-                    ruleRecommendation.primary.recommended.method,
-                    ruleRecommendation.primary.recommended.dripper,
+                    ruleRecommendation.recommended.method,
+                    ruleRecommendation.recommended.dripper,
                   ]
                     .filter(Boolean)
                     .join(' / ') || '未记录'}
                 </dd>
               </div>
             </dl>
-            <p>{ruleRecommendation.primary.reasons.join('；')}</p>
+            <p>{ruleRecommendation.primary?.reasons.join('；') ?? '基于候选模板生成初始方案'}</p>
+            <p>{ruleRecommendation.beanAdjustmentReasons.join('；')}</p>
           </article>
 
           <div className="recommendation-references">
             <h3>参考历史记录</h3>
+            {ruleRecommendation.references.length === 0 ? <p>暂无可用历史记录，先使用模板兜底。</p> : null}
             {ruleRecommendation.references.map((candidate) => (
               <article key={candidate.brewLog.id}>
                 <strong>{candidate.bean?.name ?? '未知咖啡豆'}</strong>

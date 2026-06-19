@@ -1,6 +1,10 @@
 type RecommendationRequest = {
   targetBean: unknown
   primaryRecommendation: unknown
+  finalRuleRecommendation?: unknown
+  confidence?: unknown
+  baseSource?: unknown
+  beanAdjustmentReasons?: unknown[]
   references: unknown[]
   templateCandidates?: unknown[]
 }
@@ -138,6 +142,9 @@ function buildPrompt(payload: RecommendationRequest) {
     '8. 如果 templateCandidates 为空，明确说明缺少模板上下文，并只基于历史规则参数给保守建议。',
     '9. 字段缺失时使用 null 或空数组，不要编造。',
     '10. 不要输出 JSON 以外的任何文字。',
+    'Additional deterministic rule context:',
+    'If finalRuleRecommendation exists, treat it as the deterministic base recipe. Keep its ratio, dripper, method, water temperature, grind, and total time unless you explain a small safe change.',
+    'Use confidence and beanAdjustmentReasons to explain uncertainty and bean-aware micro-adjustments. Do not claim the recipe is guaranteed perfect; describe it as the first recommended brew to validate.',
     JSON.stringify(payload, null, 2),
   ].join('\n')
 }

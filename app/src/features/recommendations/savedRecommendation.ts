@@ -25,12 +25,21 @@ export function buildSavedRecommendationPayload({
   ruleRecommendation,
   aiRecommendation,
 }: BuildSavedRecommendationPayloadInput): SavedRecommendationPayload {
+  const recommended = ruleRecommendation.recommended ?? ruleRecommendation.primary?.recommended ?? null
+  const confidence = ruleRecommendation.confidence ?? 'medium'
+  const baseSource = ruleRecommendation.baseSource ?? (ruleRecommendation.primary
+    ? { type: 'history' as const, label: ruleRecommendation.primary.bean?.name ?? ruleRecommendation.primary.brewLog.id, brewLogId: ruleRecommendation.primary.brewLog.id }
+    : null)
+  const beanAdjustmentReasons = ruleRecommendation.beanAdjustmentReasons ?? []
+
   return {
     user_id: userId,
     bean_id: ruleRecommendation.targetBean.id,
     input_context: {
       targetBean: summarizeBean(ruleRecommendation.targetBean),
-      primaryBrewLogId: ruleRecommendation.primary.brewLog.id,
+      primaryBrewLogId: ruleRecommendation.primary?.brewLog.id ?? null,
+      baseSource,
+      confidence,
       referenceBrewLogIds: ruleRecommendation.references.map(
         (candidate) => candidate.brewLog.id,
       ),
@@ -45,9 +54,12 @@ export function buildSavedRecommendationPayload({
         ? 'rule_plus_ai'
         : 'rule_only',
       rule: {
-        recommended: ruleRecommendation.primary.recommended,
-        score: ruleRecommendation.primary.score,
-        reasons: ruleRecommendation.primary.reasons,
+        recommended,
+        score: ruleRecommendation.primary?.score ?? null,
+        reasons: ruleRecommendation.primary?.reasons ?? [],
+        confidence,
+        baseSource,
+        beanAdjustmentReasons,
         templateCandidates: ruleRecommendation.templateCandidates,
       },
       ai: {
@@ -69,6 +81,8 @@ function summarizeBean(bean: RuleRecommendationResult['targetBean']) {
     origin: bean.origin,
     process: bean.process,
     variety: bean.variety,
+    farmOrStation: bean.farm_or_station,
+    altitudeMeters: bean.altitude_meters,
     roastLevel: bean.roast_level,
     flavorTags: bean.flavor_tags,
   }

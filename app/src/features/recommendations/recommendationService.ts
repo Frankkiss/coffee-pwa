@@ -47,6 +47,10 @@ export async function requestAiRecommendation(
     body: {
       targetBean: recommendation.targetBean,
       primaryRecommendation: recommendation.primary,
+      finalRuleRecommendation: recommendation.recommended,
+      confidence: recommendation.confidence,
+      baseSource: recommendation.baseSource,
+      beanAdjustmentReasons: recommendation.beanAdjustmentReasons,
       references: recommendation.references,
       templateCandidates: recommendation.templateCandidates,
     },

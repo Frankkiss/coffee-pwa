@@ -1,6 +1,10 @@
 import type { Bean } from '../beans/beanTypes'
 import { splitMultiValueText } from '../beans/blendComponents'
 import {
+  buildBeanTemplateTerms,
+  templateTermMatches,
+} from './beanMetadataRules'
+import {
   formatTemplateTime,
   summarizePourSteps,
 } from '../brewTemplates/brewTemplateFilters'
@@ -38,6 +42,7 @@ export function selectTemplateCandidates(
 function scoreTemplate(targetBean: Bean, template: BrewTemplate): ScoredTemplate {
   let score = template.difficulty === 'easy' ? 2 : 0
   const reasons: string[] = []
+  const beanTerms = buildBeanTemplateTerms(targetBean)
 
   const process = targetBean.process?.trim()
   if (process && template.suitableFor.includes(process)) {
@@ -80,6 +85,19 @@ function scoreTemplate(targetBean: Bean, template: BrewTemplate): ScoredTemplate
     reasons.push(`风味匹配：${sharedFlavorTags.join('、')}`)
   }
 
+  const normalizedSuitableMatches = templateTermMatches(beanTerms, template.suitableFor).filter(
+    (match) => match !== process && !sharedFlavorTags.includes(match),
+  )
+  if (normalizedSuitableMatches.length > 0) {
+    score += Math.min(normalizedSuitableMatches.length * 2, 6)
+    reasons.push(`bean metadata match: ${normalizedSuitableMatches.join(', ')}`)
+  }
+
+  const avoidedMatches = templateTermMatches(beanTerms, template.avoidFor)
+  if (avoidedMatches.length > 0) {
+    score -= Math.min(avoidedMatches.length * 8, 16)
+    reasons.push(`avoid: ${avoidedMatches.join(', ')}`)
+  }
   if (template.category === 'bean-specific' && reasons.length > 0) {
     score += 3
     reasons.push('豆子适配模板')

@@ -10,6 +10,22 @@ export type RecommendedBrewParameters = {
   totalTimeSeconds: number | null
 }
 
+export type RecommendationConfidence = 'high' | 'medium' | 'low'
+
+export type RuleRecommendationBaseSource =
+  | {
+      type: 'history'
+      label: string
+      brewLogId: string
+      templateId?: never
+    }
+  | {
+      type: 'template'
+      label: string
+      templateId: string
+      brewLogId?: never
+    }
+
 export type BrewRecommendationCandidate = {
   bean: Bean | null
   brewLog: BrewLog
@@ -33,9 +49,13 @@ export type BrewTemplateCandidate = {
 
 export type RuleRecommendationResult = {
   targetBean: Bean
-  primary: BrewRecommendationCandidate
+  primary: BrewRecommendationCandidate | null
   references: BrewRecommendationCandidate[]
   templateCandidates: BrewTemplateCandidate[]
+  recommended: RecommendedBrewParameters
+  confidence: RecommendationConfidence
+  baseSource: RuleRecommendationBaseSource
+  beanAdjustmentReasons: string[]
 }
 
 export type AiRecommendationResponse = {

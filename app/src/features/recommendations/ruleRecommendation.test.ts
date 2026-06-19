@@ -109,10 +109,10 @@ describe('generateRuleRecommendation', () => {
     ])
 
     expect(result).not.toBeNull()
-    expect(result?.primary.brewLog.id).toBe('best')
-    expect(result?.primary.recommended.ratio).toBe('1:16')
-    expect(result?.primary.reasons).toContain('处理法相同')
-    expect(result?.primary.reasons).toContain('已钉为候选方案')
+    expect(result?.primary?.brewLog.id).toBe('best')
+    expect(result?.primary?.recommended.ratio).toBe('1:16')
+    expect(result?.primary?.reasons).toContain('处理法相同')
+    expect(result?.primary?.reasons).toContain('已钉为候选方案')
     expect(result?.templateCandidates.length).toBeGreaterThan(0)
     expect(result?.templateCandidates[0].isChampionReference).toBe(false)
   })
@@ -203,8 +203,8 @@ describe('generateRuleRecommendation', () => {
       }),
     ])
 
-    expect(result?.primary.brewLog.id).toBe('similar-brew')
-    expect(result?.primary.reasons.join(' / ')).toContain('拼配组成相近')
+    expect(result?.primary?.brewLog.id).toBe('similar-brew')
+    expect(result?.primary?.reasons.join(' / ')).toContain('拼配组成相近')
   })
 
   it('matches blend beans by multi-value origin and process text when ratio is unknown', () => {
@@ -245,7 +245,7 @@ describe('generateRuleRecommendation', () => {
       }),
     ])
 
-    expect(result?.primary.brewLog.id).toBe('source-brew')
-    expect(result?.primary.reasons.join(' / ')).toContain('拼配文字信息相近')
+    expect(result?.primary?.brewLog.id).toBe('source-brew')
+    expect(result?.primary?.reasons.join(' / ')).toContain('拼配文字信息相近')
   })
 })
