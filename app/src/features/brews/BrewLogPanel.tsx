@@ -7,6 +7,7 @@ import {
   writeOfflineCache,
 } from '../offline/offlineCache'
 import { filterBrewLogs } from './brewFilters'
+import { brewMethodOptions } from './brewMethodOptions'
 import {
   createBrewFormFromLog,
   createInitialBrewForm,
@@ -31,7 +32,6 @@ type BrewLogPanelProps = {
   onBrewLogsChange?: (brewLogs: BrewLog[]) => void
 }
 
-const methodOptions = ['手冲', '爱乐压', '法压', '冷萃', '意式']
 
 export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: BrewLogPanelProps) {
   const firstBeanId = beans[0]?.id ?? ''
@@ -64,7 +64,7 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     [firstBeanId, form],
   )
   const availableMethods = useMemo(() => {
-    const methods = new Set(methodOptions)
+    const methods = new Set(brewMethodOptions)
     brewLogs.forEach((log) => {
       if (log.method) {
         methods.add(log.method)
@@ -306,7 +306,7 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
                 onChange={(event) => updateField('method', event.target.value)}
               >
                 <option value="">未选择</option>
-                {methodOptions.map((option) => (
+                {brewMethodOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
