@@ -3,6 +3,7 @@ export type BrewTemplateCategory =
   | 'immersion-hybrid'
   | 'bean-specific'
   | 'cold-brew'
+  | 'moka-pot'
   | 'champion-reference'
 
 export type BrewTemplateDifficulty = 'easy' | 'medium' | 'advanced'

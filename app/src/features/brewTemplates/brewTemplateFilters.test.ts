@@ -67,6 +67,7 @@ describe('brew template dataset', () => {
     expect(options.brewers).toContain('聪明杯')
     expect(options.brewers).toContain('Switch 浸泡滤杯')
     expect(options.brewers).toContain('Kalita Wave 平底滤杯')
+    expect(options.brewers).toContain('摩卡壶')
     expect(options.brewers).not.toContain('Clever Dripper')
     expect(options.brewers).not.toContain('Hario Switch')
     expect(options.brewers).not.toContain('Kalita Wave')
@@ -91,5 +92,40 @@ describe('brew template dataset', () => {
     expect(summary).toContain('g')
     expect(formatTemplateTime(125)).toBe('2:05')
     expect(formatTemplateTime(12 * 60 * 60)).toBe('12小时')
+  })
+
+  it('calibrates core daily templates for a stronger sweeter preference', () => {
+    const expected = new Map([
+      ['classic-v60-three-pour', '1:15'],
+      ['v60-five-pulse', '1:15'],
+      ['hoffmann-v60-inspired', '1:15'],
+      ['kalita-wave-stable-sweet', '1:15'],
+      ['new-bean-default', '1:15'],
+    ])
+
+    for (const [id, ratio] of expected) {
+      const template = brewTemplates.find((item) => item.id === id)
+
+      expect(template?.ratio).toBe(ratio)
+      expect(template?.doseGrams).toBe(15)
+      expect(template?.waterGrams).toBe(225)
+      expect(template?.suitableFor).toContain('浓郁')
+      expect(template?.suitableFor).toContain('甜感')
+    }
+  })
+
+  it('includes executable moka pot templates for concentrated coffee', () => {
+    const mokaTemplates = brewTemplates.filter((template) => template.brewer === '摩卡壶')
+
+    expect(mokaTemplates.length).toBeGreaterThanOrEqual(2)
+    expect(mokaTemplates.every((template) => template.category === 'moka-pot')).toBe(true)
+    expect(mokaTemplates.map((template) => template.ratio)).toContain('1:10')
+    expect(
+      mokaTemplates.every((template) =>
+        template.pourSteps.some((step) => step.action.includes('不要压粉')) &&
+        template.pourSteps.some((step) => step.action.includes('安全阀')) &&
+        template.pourSteps.some((step) => step.action.includes('离火')),
+      ),
+    ).toBe(true)
   })
 })

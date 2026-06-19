@@ -40,6 +40,7 @@ const categoryLabels: Record<BrewTemplateCategory, string> = {
   'immersion-hybrid': '浸泡混合',
   'bean-specific': '豆子适配',
   'cold-brew': '冷萃',
+  'moka-pot': '摩卡壶',
   'champion-reference': '冠军参考',
 }
 
