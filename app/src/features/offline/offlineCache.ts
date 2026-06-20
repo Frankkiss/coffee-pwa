@@ -7,7 +7,7 @@ export type OfflineCacheSnapshot<Row> = {
 }
 
 const databaseName = 'kaday-offline-cache'
-const databaseVersion = 1
+const databaseVersion = 2
 const storeName = 'snapshots'
 
 export function buildOfflineCacheSnapshot<Row>(
@@ -91,6 +91,10 @@ function openOfflineDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains(storeName)) {
         database.createObjectStore(storeName)
+      }
+
+      if (!database.objectStoreNames.contains('pendingMutations')) {
+        database.createObjectStore('pendingMutations', { keyPath: 'id' })
       }
     }
 

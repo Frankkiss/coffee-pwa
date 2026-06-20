@@ -8,6 +8,14 @@ import {
   readOfflineCache,
   writeOfflineCache,
 } from '../offline/offlineCache'
+import {
+  createOfflinePendingMutation,
+  enqueueOfflineMutation,
+  isOfflineWriteFailure,
+  markOfflineMutationFailed,
+  readOfflineMutations,
+  removeOfflineMutation,
+} from '../offline/offlineQueue'
 import { SourceImportPanel } from '../sourceImports/SourceImportPanel'
 import { filterBeans } from './beanFilters'
 import {
@@ -20,7 +28,7 @@ import { createBean, listBeans, softDeleteBean, updateBean } from './beanService
 import { BeanDetailPanel } from './BeanDetailPanel'
 import { BlendComponentEditor } from './BlendComponentEditor'
 import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from './beanOptions'
-import type { Bean, BeanFilters, BeanForm } from './beanTypes'
+import type { Bean, BeanFilters, BeanForm, BeanInsertPayload, BeanUpdatePayload } from './beanTypes'
 import './beans.css'
 
 type BeanDashboardProps = {
@@ -71,6 +79,35 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     setIsBrewSummaryStale(false)
   }, [])
 
+  const syncPendingBeanMutations = useCallback(async () => {
+    const mutations = await readOfflineMutations(session.user.id, 'bean')
+
+    if (mutations.length === 0) {
+      return false
+    }
+
+    let didSync = false
+
+    for (const mutation of mutations) {
+      try {
+        if (mutation.action === 'create') {
+          await createBean(supabase, mutation.payload as BeanInsertPayload)
+        } else if (mutation.action === 'update' && mutation.entityId) {
+          await updateBean(supabase, mutation.entityId, mutation.payload as BeanUpdatePayload)
+        } else if (mutation.action === 'delete' && mutation.entityId) {
+          await softDeleteBean(supabase, mutation.entityId)
+        }
+
+        await removeOfflineMutation(mutation.id)
+        didSync = true
+      } catch (err) {
+        await markOfflineMutationFailed(mutation.id, err)
+        throw err
+      }
+    }
+
+    return didSync
+  }, [session.user.id, supabase])
   useEffect(() => {
     if (previewRows) {
       return
@@ -83,6 +120,7 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
       setError('')
 
       try {
+        await syncPendingBeanMutations()
         const nextBeans = await listBeans(supabase)
         if (isMounted) {
           setBeans(nextBeans)
@@ -115,7 +153,36 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     return () => {
       isMounted = false
     }
-  }, [previewRows, session.user.id, supabase])
+  }, [previewRows, session.user.id, supabase, syncPendingBeanMutations])
+
+  useEffect(() => {
+    if (previewRows) {
+      return
+    }
+
+    function handleOnline() {
+      void syncPendingBeanMutations()
+        .then(async (didSync) => {
+          if (!didSync) {
+            return
+          }
+
+          const nextBeans = await listBeans(supabase)
+          setBeans(nextBeans)
+          await writeOfflineCache(
+            'beans',
+            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+          )
+          setStatus('本机待同步豆仓已提交到云端。')
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : '同步豆仓待提交数据失败')
+        })
+    }
+
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [previewRows, session.user.id, supabase, syncPendingBeanMutations])
 
   useEffect(() => {
     if (previewRows) {
@@ -148,7 +215,6 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
       isMounted = false
     }
   }, [previewRows, session.user.id, supabase])
-
   function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -197,12 +263,73 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
 
       setForm(createInitialBeanForm())
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存咖啡豆失败')
+      if (!isOfflineWriteFailure(err)) {
+        setError(err instanceof Error ? err.message : '保存咖啡豆失败')
+        return
+      }
+
+      try {
+        if (editingBeanId) {
+          const payload = toBeanUpdatePayload(form)
+
+          if (isLocalId(editingBeanId, 'bean')) {
+            await mergeIntoPendingCreate(session.user.id, 'bean', editingBeanId, payload)
+          } else {
+            await enqueueOfflineMutation(
+              createOfflinePendingMutation({
+                userId: session.user.id,
+                entity: 'bean',
+                action: 'update',
+                entityId: editingBeanId,
+                payload,
+              }),
+            )
+          }
+
+          setBeans((current) => {
+            const nextBeans = current.map((currentBean) =>
+              currentBean.id === editingBeanId
+                ? mergeBeanUpdate(currentBean, payload, new Date())
+                : currentBean,
+            )
+            void writeOfflineCache(
+              'beans',
+              buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+            )
+            return nextBeans
+          })
+          setEditingBeanId(null)
+        } else {
+          const payload = toBeanInsertPayload(form, session.user.id)
+          const localBean = createOptimisticBean(payload, createLocalId('bean'), new Date())
+          await enqueueOfflineMutation(
+            createOfflinePendingMutation({
+              userId: session.user.id,
+              entity: 'bean',
+              action: 'create',
+              entityId: localBean.id,
+              payload,
+            }),
+          )
+          setBeans((current) => {
+            const nextBeans = [localBean, ...current]
+            void writeOfflineCache(
+              'beans',
+              buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+            )
+            return nextBeans
+          })
+        }
+
+        setForm(createInitialBeanForm())
+        setStatus('已暂存到本机待同步队列，联网后会自动提交。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
+      }
     } finally {
       setIsSaving(false)
     }
   }
-
   async function handleDelete(bean: Bean) {
     const confirmed = window.confirm(`确定删除「${bean.name}」吗？数据会软删除，不会物理抹掉。`)
 
@@ -213,6 +340,33 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     setError('')
     setStatus('')
     setIsDeleting(true)
+
+    if (isLocalId(bean.id, 'bean')) {
+      try {
+        const mutations = await readOfflineMutations(session.user.id, 'bean')
+        await Promise.all(
+          mutations
+            .filter(
+              (mutation) => mutation.action === 'create' && mutation.entityId === bean.id,
+            )
+            .map((mutation) => removeOfflineMutation(mutation.id)),
+        )
+        setBeans((current) => {
+          const nextBeans = current.filter((currentBean) => currentBean.id !== bean.id)
+          void writeOfflineCache(
+            'beans',
+            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+          )
+          return nextBeans
+        })
+        setStatus('本机待同步新增已取消。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '取消本机待同步新增失败')
+      } finally {
+        setIsDeleting(false)
+      }
+      return
+    }
 
     try {
       await softDeleteBean(supabase, bean.id)
@@ -227,12 +381,45 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
 
       setStatus('咖啡豆已删除。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除咖啡豆失败')
+      if (!isOfflineWriteFailure(err)) {
+        setError(err instanceof Error ? err.message : '删除咖啡豆失败')
+        return
+      }
+
+      try {
+        await enqueueOfflineMutation(
+          createOfflinePendingMutation({
+            userId: session.user.id,
+            entity: 'bean',
+            action: 'delete',
+            entityId: bean.id,
+          }),
+        )
+        setBeans((current) => {
+          const nextBeans = current.filter((currentBean) => currentBean.id !== bean.id)
+          void writeOfflineCache(
+            'beans',
+            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
+          )
+          return nextBeans
+        })
+
+        if (selectedBeanId === bean.id) {
+          setSelectedBeanId(null)
+        }
+
+        if (editingBeanId === bean.id) {
+          handleCancelEdit()
+        }
+
+        setStatus('删除操作已暂存到本机待同步队列，联网后会自动提交。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
+      }
     } finally {
       setIsDeleting(false)
     }
   }
-
   function toggleSection(section: BeanSectionKey) {
     setExpandedSections((current) => ({
       ...current,
@@ -622,4 +809,81 @@ function CollapsibleSection({
       {isOpen ? <div className="bean-section__content">{children}</div> : null}
     </section>
   )
+}
+
+function createOptimisticBean(payload: BeanInsertPayload, id: string, now: Date): Bean {
+  const timestamp = now.toISOString()
+
+  return {
+    id,
+    user_id: payload.user_id,
+    name: payload.name,
+    roaster: payload.roaster,
+    origin: payload.origin,
+    farm_or_station: payload.farm_or_station,
+    process: payload.process,
+    variety: payload.variety,
+    altitude_meters: payload.altitude_meters,
+    roast_date: payload.roast_date,
+    roast_level: payload.roast_level,
+    flavor_tags: payload.flavor_tags,
+    flavor_notes: payload.flavor_notes,
+    net_weight_grams: payload.net_weight_grams,
+    price: payload.price,
+    purchase_date: payload.purchase_date,
+    source_url: payload.source_url,
+    image_url: null,
+    bean_type: payload.bean_type,
+    blend_components: payload.blend_components,
+    blend_notes: payload.blend_notes,
+    notes: payload.notes,
+    created_at: timestamp,
+    updated_at: timestamp,
+    deleted_at: null,
+    schema_version: 1,
+  }
+}
+
+function mergeBeanUpdate(bean: Bean, payload: BeanUpdatePayload, now: Date): Bean {
+  return {
+    ...bean,
+    ...payload,
+    updated_at: now.toISOString(),
+  }
+}
+
+async function mergeIntoPendingCreate(
+  userId: string,
+  entity: 'bean',
+  entityId: string,
+  payload: BeanUpdatePayload,
+) {
+  const mutations = await readOfflineMutations(userId, entity)
+  const createMutation = mutations.find(
+    (mutation) => mutation.action === 'create' && mutation.entityId === entityId,
+  )
+
+  if (!createMutation) {
+    throw new Error('没有找到对应的本机待同步新增记录。')
+  }
+
+  await enqueueOfflineMutation({
+    ...createMutation,
+    payload: {
+      ...(createMutation.payload as BeanInsertPayload),
+      ...payload,
+    },
+  })
+}
+
+function isLocalId(id: string, prefix: string) {
+  return id.startsWith(`local-${prefix}-`)
+}
+
+function createLocalId(prefix: string) {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `local-${prefix}-${crypto.randomUUID()}`
+  }
+
+  return `local-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

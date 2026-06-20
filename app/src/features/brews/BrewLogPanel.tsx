@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { Bean } from '../beans/beanTypes'
 import {
@@ -6,6 +6,14 @@ import {
   readOfflineCache,
   writeOfflineCache,
 } from '../offline/offlineCache'
+import {
+  createOfflinePendingMutation,
+  enqueueOfflineMutation,
+  isOfflineWriteFailure,
+  markOfflineMutationFailed,
+  readOfflineMutations,
+  removeOfflineMutation,
+} from '../offline/offlineQueue'
 import { filterBrewLogs } from './brewFilters'
 import { brewMethodOptions } from './brewMethodOptions'
 import {
@@ -22,7 +30,7 @@ import {
   updateBrewLog,
 } from './brewLogService'
 import { BrewLogDetailPanel } from './BrewLogDetailPanel'
-import type { BrewForm, BrewLog, BrewLogFilters } from './brewTypes'
+import type { BrewForm, BrewLog, BrewLogFilters, BrewLogInsertPayload, BrewLogUpdatePayload } from './brewTypes'
 import './brews.css'
 
 type BrewLogPanelProps = {
@@ -73,6 +81,35 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     return Array.from(methods)
   }, [brewLogs])
 
+  const syncPendingBrewLogMutations = useCallback(async () => {
+    const mutations = await readOfflineMutations(session.user.id, 'brewLog')
+
+    if (mutations.length === 0) {
+      return false
+    }
+
+    let didSync = false
+
+    for (const mutation of mutations) {
+      try {
+        if (mutation.action === 'create') {
+          await createBrewLog(supabase, mutation.payload as BrewLogInsertPayload)
+        } else if (mutation.action === 'update' && mutation.entityId) {
+          await updateBrewLog(supabase, mutation.entityId, mutation.payload as BrewLogUpdatePayload)
+        } else if (mutation.action === 'delete' && mutation.entityId) {
+          await softDeleteBrewLog(supabase, mutation.entityId)
+        }
+
+        await removeOfflineMutation(mutation.id)
+        didSync = true
+      } catch (err) {
+        await markOfflineMutationFailed(mutation.id, err)
+        throw err
+      }
+    }
+
+    return didSync
+  }, [session.user.id, supabase])
   useEffect(() => {
     let isMounted = true
 
@@ -81,6 +118,7 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
       setError('')
 
       try {
+        await syncPendingBrewLogMutations()
         const logs = await listBrewLogs(supabase)
         if (isMounted) {
           setBrewLogs(logs)
@@ -115,7 +153,33 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     return () => {
       isMounted = false
     }
-  }, [onBrewLogsChange, session.user.id, supabase])
+  }, [onBrewLogsChange, session.user.id, supabase, syncPendingBrewLogMutations])
+
+  useEffect(() => {
+    function handleOnline() {
+      void syncPendingBrewLogMutations()
+        .then(async (didSync) => {
+          if (!didSync) {
+            return
+          }
+
+          const logs = await listBrewLogs(supabase)
+          setBrewLogs(logs)
+          onBrewLogsChange?.(logs)
+          await writeOfflineCache(
+            'brewLogs',
+            buildOfflineCacheSnapshot(logs, session.user.id, new Date()),
+          )
+          setStatus('本机待同步冲煮记录已提交到云端。')
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : '同步冲煮待提交数据失败')
+        })
+    }
+
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [onBrewLogsChange, session.user.id, supabase, syncPendingBrewLogMutations])
 
   function updateField(field: keyof BrewForm, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -164,12 +228,75 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
 
       setForm(createInitialBrewForm(formWithFallbackBean.beanId))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存冲煮记录失败')
+      if (!isOfflineWriteFailure(err)) {
+        setError(err instanceof Error ? err.message : '保存冲煮记录失败')
+        return
+      }
+
+      try {
+        if (editingLogId) {
+          const payload = toBrewLogUpdatePayload(formWithFallbackBean)
+
+          if (isLocalId(editingLogId, 'brew')) {
+            await mergeIntoPendingCreate(session.user.id, 'brewLog', editingLogId, payload)
+          } else {
+            await enqueueOfflineMutation(
+              createOfflinePendingMutation({
+                userId: session.user.id,
+                entity: 'brewLog',
+                action: 'update',
+                entityId: editingLogId,
+                payload,
+              }),
+            )
+          }
+
+          setBrewLogs((current) => {
+            const nextLogs = syncBrewLogs(
+              current.map((currentLog) =>
+                currentLog.id === editingLogId
+                  ? mergeBrewLogUpdate(currentLog, payload, new Date())
+                  : currentLog,
+              ),
+            )
+            void writeOfflineCache(
+              'brewLogs',
+              buildOfflineCacheSnapshot(nextLogs, session.user.id, new Date()),
+            )
+            return nextLogs
+          })
+          setEditingLogId(null)
+        } else {
+          const payload = toBrewLogInsertPayload(formWithFallbackBean, session.user.id)
+          const localLog = createOptimisticBrewLog(payload, createLocalId('brew'), new Date())
+          await enqueueOfflineMutation(
+            createOfflinePendingMutation({
+              userId: session.user.id,
+              entity: 'brewLog',
+              action: 'create',
+              entityId: localLog.id,
+              payload,
+            }),
+          )
+          setBrewLogs((current) => {
+            const nextLogs = syncBrewLogs([localLog, ...current])
+            void writeOfflineCache(
+              'brewLogs',
+              buildOfflineCacheSnapshot(nextLogs, session.user.id, new Date()),
+            )
+            return nextLogs
+          })
+        }
+
+        setForm(createInitialBrewForm(formWithFallbackBean.beanId))
+        setStatus('已暂存到本机待同步队列，联网后会自动提交。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
+      }
     } finally {
       setIsSaving(false)
     }
   }
-
   async function handleDelete(log: BrewLog) {
     const beanName = log.bean_id ? beanNameById.get(log.bean_id) : ''
     const confirmed = window.confirm(
@@ -183,6 +310,33 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
     setError('')
     setStatus('')
     setIsDeleting(true)
+
+    if (isLocalId(log.id, 'brew')) {
+      try {
+        const mutations = await readOfflineMutations(session.user.id, 'brewLog')
+        await Promise.all(
+          mutations
+            .filter(
+              (mutation) => mutation.action === 'create' && mutation.entityId === log.id,
+            )
+            .map((mutation) => removeOfflineMutation(mutation.id)),
+        )
+        setBrewLogs((current) => {
+          const nextLogs = syncBrewLogs(current.filter((currentLog) => currentLog.id !== log.id))
+          void writeOfflineCache(
+            'brewLogs',
+            buildOfflineCacheSnapshot(nextLogs, session.user.id, new Date()),
+          )
+          return nextLogs
+        })
+        setStatus('本机待同步新增已取消。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '取消本机待同步新增失败')
+      } finally {
+        setIsDeleting(false)
+      }
+      return
+    }
 
     try {
       await softDeleteBrewLog(supabase, log.id)
@@ -200,47 +354,58 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
 
       setStatus('冲煮记录已删除。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除冲煮记录失败')
+      if (!isOfflineWriteFailure(err)) {
+        setError(err instanceof Error ? err.message : '删除冲煮记录失败')
+        return
+      }
+
+      try {
+        await enqueueOfflineMutation(
+          createOfflinePendingMutation({
+            userId: session.user.id,
+            entity: 'brewLog',
+            action: 'delete',
+            entityId: log.id,
+          }),
+        )
+        setBrewLogs((current) => {
+          const nextLogs = syncBrewLogs(current.filter((currentLog) => currentLog.id !== log.id))
+          void writeOfflineCache(
+            'brewLogs',
+            buildOfflineCacheSnapshot(nextLogs, session.user.id, new Date()),
+          )
+          return nextLogs
+        })
+
+        if (selectedLogId === log.id) {
+          setSelectedLogId(null)
+        }
+
+        if (editingLogId === log.id) {
+          handleCancelEdit()
+        }
+
+        setStatus('删除操作已暂存到本机待同步队列，联网后会自动提交。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
+      }
     } finally {
       setIsDeleting(false)
     }
   }
-
   async function handleTogglePinned(log: BrewLog) {
     if (!log.bean_id) {
       setError('这条冲煮记录没有绑定咖啡豆，暂时不能设为候选方案。')
       return
     }
 
+    const payload = createBrewLogPayloadFromRow(log, !log.is_pinned_recipe)
     setError('')
     setStatus('')
     setIsSaving(true)
 
     try {
-      const updatedLog = await updateBrewLog(supabase, log.id, {
-        bean_id: log.bean_id,
-        method: log.method,
-        dripper: log.dripper,
-        filter_paper: log.filter_paper,
-        grinder: log.grinder,
-        grind_setting: log.grind_setting,
-        coffee_grams: log.coffee_grams,
-        water_grams: log.water_grams,
-        ratio: log.ratio,
-        water_temperature_c: log.water_temperature_c,
-        total_time_seconds: log.total_time_seconds,
-        pour_steps: log.pour_steps,
-        rating: log.rating,
-        acidity: log.acidity,
-        sweetness: log.sweetness,
-        bitterness: log.bitterness,
-        astringency: log.astringency,
-        body: log.body,
-        aftertaste: log.aftertaste,
-        flavor_tags: log.flavor_tags,
-        is_pinned_recipe: !log.is_pinned_recipe,
-        notes: log.notes,
-      })
+      const updatedLog = await updateBrewLog(supabase, log.id, payload)
 
       setBrewLogs((current) =>
         syncBrewLogs(
@@ -249,12 +414,45 @@ export function BrewLogPanel({ beans, session, supabase, onBrewLogsChange }: Bre
       )
       setStatus(updatedLog.is_pinned_recipe ? '已设为候选方案。' : '已取消候选方案。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '更新候选方案状态失败')
+      if (!isOfflineWriteFailure(err)) {
+        setError(err instanceof Error ? err.message : '更新候选方案状态失败')
+        return
+      }
+
+      try {
+        if (isLocalId(log.id, 'brew')) {
+          await mergeIntoPendingCreate(session.user.id, 'brewLog', log.id, payload)
+        } else {
+          await enqueueOfflineMutation(
+            createOfflinePendingMutation({
+              userId: session.user.id,
+              entity: 'brewLog',
+              action: 'update',
+              entityId: log.id,
+              payload,
+            }),
+          )
+        }
+        setBrewLogs((current) => {
+          const nextLogs = syncBrewLogs(
+            current.map((currentLog) =>
+              currentLog.id === log.id ? mergeBrewLogUpdate(currentLog, payload, new Date()) : currentLog,
+            ),
+          )
+          void writeOfflineCache(
+            'brewLogs',
+            buildOfflineCacheSnapshot(nextLogs, session.user.id, new Date()),
+          )
+          return nextLogs
+        })
+        setStatus('候选方案变更已暂存到本机待同步队列，联网后会自动提交。')
+      } catch (queueError) {
+        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
+      }
     } finally {
       setIsSaving(false)
     }
   }
-
   function syncBrewLogs(nextLogs: BrewLog[]) {
     onBrewLogsChange?.(nextLogs)
     return nextLogs
@@ -569,4 +767,118 @@ function formatBrewSummary(log: BrewLog) {
       .filter(Boolean)
       .join(' / ') || '参数待补充'
   )
+}
+
+function createOptimisticBrewLog(payload: BrewLogInsertPayload, id: string, now: Date): BrewLog {
+  const timestamp = now.toISOString()
+
+  return {
+    id,
+    user_id: payload.user_id,
+    bean_id: payload.bean_id,
+    brewed_at: timestamp,
+    method: payload.method,
+    dripper: payload.dripper,
+    filter_paper: payload.filter_paper,
+    grinder: payload.grinder,
+    grind_setting: payload.grind_setting,
+    coffee_grams: payload.coffee_grams,
+    water_grams: payload.water_grams,
+    ratio: payload.ratio,
+    water_temperature_c: payload.water_temperature_c,
+    total_time_seconds: payload.total_time_seconds,
+    pour_steps: payload.pour_steps,
+    rating: payload.rating,
+    acidity: payload.acidity,
+    sweetness: payload.sweetness,
+    bitterness: payload.bitterness,
+    astringency: payload.astringency,
+    body: payload.body,
+    aftertaste: payload.aftertaste,
+    flavor_tags: payload.flavor_tags,
+    is_pinned_recipe: payload.is_pinned_recipe,
+    notes: payload.notes,
+    created_at: timestamp,
+    updated_at: timestamp,
+    deleted_at: null,
+    schema_version: 1,
+  }
+}
+
+function mergeBrewLogUpdate(log: BrewLog, payload: BrewLogUpdatePayload, now: Date): BrewLog {
+  return {
+    ...log,
+    ...payload,
+    updated_at: now.toISOString(),
+  }
+}
+
+function createBrewLogPayloadFromRow(
+  log: BrewLog,
+  isPinnedRecipe: boolean,
+): BrewLogUpdatePayload {
+  if (!log.bean_id) {
+    throw new Error('这条冲煮记录没有绑定咖啡豆。')
+  }
+
+  return {
+    bean_id: log.bean_id,
+    method: log.method,
+    dripper: log.dripper,
+    filter_paper: log.filter_paper,
+    grinder: log.grinder,
+    grind_setting: log.grind_setting,
+    coffee_grams: log.coffee_grams,
+    water_grams: log.water_grams,
+    ratio: log.ratio,
+    water_temperature_c: log.water_temperature_c,
+    total_time_seconds: log.total_time_seconds,
+    pour_steps: log.pour_steps,
+    rating: log.rating,
+    acidity: log.acidity,
+    sweetness: log.sweetness,
+    bitterness: log.bitterness,
+    astringency: log.astringency,
+    body: log.body,
+    aftertaste: log.aftertaste,
+    flavor_tags: log.flavor_tags,
+    is_pinned_recipe: isPinnedRecipe,
+    notes: log.notes,
+  }
+}
+
+async function mergeIntoPendingCreate(
+  userId: string,
+  entity: 'brewLog',
+  entityId: string,
+  payload: BrewLogUpdatePayload,
+) {
+  const mutations = await readOfflineMutations(userId, entity)
+  const createMutation = mutations.find(
+    (mutation) => mutation.action === 'create' && mutation.entityId === entityId,
+  )
+
+  if (!createMutation) {
+    throw new Error('没有找到对应的本机待同步新增记录。')
+  }
+
+  await enqueueOfflineMutation({
+    ...createMutation,
+    payload: {
+      ...(createMutation.payload as BrewLogInsertPayload),
+      ...payload,
+    },
+  })
+}
+
+function isLocalId(id: string, prefix: string) {
+  return id.startsWith(`local-${prefix}-`)
+}
+
+function createLocalId(prefix: string) {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `local-${prefix}-${crypto.randomUUID()}`
+  }
+
+  return `local-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
