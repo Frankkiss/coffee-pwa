@@ -341,7 +341,6 @@
     linear-gradient(180deg, var(--color-caramel-soft), var(--color-caramel));
   color: var(--color-coffee-dark);
   box-shadow:
-    inset 0 1px 0 rgba(255, 253, 248, 0.72),
     0 5px 10px rgba(29, 17, 13, 0.16);
   font-size: 0.78rem;
   font-weight: 900;
@@ -454,7 +453,6 @@
     linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(247, 232, 206, 0.78)),
     var(--color-paper);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
     0 9px 18px rgba(83, 53, 38, 0.1);
   font-size: 0.84rem;
   font-weight: 800;
@@ -523,7 +521,6 @@
     radial-gradient(circle at 34% 26%, rgba(255, 248, 237, 0.34), transparent 0.78rem),
     linear-gradient(180deg, #8a563f, var(--color-coffee-dark));
   box-shadow:
-    inset 0 1px 0 rgba(255, 248, 237, 0.24),
     0 8px 14px rgba(83, 53, 38, 0.18);
   font-size: 1.02rem;
   font-weight: 900;
@@ -723,7 +720,6 @@
     radial-gradient(circle at 34% 24%, rgba(255, 248, 237, 0.88), transparent 1.08rem),
     linear-gradient(180deg, rgba(255, 231, 194, 0.96), rgba(217, 149, 95, 0.44));
   box-shadow:
-    inset 0 1px 0 rgba(255, 253, 248, 0.82),
     inset 0 -0.5rem 0 rgba(122, 79, 63, 0.06),
     0 9px 17px rgba(83, 53, 38, 0.09);
   font-size: 2.02rem;
@@ -959,7 +955,6 @@
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.76), rgba(246, 230, 202, 0.42));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
     0 8px 16px rgba(83, 53, 38, 0.08);
   cursor: pointer;
   transition:
@@ -979,7 +974,6 @@
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.9), rgba(246, 230, 202, 0.54));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
     0 10px 20px rgba(83, 53, 38, 0.12);
   transform: translateY(-1px);
 }
@@ -998,7 +992,6 @@
     radial-gradient(circle at 34% 24%, rgba(255, 248, 237, 0.84), transparent 0.78rem),
     linear-gradient(180deg, var(--color-caramel-soft), var(--color-caramel));
   box-shadow:
-    inset 0 1px 0 rgba(255, 253, 248, 0.72),
     inset 0 -0.46rem 0 rgba(86, 54, 45, 0.1),
     0 8px 16px rgba(83, 53, 38, 0.12);
   font-size: 0.78rem;
@@ -1194,7 +1187,6 @@
     radial-gradient(circle at 78% 78%, rgba(122, 79, 63, 0.1) 0 0.23rem, transparent 0.25rem),
     linear-gradient(180deg, #f8d6a6, #e7ad73);
   box-shadow:
-    inset 0 1px 0 rgba(255, 253, 248, 0.82),
     inset 0 -0.42rem 0 rgba(86, 54, 45, 0.07),
     0 7px 12px rgba(83, 53, 38, 0.08);
 }
@@ -1205,7 +1197,6 @@
     radial-gradient(circle at 34% 28%, rgba(255, 253, 248, 0.9), transparent 0.94rem),
     linear-gradient(180deg, rgba(255, 236, 205, 0.96), rgba(224, 168, 113, 0.72));
   box-shadow:
-    inset 0 1px 0 rgba(255, 253, 248, 0.78),
     inset 0 -0.4rem 0 rgba(86, 54, 45, 0.07),
     0 7px 13px rgba(83, 53, 38, 0.08);
 }
