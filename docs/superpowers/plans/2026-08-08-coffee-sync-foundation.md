@@ -794,13 +794,16 @@ git commit -m "feat: add transactional sync RPCs"
 ### Task 5: Define client synchronization contracts
 
 **Files:**
+- Create: `app/src/lib/jsonTypes.ts`
 - Create: `app/src/features/sync/syncTypes.ts`
 - Create: `app/src/features/sync/syncTypes.test.ts`
+- Modify: `app/src/features/beans/beanTypes.ts`
+- Modify: `app/src/features/brews/brewTypes.ts`
 - Modify: `app/src/features/brewTemplates/brewTemplateTypes.ts`
 - Create: `app/src/features/settings/userSettingsTypes.ts`
 - Modify: `app/src/features/recommendations/savedRecommendationList.ts`
 
-- [ ] **Step 1: Write a failing permanent-UUID test**
+- [ ] **Step 1: Write failing UUID and compile-time boundary tests**
 
 Create `syncTypes.test.ts`:
 
@@ -816,20 +819,38 @@ describe('sync identifiers', () => {
 })
 ```
 
+Also add `satisfies` fixtures for all four upserts and the three legal deletes. Use `@ts-expect-error` cases that must be checked by
+`tsc -b`: settings delete, nullable payload, ownership/server fields inside upsert payloads, non-JSON `undefined`/function/symbol values,
+and a server bean missing required `bean_type`, `blend_components`, or `blend_notes`. Assert wire fixtures contain exactly the six transport
+fields and no Outbox metadata. The positive JSON fixtures must cover scalars, arrays, objects, and `null`.
+
 - [ ] **Step 2: Run the focused test and verify failure**
 
 ```powershell
 npm test -- syncTypes.test.ts
 ```
 
-Expected: FAIL because `syncTypes.ts` does not exist.
+Expected: FAIL because the current broad payload and server-row types do not enforce the new boundary.
 
 - [ ] **Step 3: Add exact shared types**
 
-Create `syncTypes.ts` with these exported contracts:
+Create `jsonTypes.ts` first. These recursive types are the only general JSON types used by synchronization contracts:
 
 ```ts
-import type { Bean } from '../beans/beanTypes'
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject
+export type JsonObject = { [key: string]: JsonValue }
+```
+
+Change saved recommendation object fields and the three user-settings JSON fields to `JsonObject`. Change `BrewLog.pour_steps` and both
+brew payload equivalents to `JsonValue[]`. Preserve the old optional `Bean` fields for v1 backup compatibility, but add a complete
+`ServerBeanRow` whose `bean_type`, `blend_components`, and `blend_notes` are required. `SyncSnapshot.beans` uses `ServerBeanRow[]`.
+
+Create `syncTypes.ts` with discriminated local and wire contracts. `EmptyJsonObject` must reject objects with named values; runtime code still
+validates that delete payload is exactly `{}`:
+
+```ts
+import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import type { UserSettingsRow } from '../settings/userSettingsTypes'
@@ -839,15 +860,35 @@ export type SyncEntityType = 'bean' | 'brewLog' | 'brewTemplate' | 'userSettings
 export type SyncOperation = 'upsert' | 'delete'
 export type OutboxStatus = 'pending' | 'syncing' | 'needs_attention'
 
-export type SyncMutation = {
+type ServerOwnedFields = 'id' | 'user_id' | 'created_at' | 'updated_at' | 'deleted_at'
+export type EmptyJsonObject = { [key: string]: never }
+export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields>
+export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields>
+export type BrewTemplateUpsertPayload = Omit<UserBrewTemplateRow, ServerOwnedFields>
+export type UserSettingsUpsertPayload = Omit<
+  UserSettingsRow,
+  'user_id' | 'created_at' | 'updated_at'
+>
+
+type WireBase = {
   mutationId: string
-  userId: string
   deviceId: string
-  baseSyncEpoch: number
-  entityType: SyncEntityType
   entityId: string
-  operation: SyncOperation
-  payload: Record<string, unknown> | null
+}
+
+export type SyncRpcOperation = WireBase & (
+  | { entityType: 'bean'; operation: 'upsert'; payload: BeanUpsertPayload }
+  | { entityType: 'bean'; operation: 'delete'; payload: EmptyJsonObject }
+  | { entityType: 'brewLog'; operation: 'upsert'; payload: BrewLogUpsertPayload }
+  | { entityType: 'brewLog'; operation: 'delete'; payload: EmptyJsonObject }
+  | { entityType: 'brewTemplate'; operation: 'upsert'; payload: BrewTemplateUpsertPayload }
+  | { entityType: 'brewTemplate'; operation: 'delete'; payload: EmptyJsonObject }
+  | { entityType: 'userSettings'; operation: 'upsert'; payload: UserSettingsUpsertPayload }
+)
+
+export type SyncMutation = SyncRpcOperation & {
+  userId: string
+  baseSyncEpoch: number
   queuedAt: string
   attemptCount: number
   status: OutboxStatus
@@ -858,7 +899,7 @@ export type SyncMutation = {
 export type SyncSnapshot = {
   syncEpoch: number
   serverTime: string
-  beans: Bean[]
+  beans: ServerBeanRow[]
   brewLogs: BrewLog[]
   brewTemplates: UserBrewTemplateRow[]
   userSettings: UserSettingsRow | null
@@ -876,10 +917,12 @@ export type ApplySyncResult = {
 
 export type SyncStorage = {
   listOutbox(userId: string): Promise<SyncMutation[]>
-  acknowledgeMutations(mutationIds: string[]): Promise<void>
-  markMutationAttention(mutationIds: string[], code: string, message: string): Promise<void>
-  markMutationPending(mutationId: string): Promise<void>
-  discardMutation(mutationId: string): Promise<void>
+  acknowledgeMutations(userId: string, mutationIds: string[]): Promise<void>
+  markMutationsSyncing(userId: string, mutationIds: string[]): Promise<void>
+  recordRetryableFailure(userId: string, mutationIds: string[], code: string, message: string): Promise<void>
+  markMutationAttention(userId: string, mutationIds: string[], code: string, message: string): Promise<void>
+  markMutationPending(userId: string, mutationId: string): Promise<void>
+  discardMutation(userId: string, mutationId: string): Promise<void>
   quarantineOlderEpoch(userId: string, currentEpoch: number, code: string, message: string): Promise<void>
   replaceServerSnapshot(userId: string, snapshot: SyncSnapshot): Promise<void>
   readSyncEpoch(userId: string): Promise<number>
@@ -905,6 +948,7 @@ export function createMutationId() {
 Add `schema_version: number` to `UserBrewTemplateRow`. Define `UserSettingsRow` with the exact columns from `public.user_settings`.
 Expand `SavedRecommendationRow` to the complete cached server row: `id`, `user_id`, `bean_id`, `input_context`, `recommendation`,
 `model_name`, `accepted`, `created_at`, `updated_at`, `deleted_at`, and `schema_version`. Existing cards may continue selecting a display subset from this complete type.
+Template narrow enums and structured `pour_steps` describe a validated complete server row only; add a comment forbidding direct RPC casts.
 
 - [ ] **Step 4: Run the focused test**
 
@@ -917,8 +961,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit contracts**
 
 ```powershell
-git add app/src/features/sync app/src/features/settings/userSettingsTypes.ts app/src/features/brewTemplates/brewTemplateTypes.ts app/src/features/recommendations/savedRecommendationList.ts
-git commit -m "feat: define unified sync contracts"
+git add app/src/lib/jsonTypes.ts app/src/features/sync app/src/features/beans/beanTypes.ts app/src/features/brews/brewTypes.ts app/src/features/settings/userSettingsTypes.ts app/src/features/brewTemplates/brewTemplateTypes.ts app/src/features/recommendations/savedRecommendationList.ts
+git commit -m "fix: strengthen sync type boundaries"
 ```
 
 ### Task 6: Create IndexedDB v3 and atomic local writes
@@ -1011,7 +1055,10 @@ Test that `saveLocalEntity` writes both the entity and Outbox row, and that a fo
 
 - [ ] **Step 5: Implement the local repository transaction**
 
-`localRepository.ts` must export `saveLocalEntity`, `softDeleteLocalEntity`, `listLocalEntities`, `replaceServerSnapshot`, `listOutbox`, `acknowledgeMutations`, and `markMutationAttention`. `saveLocalEntity` must use one readwrite transaction over the entity store and `outbox`:
+`localRepository.ts` must export `saveLocalEntity`, `softDeleteLocalEntity`, `listLocalEntities`, `replaceServerSnapshot`, `listOutbox`,
+`acknowledgeMutations`, `markMutationsSyncing`, `recordRetryableFailure`, `markMutationAttention`, `markMutationPending`,
+`discardMutation`, and `quarantineOlderEpoch`. Every Outbox write method explicitly receives `userId` and verifies both the stored envelope and
+key belong to that user before changing it. `saveLocalEntity` must use one readwrite transaction over the entity store and `outbox`:
 
 ```ts
 const transaction = database.transaction([storeName, syncStoreNames.outbox], 'readwrite')
@@ -1024,6 +1071,11 @@ transaction.objectStore(syncStoreNames.outbox).put({
 ```
 
 Resolve only from `transaction.oncomplete`; reject on both `onerror` and `onabort`.
+
+`markMutationsSyncing(userId, ids)` performs one Outbox transaction that increments `attemptCount` and changes every selected current-user row
+to `syncing` before the network call. `recordRetryableFailure(userId, ids, code, message)` atomically returns those rows to `pending` and records
+both error fields. Tests must prove a different `userId` cannot acknowledge, retry, discard, quarantine, or change status for another user's
+mutation, and that a forced transaction failure leaves every selected row unchanged.
 
 - [ ] **Step 6: Run storage tests**
 
@@ -1195,12 +1247,15 @@ Use a typed mock Supabase client and assert:
 ```ts
 expect(rpc).toHaveBeenNthCalledWith(1, 'apply_sync_batch', {
   p_sync_epoch: 1,
-  p_operations: operations,
+  p_operations: wireOperations,
 })
 expect(rpc).toHaveBeenNthCalledWith(2, 'get_sync_snapshot')
 ```
 
-Assert Supabase errors become `SyncApiError` with `code`, `message`, and `retryable`.
+Assert each `wireOperations` item has only `mutationId`, `deviceId`, `entityType`, `entityId`, `operation`, and `payload`; no `userId`,
+`baseSyncEpoch`, queue status, attempts, timestamps, or error fields may be sent. Assert Supabase errors become `SyncApiError` with `code`,
+`message`, and `retryable`. Feed malformed top-level results, malformed complete rows, invalid template enums/steps, non-JSON values, missing
+required bean fields, and invalid `applied | duplicate` statuses; every case must return `INVALID_SYNC_RESPONSE` and never produce a typed result.
 
 - [ ] **Step 2: Implement `syncApi.ts`**
 
@@ -1219,13 +1274,16 @@ export class SyncApiError extends Error {
 
 export function createSyncApi(supabase: SupabaseClient) {
   return {
-    applyBatch(syncEpoch: number, operations: SyncMutation[]): Promise<ApplySyncResult>,
+    applyBatch(syncEpoch: number, operations: SyncRpcOperation[]): Promise<ApplySyncResult>,
     getSnapshot(): Promise<SyncSnapshot>,
   }
 }
 ```
 
-Do not send `userId` inside RPC payloads. Convert snake_case RPC data only at this boundary.
+Export `toSyncRpcOperation(mutation: SyncMutation): SyncRpcOperation` and explicitly construct the six wire fields; never spread an Outbox row.
+Treat both RPC `data` values as `unknown`. Add recursive JSON validation plus complete validators for every snapshot row, timestamps, numbers,
+nullability, template enums/steps, and result enums before returning `ApplySyncResult` or `SyncSnapshot`. The database intentionally remains able
+to store general JSON and unconstrained template text in this task; the validator is the trust boundary and direct casts are forbidden.
 
 - [ ] **Step 3: Write and implement lock tests**
 
@@ -1237,8 +1295,10 @@ Cover one full cycle, response loss retry, snapshot failure, validation failure 
 
 ```ts
 expect(api.applyBatch).toHaveBeenCalledTimes(1)
+expect(storage.markMutationsSyncing).toHaveBeenCalledWith('user-1', ['mutation-1'])
+expect(api.applyBatch).toHaveBeenCalledWith(1, [expectedWireOperation])
 expect(api.getSnapshot).toHaveBeenCalledTimes(1)
-expect(storage.acknowledgeMutations).toHaveBeenCalledWith(['mutation-1'])
+expect(storage.acknowledgeMutations).toHaveBeenCalledWith('user-1', ['mutation-1'])
 expect(storage.replaceServerSnapshot).toHaveBeenCalledWith('user-1', snapshot)
 expect(manager.getState().kind).toBe('synced')
 ```
@@ -1270,7 +1330,15 @@ export type SyncManagerDependencies = {
 
 Expose `start`, `stop`, `run`, `retryMutation`, `discardMutation`, `subscribe`, and `getState`. `start` registers online and visibility listeners,
 a 60-second foreground interval, and `subscribeToSyncWakeups`. `run` must pull even when Outbox is empty, never acknowledge before RPC
-confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling.
+confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before upload it calls
+`markMutationsSyncing(userId, ids)`, maps each mutation with `toSyncRpcOperation`, and on retryable failure calls
+`recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass `userId` to storage.
+
+Capture a generation token for each start/user session and re-check it after every awaited API/storage operation; callbacks from a stopped or
+replaced user session must return without any later storage write or state publication. A malformed apply response leaves mutations unacknowledged.
+A malformed snapshot never calls `replaceServerSnapshot`; `INVALID_SYNC_RESPONSE` is a non-retryable safety error that publishes global
+`needs_attention` without overwriting the last valid cache. If apply validation already succeeded before snapshot validation failed, only those
+validated confirmations may be acknowledged. Add manager tests for both stale-user callback suppression and malformed-response cache preservation.
 
 - [ ] **Step 7: Run focused sync tests**
 

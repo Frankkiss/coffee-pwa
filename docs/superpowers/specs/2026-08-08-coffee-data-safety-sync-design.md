@@ -142,6 +142,19 @@ lastErrorCode
 lastErrorMessage
 ```
 
+Outbox 行是仅存在于 IndexedDB 的本地持久化契约，不等于发送给 RPC 的 wire operation。发送给
+`apply_sync_batch` 的每项操作只允许包含 `mutationId`、`deviceId`、`entityType`、`entityId`、`operation`
+和 `payload`；`userId`、`baseSyncEpoch`、`queuedAt`、`attemptCount`、本地状态和错误信息绝不进入 wire payload。
+`userId` 只用于本地账号隔离，RPC ownership 始终来自已认证会话；批次代次通过独立的 `syncEpoch` 参数传递。
+
+操作契约使用按 `entityType` 和 `operation` 判别的联合：豆子、冲煮记录和模板允许完整 `upsert` 或 `delete`，
+设置只允许完整 `upsert`，TypeScript 与运行时验证均不得表达或接受 settings delete。所有 delete 的 `payload`
+统一为严格空对象 `{}`；upsert payload 必须是该实体全部客户端可变字段，包含受控 `schema_version`，但排除
+ownership、主键、服务器时间戳和软删除字段。
+
+所有进入同步契约的 JSON 必须可被 JSON 序列化。客户端使用递归 `JsonPrimitive | JsonValue[] | JsonObject`
+建模，拒绝 `undefined`、函数和 `symbol`；已知由对象承载的设置与推荐字段进一步收紧为 `JsonObject`。
+
 一次本地保存必须在同一个 IndexedDB 事务内完成：
 
 1. 更新本地实体；
@@ -188,6 +201,14 @@ lastErrorMessage
 8. 更新服务器基线，再叠加仍待上传或需要处理的本地修改。
 9. 发布全局和逐实体同步状态。
 10. 释放锁。
+
+发送前，存储层必须在单个、显式 `userId` 作用域的 IndexedDB 事务中将本批 mutation 标记为 `syncing` 并递增
+`attemptCount`。网络、超时或 5xx 等可重试失败必须在同样的用户作用域内原子恢复为 `pending`，同时记录稳定错误码与
+消息。确认、标记需处理、手动重试、放弃和旧代次隔离等所有 mutation 写操作都必须显式接收并校验 `userId`，不能只凭
+`mutationId` 修改其他账号的行。
+
+`SyncManager` 在每个异步边界后都要重新确认活动用户和当前运行代次；登出、切换账号或 `stop()` 会使旧 generation
+失效。旧账号的延迟 RPC、Realtime、定时器或网络回调不得确认、重排、覆盖或删除新账号的本地数据。
 
 个人数据规模下，第一版在成功推送后拉取完整快照，优先保证正确性。待数据量或性能指标证明有必要时，
 才引入增量游标；Realtime 始终只是唤醒机制。
@@ -237,6 +258,10 @@ lastErrorMessage
 - `schema_version` 在所有需要迁移的用户实体上统一；
 - 为 `user_id`、`deleted_at`、`updated_at` 和主要查询组合增加适当索引；
 - 对评分、重量、温度、耗时、枚举状态和 JSON 结构增加可验证的约束。
+
+Postgres `jsonb` 可以保存任意合法 JSON，当前 `brew_templates.category`、`difficulty` 等字段也没有数据库枚举
+约束。本阶段不回改 Task 3 数据库迁移；窄枚举、结构化模板注水步骤和对象型 JSON 被视为“通过客户端 API 边界验证后的
+服务器行”。数据库返回值不能直接断言成这些类型，必须先按下述 RPC 响应规则验证，畸形历史行会被安全拒绝而不是进入缓存。
 
 `schema_version` 是随实体同步的受控版本标签，用于判断实体结构和后续迁移路径，不属于 ownership 或服务器时间戳字段。
 客户端完整记录 payload 可以携带该字段，但 RPC 只能接受服务器当前明确支持的版本；第一版仅接受整数 `1`，省略时按
@@ -315,6 +340,13 @@ result_summary
 - `syncEpoch` 与豆子、冲煮记录、模板、用户设置、AI 推荐等全部实体集合必须由同一个 PostgreSQL
   statement 构造并共享同一个 MVCC snapshot，禁止分开查询后拼装，以免全量恢复与并发写入交错时产生代次和数据撕裂。
 - 删除状态必须可被客户端识别，防止旧缓存复活已删除记录。
+- Supabase SDK 返回的 RPC data 首先一律视为 `unknown`。`syncApi` 必须完整验证顶层结构、UUID/时间/数字、每个实体
+  的全部必填字段、实体枚举、模板结构和递归 JSON 可序列化性；不能用类型断言把部分或畸形响应提升为快照类型。
+- 只有整份响应验证成功后才构造 `SyncSnapshot` 并调用 `replaceServerSnapshot`。任意一行、JSON 值、枚举或必填字段
+  不合法时，整份快照不得覆盖本地权威缓存，并返回稳定的 `INVALID_SYNC_RESPONSE` 安全错误。
+- `apply_sync_batch` 的响应也按 `unknown` 验证 `syncEpoch`、`serverTime`、每个 `mutationId` 和
+  `applied | duplicate` 枚举。无效 apply 响应不得确认本地 Outbox；有效 apply 响应已经确认的 mutation 可独立确认，
+  随后畸形快照仍不得替换缓存。不可重试的响应结构错误进入全局 `needs_attention`，保留可诊断错误且不继续自动覆盖数据。
 
 ### 9.3 安全执行方式
 
