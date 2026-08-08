@@ -1,0 +1,1510 @@
+# Coffee Unified Sync Foundation Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace page-owned offline queues with a user-scoped IndexedDB repository and one idempotent Supabase synchronization path without losing existing cached or pending data.
+
+**Architecture:** Existing Supabase remains authoritative. React pages write to local repositories that atomically update an entity row and a compacted Outbox entry; one `SyncManager` uploads permanent-UUID mutations through authenticated RPCs, pulls a complete server snapshot, and overlays any remaining local intent. A user-level `sync_epoch` prevents pre-rollback mutations from replaying after a future full restore.
+
+**Tech Stack:** React 19, TypeScript 6, Vite 8, Vitest 4, IndexedDB, fake-indexeddb, Supabase JS 2, Supabase Postgres/RLS/RPC, pgTAP-compatible SQL tests.
+
+---
+
+## File map
+
+**Supabase**
+
+- Create `supabase/sql/004_data_safety_preflight.sql`: read-only production audit queries.
+- Create `supabase/migrations/20260612000000_initial_schema.sql`: exact migration copy of the reviewed existing `001_initial_schema.sql`.
+- Create `supabase/migrations/20260615000000_blend_beans.sql`: exact migration copy of the reviewed existing `002_blend_beans.sql`.
+- Create `supabase/migrations/20260615010000_brew_templates.sql`: exact migration copy of the reviewed existing `003_brew_templates.sql`.
+- Create `supabase/migrations/20260808010000_sync_foundation.sql`: additive tables, columns, constraints, indexes, triggers, and RLS.
+- Create `supabase/migrations/20260808020000_sync_rpc.sql`: `apply_sync_batch` and `get_sync_snapshot`.
+- Create `supabase/tests/005_sync_foundation.test.sql`: schema, RLS, relation, idempotency, epoch, and rollback tests.
+
+**Client sync core**
+
+- Create `app/src/features/sync/syncTypes.ts`: shared entity, Outbox, snapshot, status, and RPC contracts.
+- Create `app/src/features/sync/syncDatabase.ts`: IndexedDB v3 open/upgrade and transaction helpers.
+- Create `app/src/features/sync/outboxModel.ts`: pure compaction, dependency ordering, retry, and state logic.
+- Create `app/src/features/sync/legacyMigration.ts`: v2 cache/queue to v3 entity store migration.
+- Create `app/src/features/sync/localRepository.ts`: atomic local entity plus Outbox operations.
+- Create `app/src/features/sync/syncApi.ts`: typed Supabase RPC adapter.
+- Create `app/src/features/sync/syncLock.ts`: Web Locks and IndexedDB lease fallback.
+- Create `app/src/features/sync/syncRealtime.ts`: user-filtered Realtime wake-up subscriptions.
+- Create `app/src/features/sync/syncManager.ts`: synchronization state machine.
+- Create `app/src/features/sync/SyncContext.tsx`: one manager per authenticated user.
+- Create `app/src/features/sync/SyncStatusBanner.tsx`: global status and record-action UI.
+- Create focused `*.test.ts` files beside each pure or IndexedDB module.
+
+**Feature repositories and integration**
+
+- Create `app/src/features/beans/beanRepository.ts`.
+- Create `app/src/features/brews/brewLogRepository.ts`.
+- Create `app/src/features/brewTemplates/brewTemplateRepository.ts`.
+- Create `app/src/features/settings/userSettingsTypes.ts`.
+- Create `app/src/features/settings/userSettingsRepository.ts`.
+- Create `app/src/features/settings/userSettingsModel.ts` and test.
+- Create `app/src/features/settings/UserSettingsPanel.tsx` and `settings.css`.
+- Create `app/src/features/recommendations/recommendationRepository.ts` for offline saved-recommendation reads.
+- Modify `AuthPanel.tsx`, `BeanDashboard.tsx`, `BrewLogPanel.tsx`, `BrewTemplatePanel.tsx`, `RecommendationPanel.tsx`, `HomeOverview.tsx`, `homeOverviewModel.ts`, `OnlineStatus.tsx`, and related tests.
+- Delete `offlineCache.ts` and `offlineQueue.ts` only in the final cleanup task after migration coverage passes.
+
+### Task 1: Add deterministic IndexedDB tests and CI quality gates
+
+**Files:**
+- Modify: `app/package.json`
+- Modify: `app/package-lock.json`
+- Modify: `.github/workflows/deploy-pages.yml`
+- Create: `app/src/test/setupIndexedDb.ts`
+
+- [ ] **Step 1: Install the IndexedDB test adapter**
+
+Run from `app`:
+
+```powershell
+npm install --save-dev fake-indexeddb
+```
+
+Expected: `package.json` and `package-lock.json` contain `fake-indexeddb`; npm exits 0.
+
+- [ ] **Step 2: Add the shared test setup**
+
+Create `app/src/test/setupIndexedDb.ts`:
+
+```ts
+import 'fake-indexeddb/auto'
+
+export async function deleteTestDatabase(name: string) {
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error ?? new Error('Test database delete failed'))
+    request.onblocked = () => reject(new Error('Test database delete blocked'))
+  })
+}
+```
+
+- [ ] **Step 3: Make CI run tests and lint before build**
+
+Insert these steps after `npm ci` in `.github/workflows/deploy-pages.yml`:
+
+```yaml
+      - name: Test
+        run: npm test
+        working-directory: app
+
+      - name: Lint
+        run: npm run lint
+        working-directory: app
+```
+
+- [ ] **Step 4: Run the existing suite**
+
+Run from `app`:
+
+```powershell
+npm test
+npm run lint
+npm run build
+```
+
+Expected: all existing tests pass; lint and build exit 0.
+
+- [ ] **Step 5: Commit the test foundation**
+
+```powershell
+git add app/package.json app/package-lock.json app/src/test/setupIndexedDb.ts .github/workflows/deploy-pages.yml
+git commit -m "test: add sync storage test foundation"
+```
+
+### Task 2: Add the read-only production preflight audit
+
+**Files:**
+- Create: `supabase/sql/004_data_safety_preflight.sql`
+- Create: `docs/operations/data-safety-preflight.md`
+
+- [ ] **Step 1: Write the audit SQL**
+
+Create `supabase/sql/004_data_safety_preflight.sql` with read-only queries for table presence, row counts, RLS, policies, columns, foreign-key integrity, and invalid ranges. The file must begin with a read-only transaction and end with rollback:
+
+```sql
+begin transaction read only;
+
+select table_name
+from information_schema.tables
+where table_schema = 'public'
+  and table_name in (
+    'profiles', 'beans', 'brew_logs', 'brew_templates',
+    'ai_recommendations', 'source_imports', 'backup_exports', 'user_settings'
+  )
+order by table_name;
+
+select 'beans' as table_name, count(*) as row_count from public.beans
+union all select 'brew_logs', count(*) from public.brew_logs
+union all select 'brew_templates', count(*) from public.brew_templates
+union all select 'ai_recommendations', count(*) from public.ai_recommendations
+union all select 'source_imports', count(*) from public.source_imports
+union all select 'backup_exports', count(*) from public.backup_exports
+union all select 'user_settings', count(*) from public.user_settings;
+
+select c.relname as table_name, c.relrowsecurity as rls_enabled
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in (
+    'profiles', 'beans', 'brew_logs', 'brew_templates',
+    'ai_recommendations', 'source_imports', 'backup_exports', 'user_settings'
+  )
+order by c.relname;
+
+select schemaname, tablename, policyname, cmd, qual, with_check
+from pg_policies
+where schemaname = 'public'
+order by tablename, policyname;
+
+select bl.id, bl.user_id, bl.bean_id, b.user_id as bean_user_id
+from public.brew_logs bl
+left join public.beans b on b.id = bl.bean_id
+where bl.bean_id is not null
+  and (b.id is null or b.user_id <> bl.user_id);
+
+select ar.id, ar.user_id, ar.bean_id, b.user_id as bean_user_id
+from public.ai_recommendations ar
+left join public.beans b on b.id = ar.bean_id
+where ar.bean_id is not null
+  and (b.id is null or b.user_id <> ar.user_id);
+
+select id, rating, acidity, sweetness, bitterness, astringency, body, aftertaste
+from public.brew_logs
+where (rating is not null and (rating < 0 or rating > 5))
+   or acidity not between 0 and 5
+   or sweetness not between 0 and 5
+   or bitterness not between 0 and 5
+   or astringency not between 0 and 5
+   or body not between 0 and 5
+   or aftertaste not between 0 and 5;
+
+select id, coffee_grams, water_grams, water_temperature_c, total_time_seconds
+from public.brew_logs
+where (coffee_grams is not null and coffee_grams <= 0)
+   or (water_grams is not null and water_grams <= 0)
+   or (water_temperature_c is not null and water_temperature_c not between 0 and 100)
+   or (total_time_seconds is not null and total_time_seconds < 0);
+
+select id, altitude_meters, net_weight_grams, price
+from public.beans
+where (altitude_meters is not null and altitude_meters < 0)
+   or (net_weight_grams is not null and net_weight_grams <= 0)
+   or (price is not null and price < 0);
+
+select id, dose_grams, water_grams, water_temperature_min, water_temperature_max,
+       target_time_min, target_time_max
+from public.brew_templates
+where dose_grams <= 0
+   or water_grams <= 0
+   or water_temperature_min not between 0 and 100
+   or water_temperature_max not between water_temperature_min and 100
+   or target_time_min < 0
+   or target_time_max < target_time_min;
+
+select id, status
+from public.source_imports
+where status not in ('draft', 'saved', 'failed');
+
+select user_id, backup_reminder_days
+from public.user_settings
+where backup_reminder_days not between 1 and 365;
+
+rollback;
+```
+
+- [ ] **Step 2: Document safe execution and evidence capture**
+
+Create `docs/operations/data-safety-preflight.md` with these mandatory rules:
+
+```markdown
+# Data Safety Preflight
+
+1. Run `004_data_safety_preflight.sql` against the linked Supabase project before any migration.
+2. Save the unedited output with the execution date outside the public repository if it contains user data.
+3. Record table counts, RLS state, policy count, orphan count, and invalid-range count in the rollout checklist.
+4. Stop if any expected table is missing, RLS is disabled, a cross-user relation exists, or invalid values would violate the new constraints.
+5. Do not edit or delete anomalous rows until a row-specific repair is reviewed.
+```
+
+- [ ] **Step 3: Confirm the audit is mutation-free**
+
+Run:
+
+```powershell
+rg -n "insert|update|delete|truncate|alter|drop|create" supabase/sql/004_data_safety_preflight.sql
+```
+
+Expected: the only match is text inside identifiers or none; there are no modifying statements.
+
+- [ ] **Step 4: Commit the audit**
+
+```powershell
+git add supabase/sql/004_data_safety_preflight.sql docs/operations/data-safety-preflight.md
+git commit -m "docs: add production data safety preflight"
+```
+
+### Task 3: Add the additive sync schema and RLS
+
+**Files:**
+- Create: `supabase/migrations/20260612000000_initial_schema.sql`
+- Create: `supabase/migrations/20260615000000_blend_beans.sql`
+- Create: `supabase/migrations/20260615010000_brew_templates.sql`
+- Create: `supabase/migrations/20260808010000_sync_foundation.sql`
+- Create: `supabase/tests/005_sync_foundation.test.sql`
+
+- [ ] **Step 1: Establish the local migration baseline**
+
+Create the three dated baseline migration files as byte-for-byte SQL copies of `supabase/sql/001_initial_schema.sql`,
+`002_blend_beans.sql`, and `003_brew_templates.sql`. Do not delete the reviewed setup scripts. Run `supabase db reset` and verify the local
+database now contains `beans`, `brew_logs`, `brew_templates`, `ai_recommendations`, `source_imports`, `backup_exports`, and `user_settings`.
+
+- [ ] **Step 2: Write failing schema assertions**
+
+Create `supabase/tests/005_sync_foundation.test.sql` with pgTAP assertions:
+
+```sql
+begin;
+select plan(17);
+
+select has_table('public', 'user_sync_state', 'user_sync_state exists');
+select has_table('public', 'sync_mutation_receipts', 'sync_mutation_receipts exists');
+select has_column('public', 'brew_templates', 'schema_version', 'templates are versioned');
+select col_is_pk('public', 'user_sync_state', 'user_id', 'sync state is per-user');
+select has_index('public', 'sync_mutation_receipts', 'sync_mutation_receipts_user_mutation_uidx');
+select has_index('public', 'beans', 'beans_id_user_id_uidx');
+select has_index('public', 'brew_logs', 'brew_logs_user_active_idx');
+select has_index('public', 'brew_templates', 'brew_templates_user_active_idx');
+select has_check('public', 'brew_logs', 'brew_logs_rating_check');
+select has_check('public', 'brew_logs', 'brew_logs_sensory_check');
+select has_check('public', 'brew_logs', 'brew_logs_measurements_check');
+select has_check('public', 'beans', 'beans_numeric_values_check');
+select has_check('public', 'brew_templates', 'brew_templates_ranges_check');
+select has_check('public', 'source_imports', 'source_imports_status_check');
+select has_check('public', 'user_settings', 'user_settings_backup_days_check');
+select table_privs_are('public', 'user_sync_state', 'anon', array[]::text[], 'anon has no sync-state privileges');
+select table_privs_are('public', 'sync_mutation_receipts', 'anon', array[]::text[], 'anon has no receipt privileges');
+
+select * from finish();
+rollback;
+```
+
+- [ ] **Step 3: Run the database test to verify it fails**
+
+Run with the local Supabase stack active:
+
+```powershell
+supabase test db supabase/tests/005_sync_foundation.test.sql
+```
+
+Expected: FAIL because the two tables and new indexes do not exist.
+
+- [ ] **Step 4: Implement the additive schema migration**
+
+Create `supabase/migrations/20260808010000_sync_foundation.sql`. It must:
+
+```sql
+create table if not exists public.user_sync_state (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  sync_epoch bigint not null default 1 check (sync_epoch > 0),
+  updated_at timestamptz not null default clock_timestamp()
+);
+
+create table if not exists public.sync_mutation_receipts (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  mutation_id uuid not null,
+  device_id uuid not null,
+  entity_type text not null check (entity_type in ('bean', 'brewLog', 'brewTemplate', 'userSettings')),
+  entity_id uuid not null,
+  operation text not null check (operation in ('upsert', 'delete')),
+  committed_at timestamptz not null default clock_timestamp(),
+  result_summary jsonb not null default '{}'::jsonb
+);
+
+create unique index if not exists sync_mutation_receipts_user_mutation_uidx
+  on public.sync_mutation_receipts(user_id, mutation_id);
+create index if not exists sync_mutation_receipts_committed_at_idx
+  on public.sync_mutation_receipts(committed_at);
+
+alter table public.brew_templates
+  add column if not exists schema_version integer not null default 1;
+
+create unique index if not exists beans_id_user_id_uidx on public.beans(id, user_id);
+create index if not exists beans_user_active_idx on public.beans(user_id, created_at desc) where deleted_at is null;
+create index if not exists brew_logs_user_active_idx on public.brew_logs(user_id, brewed_at desc) where deleted_at is null;
+create index if not exists brew_templates_user_active_idx on public.brew_templates(user_id, created_at desc) where deleted_at is null;
+create index if not exists ai_recommendations_user_active_idx on public.ai_recommendations(user_id, created_at desc) where deleted_at is null;
+create index if not exists source_imports_user_active_idx on public.source_imports(user_id, created_at desc) where deleted_at is null;
+
+alter table public.brew_logs drop constraint if exists brew_logs_bean_id_fkey;
+alter table public.brew_logs
+  add constraint brew_logs_bean_user_fkey
+  foreign key (bean_id, user_id) references public.beans(id, user_id)
+  on delete restrict deferrable initially deferred;
+
+alter table public.ai_recommendations drop constraint if exists ai_recommendations_bean_id_fkey;
+alter table public.ai_recommendations
+  add constraint ai_recommendations_bean_user_fkey
+  foreign key (bean_id, user_id) references public.beans(id, user_id)
+  on delete restrict deferrable initially deferred;
+
+alter table public.brew_logs drop constraint if exists brew_logs_rating_check;
+alter table public.brew_logs add constraint brew_logs_rating_check
+  check (rating is null or rating between 0 and 5) not valid;
+alter table public.brew_logs drop constraint if exists brew_logs_sensory_check;
+alter table public.brew_logs add constraint brew_logs_sensory_check check (
+  (acidity is null or acidity between 0 and 5)
+  and (sweetness is null or sweetness between 0 and 5)
+  and (bitterness is null or bitterness between 0 and 5)
+  and (astringency is null or astringency between 0 and 5)
+  and (body is null or body between 0 and 5)
+  and (aftertaste is null or aftertaste between 0 and 5)
+) not valid;
+alter table public.brew_logs drop constraint if exists brew_logs_measurements_check;
+alter table public.brew_logs add constraint brew_logs_measurements_check check (
+  (coffee_grams is null or coffee_grams > 0)
+  and (water_grams is null or water_grams > 0)
+  and (water_temperature_c is null or water_temperature_c between 0 and 100)
+  and (total_time_seconds is null or total_time_seconds >= 0)
+) not valid;
+alter table public.beans drop constraint if exists beans_numeric_values_check;
+alter table public.beans add constraint beans_numeric_values_check check (
+  (altitude_meters is null or altitude_meters >= 0)
+  and (net_weight_grams is null or net_weight_grams > 0)
+  and (price is null or price >= 0)
+) not valid;
+alter table public.brew_templates drop constraint if exists brew_templates_ranges_check;
+alter table public.brew_templates add constraint brew_templates_ranges_check check (
+  dose_grams > 0
+  and water_grams > 0
+  and water_temperature_min between 0 and 100
+  and water_temperature_max between water_temperature_min and 100
+  and target_time_min >= 0
+  and target_time_max >= target_time_min
+) not valid;
+alter table public.source_imports drop constraint if exists source_imports_status_check;
+alter table public.source_imports add constraint source_imports_status_check
+  check (status in ('draft', 'saved', 'failed')) not valid;
+alter table public.user_settings drop constraint if exists user_settings_backup_days_check;
+alter table public.user_settings add constraint user_settings_backup_days_check
+  check (backup_reminder_days between 1 and 365) not valid;
+
+alter table public.user_sync_state enable row level security;
+alter table public.sync_mutation_receipts enable row level security;
+
+revoke all on public.user_sync_state from anon;
+revoke all on public.sync_mutation_receipts from anon;
+grant select on public.user_sync_state to authenticated;
+
+drop policy if exists "Users read own sync state" on public.user_sync_state;
+create policy "Users read own sync state"
+on public.user_sync_state for select to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users read own mutation receipts" on public.sync_mutation_receipts;
+create policy "Users read own mutation receipts"
+on public.sync_mutation_receipts for select to authenticated
+using (auth.uid() = user_id);
+
+create or replace function public.purge_expired_sync_mutation_receipts()
+returns bigint
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_count bigint;
+begin
+  delete from public.sync_mutation_receipts
+  where committed_at < clock_timestamp() - interval '30 days';
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke all on function public.purge_expired_sync_mutation_receipts() from public, anon, authenticated;
+```
+
+Do not validate new `not valid` CHECK constraints until preflight confirms old rows comply. Extend the preflight query for every range above.
+Do not grant direct insert, update, or delete on the technical tables to authenticated clients; RPCs own those writes.
+Schedule the purge function once per day through Supabase Cron during the approved production rollout. A missed cleanup must not block synchronization.
+
+- [ ] **Step 5: Apply locally and rerun schema tests**
+
+```powershell
+supabase db reset
+supabase test db supabase/tests/005_sync_foundation.test.sql
+```
+
+Expected: all 17 pgTAP assertions pass.
+
+- [ ] **Step 6: Commit the schema foundation**
+
+```powershell
+git add supabase/migrations supabase/tests/005_sync_foundation.test.sql
+git commit -m "feat: add sync database foundation"
+```
+
+### Task 4: Add transactional sync RPCs
+
+**Files:**
+- Create: `supabase/migrations/20260808020000_sync_rpc.sql`
+- Modify: `supabase/tests/005_sync_foundation.test.sql`
+
+- [ ] **Step 1: Add failing RPC tests**
+
+Extend the SQL test with cases that set a test JWT claim, insert one test user, call `apply_sync_batch`, and assert:
+
+```sql
+select has_function('public', 'apply_sync_batch', array['bigint', 'jsonb']);
+select has_function('public', 'get_sync_snapshot', array[]::text[]);
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000001",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{"name":"RPC bean","flavor_tags":[],"bean_type":"single_origin","blend_components":[],"schema_version":1}
+  }]'::jsonb)$$,
+  'applies a bean mutation'
+);
+
+select is((select count(*) from public.beans where name = 'RPC bean'), 1::bigint, 'bean inserted once');
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000001",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{"name":"must not duplicate","flavor_tags":[],"bean_type":"single_origin","blend_components":[],"schema_version":1}
+  }]'::jsonb)$$,
+  'duplicate mutation is acknowledged'
+);
+select is((select name from public.beans where id = '30000000-0000-0000-0000-000000000001'), 'RPC bean', 'duplicate does not reapply');
+select throws_ok(
+  $$select public.apply_sync_batch(0, '[]'::jsonb)$$,
+  'P0001',
+  'STALE_SYNC_EPOCH',
+  'stale epoch is rejected'
+);
+```
+
+- [ ] **Step 2: Run the test to verify the RPC is absent**
+
+```powershell
+supabase test db supabase/tests/005_sync_foundation.test.sql
+```
+
+Expected: FAIL on `has_function`.
+
+- [ ] **Step 3: Implement strict mutation parsing and helper functions**
+
+In `20260808020000_sync_rpc.sql`, define a private helper per entity and reject unknown fields before applying full-record upserts. Each helper must overwrite `user_id` with `auth.uid()` and use `clock_timestamp()` for `updated_at`. The public function signature and guards are fixed:
+
+```sql
+create or replace function public.apply_sync_batch(p_sync_epoch bigint, p_operations jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_current_epoch bigint;
+  v_operation jsonb;
+  v_results jsonb := '[]'::jsonb;
+  v_mutation_id uuid;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
+  end if;
+
+  if jsonb_typeof(p_operations) <> 'array' or jsonb_array_length(p_operations) > 100 then
+    raise exception using errcode = '22023', message = 'INVALID_SYNC_BATCH';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(v_user_id::text, 0));
+
+  insert into public.user_sync_state(user_id)
+  values (v_user_id)
+  on conflict (user_id) do nothing;
+
+  select sync_epoch into v_current_epoch
+  from public.user_sync_state
+  where user_id = v_user_id
+  for update;
+
+  if p_sync_epoch <> v_current_epoch then
+    raise exception using errcode = 'P0001', message = 'STALE_SYNC_EPOCH';
+  end if;
+
+  for v_operation in select value from jsonb_array_elements(p_operations)
+  loop
+    v_mutation_id := (v_operation->>'mutationId')::uuid;
+
+    if exists (
+      select 1 from public.sync_mutation_receipts
+      where user_id = v_user_id and mutation_id = v_mutation_id
+    ) then
+      v_results := v_results || jsonb_build_array(jsonb_build_object(
+        'mutationId', v_mutation_id,
+        'status', 'duplicate'
+      ));
+      continue;
+    end if;
+
+    case v_operation->>'entityType'
+      when 'bean' then perform public.apply_bean_sync_mutation(v_user_id, v_operation);
+      when 'brewLog' then perform public.apply_brew_log_sync_mutation(v_user_id, v_operation);
+      when 'brewTemplate' then perform public.apply_brew_template_sync_mutation(v_user_id, v_operation);
+      when 'userSettings' then perform public.apply_user_settings_sync_mutation(v_user_id, v_operation);
+      else raise exception using errcode = '22023', message = 'UNKNOWN_SYNC_ENTITY';
+    end case;
+
+    insert into public.sync_mutation_receipts(
+      user_id, mutation_id, device_id, entity_type, entity_id, operation, result_summary
+    ) values (
+      v_user_id,
+      v_mutation_id,
+      (v_operation->>'deviceId')::uuid,
+      v_operation->>'entityType',
+      (v_operation->>'entityId')::uuid,
+      v_operation->>'operation',
+      jsonb_build_object('status', 'applied')
+    );
+
+    v_results := v_results || jsonb_build_array(jsonb_build_object(
+      'mutationId', v_mutation_id,
+      'status', 'applied'
+    ));
+  end loop;
+
+  return jsonb_build_object(
+    'syncEpoch', v_current_epoch,
+    'serverTime', clock_timestamp(),
+    'results', v_results
+  );
+end;
+$$;
+```
+
+The four private helper functions must explicitly map every mutable column from the current row types. They must implement `delete` as `deleted_at = clock_timestamp()` and `upsert` as full replacement while preserving server-owned `created_at` for existing rows. Do not build table or column names from client strings.
+Revoke public execution from the four helpers and the public batch RPC before granting only `apply_sync_batch` to `authenticated`. Because the public RPC uses definer rights, every helper must accept the already verified `v_user_id`, overwrite all payload ownership, reject cross-user relations, and never read a client-supplied user ID.
+
+- [ ] **Step 4: Implement the complete snapshot RPC**
+
+Add:
+
+```sql
+create or replace function public.get_sync_snapshot()
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_epoch bigint;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
+  end if;
+
+  insert into public.user_sync_state(user_id)
+  values (v_user_id)
+  on conflict (user_id) do nothing;
+
+  select sync_epoch into v_epoch
+  from public.user_sync_state
+  where user_id = v_user_id;
+
+  return jsonb_build_object(
+    'syncEpoch', v_epoch,
+    'serverTime', clock_timestamp(),
+    'beans', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.beans x where x.user_id = v_user_id), '[]'::jsonb),
+    'brewLogs', coalesce((select jsonb_agg(to_jsonb(x) order by x.brewed_at, x.id) from public.brew_logs x where x.user_id = v_user_id), '[]'::jsonb),
+    'brewTemplates', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.brew_templates x where x.user_id = v_user_id), '[]'::jsonb),
+    'userSettings', (select to_jsonb(x) from public.user_settings x where x.user_id = v_user_id),
+    'aiRecommendations', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.ai_recommendations x where x.user_id = v_user_id), '[]'::jsonb)
+  );
+end;
+$$;
+```
+
+- [ ] **Step 5: Lock down function grants**
+
+```sql
+revoke all on function public.apply_sync_batch(bigint, jsonb) from public, anon;
+revoke all on function public.get_sync_snapshot() from public, anon;
+grant execute on function public.apply_sync_batch(bigint, jsonb) to authenticated;
+grant execute on function public.get_sync_snapshot() to authenticated;
+```
+
+- [ ] **Step 6: Reset locally and run SQL tests**
+
+```powershell
+supabase db reset
+supabase test db supabase/tests/005_sync_foundation.test.sql
+```
+
+Expected: schema, RLS, idempotency, stale epoch, and snapshot tests pass.
+
+- [ ] **Step 7: Commit RPCs**
+
+```powershell
+git add supabase/migrations/20260808020000_sync_rpc.sql supabase/tests/005_sync_foundation.test.sql
+git commit -m "feat: add transactional sync RPCs"
+```
+
+### Task 5: Define client synchronization contracts
+
+**Files:**
+- Create: `app/src/features/sync/syncTypes.ts`
+- Create: `app/src/features/sync/syncTypes.test.ts`
+- Modify: `app/src/features/brewTemplates/brewTemplateTypes.ts`
+- Create: `app/src/features/settings/userSettingsTypes.ts`
+- Modify: `app/src/features/recommendations/savedRecommendationList.ts`
+
+- [ ] **Step 1: Write a failing permanent-UUID test**
+
+Create `syncTypes.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { createEntityId, createMutationId } from './syncTypes'
+
+describe('sync identifiers', () => {
+  it('creates UUIDs for entities and mutations', () => {
+    expect(createEntityId()).toMatch(/^[0-9a-f-]{36}$/)
+    expect(createMutationId()).toMatch(/^[0-9a-f-]{36}$/)
+  })
+})
+```
+
+- [ ] **Step 2: Run the focused test and verify failure**
+
+```powershell
+npm test -- syncTypes.test.ts
+```
+
+Expected: FAIL because `syncTypes.ts` does not exist.
+
+- [ ] **Step 3: Add exact shared types**
+
+Create `syncTypes.ts` with these exported contracts:
+
+```ts
+import type { Bean } from '../beans/beanTypes'
+import type { BrewLog } from '../brews/brewTypes'
+import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
+import type { UserSettingsRow } from '../settings/userSettingsTypes'
+import type { SavedRecommendationRow } from '../recommendations/savedRecommendationList'
+
+export type SyncEntityType = 'bean' | 'brewLog' | 'brewTemplate' | 'userSettings'
+export type SyncOperation = 'upsert' | 'delete'
+export type OutboxStatus = 'pending' | 'syncing' | 'needs_attention'
+
+export type SyncMutation = {
+  mutationId: string
+  userId: string
+  deviceId: string
+  baseSyncEpoch: number
+  entityType: SyncEntityType
+  entityId: string
+  operation: SyncOperation
+  payload: Record<string, unknown> | null
+  queuedAt: string
+  attemptCount: number
+  status: OutboxStatus
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+}
+
+export type SyncSnapshot = {
+  syncEpoch: number
+  serverTime: string
+  beans: Bean[]
+  brewLogs: BrewLog[]
+  brewTemplates: UserBrewTemplateRow[]
+  userSettings: UserSettingsRow | null
+  aiRecommendations: SavedRecommendationRow[]
+}
+
+export type ApplySyncResult = {
+  syncEpoch: number
+  serverTime: string
+  results: Array<{
+    mutationId: string
+    status: 'applied' | 'duplicate'
+  }>
+}
+
+export type SyncStorage = {
+  listOutbox(userId: string): Promise<SyncMutation[]>
+  acknowledgeMutations(mutationIds: string[]): Promise<void>
+  markMutationAttention(mutationIds: string[], code: string, message: string): Promise<void>
+  markMutationPending(mutationId: string): Promise<void>
+  discardMutation(mutationId: string): Promise<void>
+  quarantineOlderEpoch(userId: string, currentEpoch: number, code: string, message: string): Promise<void>
+  replaceServerSnapshot(userId: string, snapshot: SyncSnapshot): Promise<void>
+  readSyncEpoch(userId: string): Promise<number>
+  writeSyncMeta(userId: string, input: { syncEpoch: number; lastSyncedAt: string }): Promise<void>
+}
+
+export type SyncState =
+  | { kind: 'synced'; lastSyncedAt: string }
+  | { kind: 'syncing'; pendingCount: number }
+  | { kind: 'offline'; pendingCount: number }
+  | { kind: 'retrying'; pendingCount: number; message: string }
+  | { kind: 'needs_attention'; pendingCount: number; attentionCount: number }
+
+export function createEntityId() {
+  return crypto.randomUUID()
+}
+
+export function createMutationId() {
+  return crypto.randomUUID()
+}
+```
+
+Add `schema_version: number` to `UserBrewTemplateRow`. Define `UserSettingsRow` with the exact columns from `public.user_settings`.
+Expand `SavedRecommendationRow` to the complete cached server row: `id`, `user_id`, `bean_id`, `input_context`, `recommendation`,
+`model_name`, `accepted`, `created_at`, `updated_at`, `deleted_at`, and `schema_version`. Existing cards may continue selecting a display subset from this complete type.
+
+- [ ] **Step 4: Run the focused test**
+
+```powershell
+npm test -- syncTypes.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit contracts**
+
+```powershell
+git add app/src/features/sync app/src/features/settings/userSettingsTypes.ts app/src/features/brewTemplates/brewTemplateTypes.ts app/src/features/recommendations/savedRecommendationList.ts
+git commit -m "feat: define unified sync contracts"
+```
+
+### Task 6: Create IndexedDB v3 and atomic local writes
+
+**Files:**
+- Create: `app/src/features/sync/syncDatabase.ts`
+- Create: `app/src/features/sync/syncDatabase.test.ts`
+- Create: `app/src/features/sync/localRepository.ts`
+- Create: `app/src/features/sync/localRepository.test.ts`
+
+- [ ] **Step 1: Write failing database-upgrade tests**
+
+The tests must import `deleteTestDatabase`, open `kaday-offline-cache` v3, and assert these stores exist:
+
+```ts
+expect(Array.from(database.objectStoreNames)).toEqual([
+  'aiRecommendations',
+  'beans',
+  'brewLogs',
+  'brewTemplates',
+  'migrationMeta',
+  'outbox',
+  'pendingMutations',
+  'snapshots',
+  'syncMeta',
+  'userSettings',
+])
+```
+
+Keep `pendingMutations` and `snapshots`; migration must not delete them yet.
+
+- [ ] **Step 2: Verify the test fails**
+
+```powershell
+npm test -- syncDatabase.test.ts
+```
+
+Expected: FAIL because v3 stores do not exist.
+
+- [ ] **Step 3: Implement the database opener**
+
+`syncDatabase.ts` must export:
+
+```ts
+export const syncDatabaseName = 'kaday-offline-cache'
+export const syncDatabaseVersion = 3
+
+export const syncStoreNames = {
+  beans: 'beans',
+  brewLogs: 'brewLogs',
+  brewTemplates: 'brewTemplates',
+  userSettings: 'userSettings',
+  aiRecommendations: 'aiRecommendations',
+  outbox: 'outbox',
+  syncMeta: 'syncMeta',
+  migrationMeta: 'migrationMeta',
+} as const
+
+export function entityKey(userId: string, entityId: string) {
+  return `${userId}:${entityId}`
+}
+
+export function openSyncDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(syncDatabaseName, syncDatabaseVersion)
+    request.onupgradeneeded = () => {
+      const database = request.result
+      for (const storeName of Object.values(syncStoreNames)) {
+        if (!database.objectStoreNames.contains(storeName)) {
+          database.createObjectStore(storeName, { keyPath: 'key' })
+        }
+      }
+      if (!database.objectStoreNames.contains('snapshots')) {
+        database.createObjectStore('snapshots')
+      }
+      if (!database.objectStoreNames.contains('pendingMutations')) {
+        database.createObjectStore('pendingMutations', { keyPath: 'id' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'))
+    request.onblocked = () => reject(new Error('IndexedDB open blocked'))
+  })
+}
+```
+
+- [ ] **Step 4: Write a failing atomicity test**
+
+Test that `saveLocalEntity` writes both the entity and Outbox row, and that a forced Outbox failure aborts both writes. Use an injected `beforeOutboxWrite` callback in test-only options to throw inside the transaction.
+
+- [ ] **Step 5: Implement the local repository transaction**
+
+`localRepository.ts` must export `saveLocalEntity`, `softDeleteLocalEntity`, `listLocalEntities`, `replaceServerSnapshot`, `listOutbox`, `acknowledgeMutations`, and `markMutationAttention`. `saveLocalEntity` must use one readwrite transaction over the entity store and `outbox`:
+
+```ts
+const transaction = database.transaction([storeName, syncStoreNames.outbox], 'readwrite')
+transaction.objectStore(storeName).put({ key: entityKey(userId, entity.id), userId, value: entity })
+transaction.objectStore(syncStoreNames.outbox).put({
+  key: mutation.mutationId,
+  userId,
+  value: mutation,
+})
+```
+
+Resolve only from `transaction.oncomplete`; reject on both `onerror` and `onabort`.
+
+- [ ] **Step 6: Run storage tests**
+
+```powershell
+npm test -- syncDatabase.test.ts localRepository.test.ts
+```
+
+Expected: PASS, including the forced-abort assertion.
+
+- [ ] **Step 7: Commit the local storage layer**
+
+```powershell
+git add app/src/features/sync/syncDatabase.ts app/src/features/sync/syncDatabase.test.ts app/src/features/sync/localRepository.ts app/src/features/sync/localRepository.test.ts
+git commit -m "feat: add atomic local sync repository"
+```
+
+### Task 7: Implement Outbox compaction, ordering, and retry state
+
+**Files:**
+- Create: `app/src/features/sync/outboxModel.ts`
+- Create: `app/src/features/sync/outboxModel.test.ts`
+
+- [ ] **Step 1: Write failing compaction tests**
+
+Cover these exact cases:
+
+```ts
+expect(compactMutations([createBean, editBean])).toEqual([expect.objectContaining({
+  mutationId: editBean.mutationId,
+  operation: 'upsert',
+  payload: editBean.payload,
+})])
+
+expect(compactMutations([createBean, deleteUnsyncedBean])).toEqual([])
+expect(orderMutations([brewMutation, beanMutation]).map((item) => item.entityType))
+  .toEqual(['bean', 'brewLog'])
+expect(nextRetryDelayMs(1)).toBe(1000)
+expect(nextRetryDelayMs(8)).toBe(60000)
+```
+
+- [ ] **Step 2: Verify failure**
+
+```powershell
+npm test -- outboxModel.test.ts
+```
+
+Expected: FAIL because model functions are absent.
+
+- [ ] **Step 3: Implement pure model functions**
+
+Export:
+
+```ts
+export function compactMutations(mutations: SyncMutation[]): SyncMutation[]
+export function orderMutations(mutations: SyncMutation[]): SyncMutation[]
+export function nextRetryDelayMs(attemptCount: number): number
+export function isRetryableSyncError(error: unknown): boolean
+export function deriveSyncState(input: {
+  online: boolean
+  running: boolean
+  mutations: SyncMutation[]
+  lastSyncedAt: string | null
+  retryMessage: string | null
+}): SyncState
+```
+
+Use priority `bean = 0`, `brewTemplate = 1`, `userSettings = 1`, `brewLog = 2`. Cap retry delay at 60 seconds. Preserve `needs_attention` rows during compaction and never send them automatically.
+
+- [ ] **Step 4: Run the test**
+
+```powershell
+npm test -- outboxModel.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit Outbox logic**
+
+```powershell
+git add app/src/features/sync/outboxModel.ts app/src/features/sync/outboxModel.test.ts
+git commit -m "feat: add compacted sync outbox model"
+```
+
+### Task 8: Migrate legacy cache and pending mutations without deletion
+
+**Files:**
+- Create: `app/src/features/sync/legacyMigration.ts`
+- Create: `app/src/features/sync/legacyMigration.test.ts`
+- Modify: `app/src/features/offline/offlineQueue.ts`
+
+- [ ] **Step 1: Write failing migration tests**
+
+Seed v2 `snapshots` and `pendingMutations` with a `local-bean-123` create and a brew create referencing that ID. Assert after migration:
+
+```ts
+expect(result.status).toBe('completed')
+expect(result.idMap['local-bean-123']).toMatch(/^[0-9a-f-]{36}$/)
+expect(migratedBrew.bean_id).toBe(result.idMap['local-bean-123'])
+expect(legacyPendingMutationCount).toBe(2)
+expect(migrationMeta.sourcePreserved).toBe(true)
+```
+
+Add a forced validation failure and assert no v3 entity or Outbox rows remain while both legacy rows remain.
+
+- [ ] **Step 2: Verify failure**
+
+```powershell
+npm test -- legacyMigration.test.ts
+```
+
+Expected: FAIL because the migrator does not exist.
+
+- [ ] **Step 3: Implement the migration**
+
+`migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
+
+1. Return the stored successful result if `migrationMeta` already says completed.
+2. Read legacy snapshots and pending rows for only `userId`.
+3. Build one stable ID map for every `local-bean-*` and `local-brew-*` ID.
+4. Rewrite entity IDs, mutation entity IDs, payload IDs, and `brewLog.bean_id`.
+5. Convert `create` and `update` to `upsert`; convert `delete` to `delete`.
+6. Compact converted mutations.
+7. Write v3 stores and completion metadata in one transaction.
+8. Leave `snapshots` and `pendingMutations` untouched.
+9. Return `{ status: 'completed', idMap, sourcePreserved: true }`.
+
+Add a read-only export function for failed migration recovery:
+
+```ts
+export async function exportLegacyRecoveryData(userId: string): Promise<{
+  exportedAt: string
+  userId: string
+  snapshots: unknown[]
+  pendingMutations: unknown[]
+}>
+```
+
+- [ ] **Step 4: Run migration tests**
+
+```powershell
+npm test -- legacyMigration.test.ts
+```
+
+Expected: PASS for mapping, relationship rewrite, idempotency, and rollback.
+
+- [ ] **Step 5: Commit migration support**
+
+```powershell
+git add app/src/features/sync/legacyMigration.ts app/src/features/sync/legacyMigration.test.ts app/src/features/offline/offlineQueue.ts
+git commit -m "feat: migrate legacy offline writes safely"
+```
+
+### Task 9: Add the Supabase sync adapter, lock, and manager
+
+**Files:**
+- Create: `app/src/features/sync/syncApi.ts`
+- Create: `app/src/features/sync/syncApi.test.ts`
+- Create: `app/src/features/sync/syncLock.ts`
+- Create: `app/src/features/sync/syncLock.test.ts`
+- Create: `app/src/features/sync/syncRealtime.ts`
+- Create: `app/src/features/sync/syncRealtime.test.ts`
+- Create: `app/src/features/sync/syncManager.ts`
+- Create: `app/src/features/sync/syncManager.test.ts`
+
+- [ ] **Step 1: Write failing adapter tests**
+
+Use a typed mock Supabase client and assert:
+
+```ts
+expect(rpc).toHaveBeenNthCalledWith(1, 'apply_sync_batch', {
+  p_sync_epoch: 1,
+  p_operations: operations,
+})
+expect(rpc).toHaveBeenNthCalledWith(2, 'get_sync_snapshot')
+```
+
+Assert Supabase errors become `SyncApiError` with `code`, `message`, and `retryable`.
+
+- [ ] **Step 2: Implement `syncApi.ts`**
+
+Export:
+
+```ts
+export class SyncApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly retryable: boolean,
+  ) {
+    super(message)
+  }
+}
+
+export function createSyncApi(supabase: SupabaseClient) {
+  return {
+    applyBatch(syncEpoch: number, operations: SyncMutation[]): Promise<ApplySyncResult>,
+    getSnapshot(): Promise<SyncSnapshot>,
+  }
+}
+```
+
+Do not send `userId` inside RPC payloads. Convert snake_case RPC data only at this boundary.
+
+- [ ] **Step 3: Write and implement lock tests**
+
+Test that a second lease owner cannot enter before expiry and can enter after expiry. `withSyncLock(userId, action)` uses `navigator.locks.request` when available; otherwise store `{ ownerId, expiresAt }` under `syncMeta` key `lock:${userId}` with a 30-second lease renewed every 10 seconds.
+
+- [ ] **Step 4: Write failing manager tests**
+
+Cover one full cycle, response loss retry, snapshot failure, validation failure isolation, stale epoch quarantine, offline trigger, and concurrent `run()` calls. The full-cycle expectation is:
+
+```ts
+expect(api.applyBatch).toHaveBeenCalledTimes(1)
+expect(api.getSnapshot).toHaveBeenCalledTimes(1)
+expect(storage.acknowledgeMutations).toHaveBeenCalledWith(['mutation-1'])
+expect(storage.replaceServerSnapshot).toHaveBeenCalledWith('user-1', snapshot)
+expect(manager.getState().kind).toBe('synced')
+```
+
+- [ ] **Step 5: Implement Realtime as a wake-up signal**
+
+`subscribeToSyncWakeups(supabase, userId, wake)` creates one channel and registers `postgres_changes` handlers for `beans`,
+`brew_logs`, `brew_templates`, `user_settings`, and `ai_recommendations`, filtered to `user_id=eq.${userId}`. Every handler calls a debounced
+`wake`; it never applies payload rows directly. The returned cleanup function removes the channel. Tests use a chainable fake channel and
+assert all five handlers share the current-user filter.
+
+- [ ] **Step 6: Implement `SyncManager`**
+
+Constructor dependencies must be explicit:
+
+```ts
+export type SyncManagerDependencies = {
+  userId: string
+  deviceId: string
+  api: ReturnType<typeof createSyncApi>
+  storage: SyncStorage
+  lock: typeof withSyncLock
+  now: () => Date
+  online: () => boolean
+  schedule: (callback: () => void, delayMs: number) => number
+  cancelSchedule: (id: number) => void
+}
+```
+
+Expose `start`, `stop`, `run`, `retryMutation`, `discardMutation`, `subscribe`, and `getState`. `start` registers online and visibility listeners,
+a 60-second foreground interval, and `subscribeToSyncWakeups`. `run` must pull even when Outbox is empty, never acknowledge before RPC
+confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling.
+
+- [ ] **Step 7: Run focused sync tests**
+
+```powershell
+npm test -- syncApi.test.ts syncLock.test.ts syncRealtime.test.ts syncManager.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit the manager**
+
+```powershell
+git add app/src/features/sync/syncApi.ts app/src/features/sync/syncApi.test.ts app/src/features/sync/syncLock.ts app/src/features/sync/syncLock.test.ts app/src/features/sync/syncRealtime.ts app/src/features/sync/syncRealtime.test.ts app/src/features/sync/syncManager.ts app/src/features/sync/syncManager.test.ts
+git commit -m "feat: add unified sync manager"
+```
+
+### Task 10: Add feature repositories
+
+**Files:**
+- Create: `app/src/features/beans/beanRepository.ts`
+- Create: `app/src/features/beans/beanRepository.test.ts`
+- Create: `app/src/features/brews/brewLogRepository.ts`
+- Create: `app/src/features/brews/brewLogRepository.test.ts`
+- Create: `app/src/features/brewTemplates/brewTemplateRepository.ts`
+- Create: `app/src/features/brewTemplates/brewTemplateRepository.test.ts`
+- Create: `app/src/features/settings/userSettingsRepository.ts`
+- Create: `app/src/features/settings/userSettingsRepository.test.ts`
+- Create: `app/src/features/recommendations/recommendationRepository.ts`
+- Create: `app/src/features/recommendations/recommendationRepository.test.ts`
+
+- [ ] **Step 1: Write repository behavior tests**
+
+For each editable entity assert list, create, update, and soft delete operate locally and enqueue exactly one full-record mutation. Bean creation must use a permanent UUID before local save. Brew creation must preserve a newly created bean UUID. Settings must use `userId` as its stable entity ID. Saved recommendations expose local list only and no offline write method.
+
+- [ ] **Step 2: Verify repository tests fail**
+
+```powershell
+npm test -- beanRepository.test.ts brewLogRepository.test.ts brewTemplateRepository.test.ts userSettingsRepository.test.ts recommendationRepository.test.ts
+```
+
+Expected: FAIL because repositories are absent.
+
+- [ ] **Step 3: Implement the repositories with one shared dependency shape**
+
+Each editable repository receives:
+
+```ts
+export type RepositoryContext = {
+  userId: string
+  deviceId: string
+  getSyncEpoch: () => Promise<number>
+  now: () => Date
+}
+```
+
+Repository methods never call Supabase. `createBean` constructs a complete `Bean` row with UUID, server-compatible field names, `created_at` and provisional `updated_at`, then calls `saveLocalEntity`. Server snapshots later replace provisional timestamps.
+
+- [ ] **Step 4: Run repository tests**
+
+```powershell
+npm test -- beanRepository.test.ts brewLogRepository.test.ts brewTemplateRepository.test.ts userSettingsRepository.test.ts recommendationRepository.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit repositories**
+
+```powershell
+git add app/src/features/beans/beanRepository.ts app/src/features/beans/beanRepository.test.ts app/src/features/brews/brewLogRepository.ts app/src/features/brews/brewLogRepository.test.ts app/src/features/brewTemplates/brewTemplateRepository.ts app/src/features/brewTemplates/brewTemplateRepository.test.ts app/src/features/settings app/src/features/recommendations/recommendationRepository.ts app/src/features/recommendations/recommendationRepository.test.ts
+git commit -m "feat: add offline-first coffee repositories"
+```
+
+### Task 11: Provide one authenticated sync runtime and status UI
+
+**Files:**
+- Create: `app/src/features/sync/SyncContext.tsx`
+- Create: `app/src/features/sync/syncStatusModel.ts`
+- Create: `app/src/features/sync/syncStatusModel.test.ts`
+- Create: `app/src/features/sync/SyncStatusBanner.tsx`
+- Create: `app/src/features/sync/syncStatus.css`
+- Modify: `app/src/features/auth/AuthPanel.tsx`
+- Modify: `app/src/features/home/homeOverviewModel.ts`
+- Modify: `app/src/features/home/homeOverviewModel.test.ts`
+- Modify: `app/src/features/home/HomeOverview.tsx`
+- Modify: `app/src/pwa/OnlineStatus.tsx`
+
+- [ ] **Step 1: Write failing status-label tests**
+
+Add pure mapping tests in `syncStatusModel.test.ts`:
+
+```ts
+expect(toSyncStatusView({ kind: 'offline', pendingCount: 2 })).toEqual({
+  tone: 'warning',
+  title: '离线，2 条修改待同步',
+  canRetry: false,
+})
+expect(toSyncStatusView({ kind: 'needs_attention', pendingCount: 1, attentionCount: 1 })).toEqual({
+  tone: 'danger',
+  title: '1 条数据需要处理',
+  canRetry: true,
+})
+```
+
+- [ ] **Step 2: Implement provider lifecycle**
+
+Create `syncStatusModel.ts` and export `toSyncStatusView(state: SyncState)` with exact mappings asserted above.
+
+`SyncProvider` receives `session` and `supabase`, loads or creates one non-sensitive `deviceId`, runs legacy migration, constructs one manager,
+starts it, and stops it on user/session change. Export `useSyncRuntime()` returning repositories, state, `run`, `pendingCount`,
+`attentionItems`, and `statusByEntityId`. Each entity status is `synced`, `pending`, or `needs_attention`.
+
+- [ ] **Step 3: Wrap authenticated views**
+
+In `AuthPanel.tsx`, wrap the authenticated app layout with:
+
+```tsx
+<SyncProvider session={session} supabase={supabase}>
+  <AuthenticatedApp
+    activeView={activeView}
+    onNavigate={setActiveView}
+    onSignOut={handleSignOut}
+  />
+</SyncProvider>
+```
+
+Move the authenticated view switch into the focused `AuthenticatedApp` component in the same file during this task. Preview modes remain outside the provider and continue using their fixture rows.
+
+- [ ] **Step 4: Replace network-only labels**
+
+`HomeOverview` and `OnlineStatus` must consume `SyncState`. Keep network state as secondary text for AI/source availability, but never render “云同步在线” solely from `navigator.onLine`.
+
+`SyncStatusBanner` lists attention items with the server error message and buttons wired to `retryMutation` and `discardMutation`. Discard must
+reload the current server snapshot before removing the local overlay. Pending items remain non-destructive and show their count.
+
+- [ ] **Step 5: Add sign-out protection**
+
+Before `supabase.auth.signOut()`, inspect `pendingCount` and `attentionItems`. If either is nonzero, show a confirmation dialog whose exact message is:
+
+```text
+还有本地修改尚未同步。退出后这些修改仍保留在本机，但切换账号时不会上传。确认退出吗？
+```
+
+- [ ] **Step 6: Run model and full tests**
+
+```powershell
+npm test -- syncStatusModel.test.ts homeOverviewModel.test.ts
+npm test
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit the runtime shell**
+
+```powershell
+git add app/src/features/sync/SyncContext.tsx app/src/features/sync/syncStatusModel.ts app/src/features/sync/syncStatusModel.test.ts app/src/features/sync/SyncStatusBanner.tsx app/src/features/sync/syncStatus.css app/src/features/auth/AuthPanel.tsx app/src/features/home app/src/pwa/OnlineStatus.tsx
+git commit -m "feat: expose global sync state"
+```
+
+### Task 12: Move beans and brews onto repositories
+
+**Files:**
+- Modify: `app/src/features/beans/BeanDashboard.tsx`
+- Modify: `app/src/features/brews/BrewLogPanel.tsx`
+- Modify: `app/src/features/beans/beanForm.test.ts`
+- Modify: `app/src/features/brews/brewForm.test.ts`
+- Delete after migration verification: `app/src/features/beans/beanService.ts`
+- Delete after migration verification: `app/src/features/brews/brewLogService.ts`
+
+- [ ] **Step 1: Add regression tests for permanent local relationships**
+
+Add a test that creates a bean offline, creates a brew referencing it, edits both, and asserts the final Outbox contains one bean `upsert` followed by one brew `upsert` with the same UUID in `bean_id`.
+
+- [ ] **Step 2: Remove page-owned synchronization callbacks**
+
+In both panels remove imports from `offlineCache`, `offlineQueue`, and direct CRUD services. Delete `syncPendingBeanMutations`, `syncPendingBrewLogMutations`, `mergeIntoPendingCreate`, local temporary ID builders, and online-event sync effects.
+
+- [ ] **Step 3: Replace handlers with repository calls**
+
+Use:
+
+```ts
+const { beans, brewLogs, sync } = useSyncRuntime()
+```
+
+List data from local repository subscriptions. Submit and delete handlers await repository writes, update UI from the subscribed local state, then call `void sync.run()` as a best-effort online acceleration. A failed network sync must not make the local save fail.
+
+- [ ] **Step 4: Verify bean detail reads shared brew state**
+
+Remove the second direct brew fetch inside `BeanDashboard`; filter the shared `brewLogs` repository list by `bean_id`.
+
+Render a compact `待同步` badge on bean and brew cards whose IDs map to `pending`, and `需要处理` for `needs_attention`. These badges must
+derive from `statusByEntityId`; do not infer status from network availability.
+
+- [ ] **Step 5: Run focused and full tests**
+
+```powershell
+npm test -- beanRepository.test.ts brewLogRepository.test.ts beanForm.test.ts brewForm.test.ts
+npm test
+npm run lint
+npm run build
+```
+
+Expected: all commands exit 0.
+
+- [ ] **Step 6: Commit entity migration**
+
+```powershell
+git add app/src/features/beans app/src/features/brews
+git commit -m "refactor: route beans and brews through sync core"
+```
+
+### Task 13: Move templates, settings, and recommendation reads
+
+**Files:**
+- Modify: `app/src/features/brewTemplates/BrewTemplatePanel.tsx`
+- Modify: `app/src/features/recommendations/RecommendationPanel.tsx`
+- Modify: `app/src/features/recommendations/recommendationService.ts`
+- Create: `app/src/features/settings/userSettingsModel.ts`
+- Create: `app/src/features/settings/userSettingsModel.test.ts`
+- Create: `app/src/features/settings/UserSettingsPanel.tsx`
+- Create: `app/src/features/settings/settings.css`
+- Modify: `app/src/features/auth/AuthPanel.tsx`
+- Modify: `app/src/features/backup/backupReminder.ts`
+- Modify: `app/src/features/backup/backupReminder.test.ts`
+
+- [ ] **Step 1: Write settings normalization tests**
+
+Test defaults and range validation:
+
+```ts
+expect(normalizeUserSettings(null, 'user-1')).toMatchObject({
+  user_id: 'user-1',
+  preferred_units: {},
+  default_gear: {},
+  taste_preferences: {},
+  backup_reminder_days: 7,
+  schema_version: 1,
+})
+expect(parseBackupReminderDays('0')).toEqual({ ok: false, message: '备份提醒天数必须在 1 到 365 之间' })
+```
+
+- [ ] **Step 2: Migrate templates to the repository**
+
+Remove direct CRUD calls from `BrewTemplatePanel`. System templates remain compile-time read-only data; only user templates flow through `brewTemplateRepository` and Outbox.
+
+- [ ] **Step 3: Add the settings panel**
+
+The first settings UI edits `backup_reminder_days`, `preferred_units`, `default_gear`, and `taste_preferences` as focused fields. Save through `userSettingsRepository`; offline save succeeds locally. Add a settings navigation item in `AuthPanel`.
+
+- [ ] **Step 4: Cache and read saved recommendations offline**
+
+`RecommendationPanel` reads saved recommendations from `recommendationRepository`. AI generation and source parsing retain their online Supabase Edge Function calls. Updating accepted state and deleting a saved recommendation remain online-only in this phase; disable those controls offline with explanatory text.
+
+Refactor `loadRuleRecommendationData` so its bean, brew, and user-template inputs come from `useSyncRuntime()` repositories rather than
+`beanService`, `brewLogService`, or `brewTemplateService`. Keep `recommendationService.ts` focused on the online Edge Function call and
+online saved-recommendation mutations, then call `sync.run()` after a successful online mutation to refresh the local recommendation cache.
+
+- [ ] **Step 5: Use cloud settings for reminder calculation**
+
+Refactor `buildBackupReminder` to accept `backupReminderDays` explicitly. Remove the `localStorage` reminder metadata write path only after Plan 2 adds server export metadata; until then keep reading old metadata as a display fallback and mark it deprecated.
+
+- [ ] **Step 6: Run tests and build**
+
+```powershell
+npm test -- brewTemplateModel.test.ts recommendationRepository.test.ts userSettingsModel.test.ts backupReminder.test.ts
+npm test
+npm run lint
+npm run build
+```
+
+Expected: all commands exit 0.
+
+- [ ] **Step 7: Commit remaining feature migration**
+
+```powershell
+git add app/src/features/brewTemplates app/src/features/recommendations app/src/features/settings app/src/features/auth/AuthPanel.tsx app/src/features/backup/backupReminder.ts app/src/features/backup/backupReminder.test.ts
+git commit -m "feat: sync templates settings and recommendation cache"
+```
+
+### Task 14: Remove obsolete runtime paths only after migration coverage
+
+**Files:**
+- Delete: `app/src/features/offline/offlineCache.ts`
+- Delete: `app/src/features/offline/offlineCache.test.ts`
+- Delete: `app/src/features/offline/offlineQueue.ts`
+- Delete: `app/src/features/offline/offlineQueue.test.ts`
+- Delete if no imports remain: `app/src/features/beans/beanService.ts`
+- Delete if no imports remain: `app/src/features/brews/brewLogService.ts`
+- Delete if no imports remain: `app/src/features/brewTemplates/brewTemplateService.ts`
+- Modify: `app/src/features/sync/legacyMigration.ts`
+
+- [ ] **Step 1: Prove old modules are no longer runtime dependencies**
+
+```powershell
+rg -n "offlineCache|offlineQueue|beanService|brewLogService|brewTemplateService" app/src --glob '!**/*.test.ts'
+```
+
+Expected: only `legacyMigration.ts` references the legacy IndexedDB store names; no page imports old modules.
+
+- [ ] **Step 2: Preserve raw migration readers before deletion**
+
+Move the minimal legacy row types and raw `snapshots`/`pendingMutations` readers into `legacyMigration.ts`. Do not call functions from the modules being deleted.
+
+- [ ] **Step 3: Delete obsolete modules**
+
+Delete only the files listed above whose imports are zero. Keep the physical legacy IndexedDB stores for at least one stable release; this task removes source modules, not user data.
+
+- [ ] **Step 4: Run the entire quality gate**
+
+```powershell
+npm test
+npm run lint
+npm run build
+```
+
+Expected: all tests pass; lint and build exit 0.
+
+- [ ] **Step 5: Commit cleanup**
+
+```powershell
+git add -A app/src/features
+git commit -m "refactor: remove page-owned sync paths"
+```
+
+### Task 15: Review the local foundation before any live database write
+
+**Files:**
+- Modify: `docs/operations/data-safety-preflight.md`
+
+- [ ] **Step 1: Run all local checks**
+
+```powershell
+supabase db reset
+supabase test db supabase/tests/005_sync_foundation.test.sql
+Set-Location app
+npm test
+npm run lint
+npm run build
+```
+
+Expected: SQL tests, Vitest, lint, and build all pass.
+
+- [ ] **Step 2: Record verification evidence**
+
+Append a dated checklist to `docs/operations/data-safety-preflight.md` containing command names, pass/fail result, migration filenames, and the commit hash under review. Do not record user row contents.
+
+- [ ] **Step 3: Stop for production approval**
+
+Do not run `supabase db push`, SQL Editor migrations, or deploy a function in this task. Present the preflight results, local test evidence,
+generated migrations, and rollback procedure to the user. Because the three baseline files represent SQL already applied outside migration history,
+the production procedure must mark those baseline versions as applied with `supabase migration repair --status applied` before pushing only the
+2026-08-08 migrations. Request explicit authorization for the linked production Supabase project.
+
+- [ ] **Step 4: Commit local verification documentation**
+
+```powershell
+git add docs/operations/data-safety-preflight.md
+git commit -m "docs: record sync foundation verification"
+```
