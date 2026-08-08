@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(143);
+select plan(155);
 
 -- 1. Technical sync tables exist.
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
@@ -752,10 +752,13 @@ select ok(
       )
     ) as privileges
     where procedures.oid in (
+        'private.has_unknown_fields(jsonb,text[])'::regprocedure,
+        'private.jsonb_text_array(jsonb,text)'::regprocedure,
         'private.apply_bean_mutation(uuid,uuid,text,jsonb)'::regprocedure,
         'private.apply_brew_log_mutation(uuid,uuid,text,jsonb)'::regprocedure,
         'private.apply_brew_template_mutation(uuid,uuid,text,jsonb)'::regprocedure,
-        'private.apply_user_settings_mutation(uuid,uuid,text,jsonb)'::regprocedure
+        'private.apply_user_settings_mutation(uuid,uuid,text,jsonb)'::regprocedure,
+        'public.set_updated_at()'::regprocedure
       )
       and privileges.privilege_type = 'EXECUTE'
       and privileges.grantee in (
@@ -764,7 +767,7 @@ select ok(
         (select oid from pg_catalog.pg_roles where rolname = 'authenticated')
       )
   ),
-  'public, anon, and authenticated cannot execute mutation helpers'
+  'public, anon, and authenticated cannot execute any non-client helper'
 );
 
 insert into auth.users (id, email)
@@ -1026,6 +1029,8 @@ select lives_ok(
     "payload":{
       "name":"RPC bean",
       "roaster":"RPC roaster",
+      "roast_date":"2026-08-01",
+      "purchase_date":"2026-08-02",
       "flavor_tags":["berry"],
       "bean_type":"single_origin",
       "blend_components":[],
@@ -1042,6 +1047,8 @@ select ok(
     where id = '30000000-0000-0000-0000-000000000001'
       and user_id = '00000000-0000-0000-0000-000000000001'
       and name = 'RPC bean'
+      and roast_date = '2026-08-01'
+      and purchase_date = '2026-08-02'
       and deleted_at is null
   ),
   'bean upsert writes only the authenticated owner'
@@ -1939,6 +1946,211 @@ select ok(
     )
   ),
   'unknown helper payload fields leave no receipts'
+);
+
+reset role;
+
+-- 144. Function privilege checks use every exact non-client signature.
+select ok(
+  not has_function_privilege(
+    'anon', 'private.has_unknown_fields(jsonb,text[])', 'EXECUTE'
+  )
+    and not has_function_privilege(
+      'authenticated', 'private.has_unknown_fields(jsonb,text[])', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon', 'private.jsonb_text_array(jsonb,text)', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated', 'private.jsonb_text_array(jsonb,text)', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon', 'private.apply_bean_mutation(uuid,uuid,text,jsonb)', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated',
+      'private.apply_bean_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon', 'private.apply_brew_log_mutation(uuid,uuid,text,jsonb)', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated',
+      'private.apply_brew_log_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon',
+      'private.apply_brew_template_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated',
+      'private.apply_brew_template_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon',
+      'private.apply_user_settings_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated',
+      'private.apply_user_settings_mutation(uuid,uuid,text,jsonb)',
+      'EXECUTE'
+    )
+    and not has_function_privilege(
+      'anon', 'public.set_updated_at()', 'EXECUTE'
+    )
+    and not has_function_privilege(
+      'authenticated', 'public.set_updated_at()', 'EXECUTE'
+    ),
+  'anon and authenticated cannot execute all seven non-client functions'
+);
+-- 145.
+select ok(
+  not exists (
+    select 1
+    from pg_catalog.pg_namespace as namespaces
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        namespaces.nspacl,
+        pg_catalog.acldefault('n', namespaces.nspowner)
+      )
+    ) as privileges
+    where namespaces.nspname = 'private'
+      and privileges.grantee = 0
+      and privileges.privilege_type = 'USAGE'
+  )
+    and not has_schema_privilege('anon', 'private', 'USAGE')
+    and not has_schema_privilege('authenticated', 'private', 'USAGE'),
+  'public, anon, and authenticated have no USAGE on private schema'
+);
+
+set local role authenticated;
+
+-- 146. Revoking direct trigger-function execution does not disable triggers.
+select lives_ok(
+  $$update public.beans
+    set updated_at = '2000-01-01T00:00:00Z'
+    where id = '30000000-0000-0000-0000-000000000001'$$,
+  'bean updated_at trigger still executes for authenticated table updates'
+);
+-- 147.
+select ok(
+  (
+    select updated_at > '2026-01-01T00:00:00Z'
+    from public.beans
+    where id = '30000000-0000-0000-0000-000000000001'
+  ),
+  'updated_at trigger ignores the submitted timestamp after execute revoke'
+);
+
+-- 148. Entity schema versions are controlled and currently fixed at one.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000033",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000033",
+    "operation":"upsert",
+    "payload":{"name":"future version bean","schema_version":2}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_SCHEMA_VERSION',
+  'future entity schema version is rejected'
+);
+-- 149.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000033'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000033'
+    ),
+  'future schema version writes neither entity nor receipt'
+);
+-- 150.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000034",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000034",
+    "operation":"upsert",
+    "payload":{"name":"fractional version bean","schema_version":1.5}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_SCHEMA_VERSION',
+  'non-integer entity schema version is rejected'
+);
+-- 151.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000034'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000034'
+    ),
+  'non-integer schema version writes neither entity nor receipt'
+);
+
+-- 152. Bean dates require real ISO date strings, never numeric coercion.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000035",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000035",
+    "operation":"upsert",
+    "payload":{"name":"numeric date bean","roast_date":20260808}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_ROAST_DATE',
+  'numeric roast_date is rejected before database date coercion'
+);
+-- 153.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000035'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000035'
+    ),
+  'numeric roast_date writes neither bean nor receipt'
+);
+-- 154.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000036",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000036",
+    "operation":"upsert",
+    "payload":{"name":"impossible date bean","purchase_date":"2026-02-30"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_PURCHASE_DATE',
+  'impossible ISO purchase_date is rejected with a stable error'
+);
+-- 155.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000036'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000036'
+    ),
+  'impossible purchase_date writes neither bean nor receipt'
 );
 
 select * from finish();

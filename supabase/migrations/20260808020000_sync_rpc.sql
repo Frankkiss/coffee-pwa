@@ -16,6 +16,9 @@ begin
 end;
 $$;
 
+revoke execute on function public.set_updated_at()
+from public, anon, authenticated;
+
 create function private.has_unknown_fields(
   p_payload jsonb,
   p_allowed_fields text[]
@@ -65,6 +68,8 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_now timestamptz := pg_catalog.clock_timestamp();
+  v_roast_date date;
+  v_purchase_date date;
   v_row_count bigint;
 begin
   if private.has_unknown_fields(
@@ -163,15 +168,48 @@ begin
   if (p_payload ? 'schema_version') and (
     pg_catalog.jsonb_typeof(p_payload -> 'schema_version') <> 'number'
     or (p_payload ->> 'schema_version') !~ '^[0-9]+$'
+    or (p_payload ->> 'schema_version') <> '1'
   ) then
     raise exception using errcode = 'P0001', message = 'INVALID_SCHEMA_VERSION';
   end if;
+
+  if (p_payload ? 'roast_date')
+    and (p_payload -> 'roast_date') <> 'null'::jsonb
+    and (
+      pg_catalog.jsonb_typeof(p_payload -> 'roast_date') <> 'string'
+      or (p_payload ->> 'roast_date') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    ) then
+    raise exception using errcode = 'P0001', message = 'INVALID_ROAST_DATE';
+  end if;
+
+  if (p_payload ? 'purchase_date')
+    and (p_payload -> 'purchase_date') <> 'null'::jsonb
+    and (
+      pg_catalog.jsonb_typeof(p_payload -> 'purchase_date') <> 'string'
+      or (p_payload ->> 'purchase_date') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    ) then
+    raise exception using errcode = 'P0001', message = 'INVALID_PURCHASE_DATE';
+  end if;
+
+  begin
+    v_roast_date := (p_payload ->> 'roast_date')::date;
+  exception
+    when invalid_datetime_format or datetime_field_overflow then
+      raise exception using errcode = 'P0001', message = 'INVALID_ROAST_DATE';
+  end;
+
+  begin
+    v_purchase_date := (p_payload ->> 'purchase_date')::date;
+  exception
+    when invalid_datetime_format or datetime_field_overflow then
+      raise exception using errcode = 'P0001', message = 'INVALID_PURCHASE_DATE';
+  end;
 
   begin
     if (p_payload ->> 'altitude_meters')::integer < 0
       or (p_payload ->> 'net_weight_grams')::numeric <= 0
       or (p_payload ->> 'price')::numeric < 0
-      or coalesce((p_payload ->> 'schema_version')::integer, 1) < 1 then
+    then
       raise exception using errcode = 'P0001', message = 'INVALID_FIELD_RANGE';
     end if;
 
@@ -201,13 +239,13 @@ begin
       p_payload ->> 'process',
       p_payload ->> 'variety',
       (p_payload ->> 'altitude_meters')::integer,
-      (p_payload ->> 'roast_date')::date,
+      v_roast_date,
       p_payload ->> 'roast_level',
       private.jsonb_text_array(p_payload, 'flavor_tags'),
       p_payload ->> 'flavor_notes',
       (p_payload ->> 'net_weight_grams')::numeric,
       (p_payload ->> 'price')::numeric,
-      (p_payload ->> 'purchase_date')::date,
+      v_purchase_date,
       p_payload ->> 'source_url',
       p_payload ->> 'image_url',
       coalesce(p_payload ->> 'bean_type', 'single_origin'),
@@ -356,7 +394,7 @@ begin
     from pg_catalog.jsonb_each(p_payload) as fields(field_name, field_value)
     where field_name = any (array[
       'total_time_seconds', 'acidity', 'sweetness', 'bitterness',
-      'astringency', 'body', 'aftertaste', 'schema_version'
+      'astringency', 'body', 'aftertaste'
     ]::text[])
       and field_value <> 'null'::jsonb
       and (
@@ -365,6 +403,13 @@ begin
       )
   ) then
     raise exception using errcode = 'P0001', message = 'INVALID_INTEGER_FIELD';
+  end if;
+
+  if (p_payload ? 'schema_version') and (
+    pg_catalog.jsonb_typeof(p_payload -> 'schema_version') <> 'number'
+    or (p_payload ->> 'schema_version') <> '1'
+  ) then
+    raise exception using errcode = 'P0001', message = 'INVALID_SCHEMA_VERSION';
   end if;
 
   if (p_payload ? 'pour_steps')
@@ -414,7 +459,7 @@ begin
       or (p_payload ->> 'astringency')::integer not between 0 and 5
       or (p_payload ->> 'body')::integer not between 0 and 5
       or (p_payload ->> 'aftertaste')::integer not between 0 and 5
-      or coalesce((p_payload ->> 'schema_version')::integer, 1) < 1 then
+    then
       raise exception using errcode = 'P0001', message = 'INVALID_FIELD_RANGE';
     end if;
 
@@ -596,7 +641,7 @@ begin
     from pg_catalog.jsonb_each(p_payload) as fields(field_name, field_value)
     where field_name = any (array[
       'water_temperature_min', 'water_temperature_max', 'target_time_min',
-      'target_time_max', 'schema_version'
+      'target_time_max'
     ]::text[])
       and (
         pg_catalog.jsonb_typeof(field_value) <> 'number'
@@ -604,6 +649,13 @@ begin
       )
   ) then
     raise exception using errcode = 'P0001', message = 'INVALID_INTEGER_FIELD';
+  end if;
+
+  if (p_payload ? 'schema_version') and (
+    pg_catalog.jsonb_typeof(p_payload -> 'schema_version') <> 'number'
+    or (p_payload ->> 'schema_version') <> '1'
+  ) then
+    raise exception using errcode = 'P0001', message = 'INVALID_SCHEMA_VERSION';
   end if;
 
   if exists (
@@ -653,7 +705,7 @@ begin
       or (p_payload ->> 'target_time_max')::integer < 0
       or (p_payload ->> 'target_time_min')::integer
         > (p_payload ->> 'target_time_max')::integer
-      or coalesce((p_payload ->> 'schema_version')::integer, 1) < 1 then
+    then
       raise exception using errcode = 'P0001', message = 'INVALID_FIELD_RANGE';
     end if;
 
@@ -803,7 +855,7 @@ begin
 
   if (p_payload ? 'schema_version') and (
     pg_catalog.jsonb_typeof(p_payload -> 'schema_version') <> 'number'
-    or (p_payload ->> 'schema_version') !~ '^[0-9]+$'
+    or (p_payload ->> 'schema_version') <> '1'
   ) then
     raise exception using errcode = 'P0001', message = 'INVALID_SCHEMA_VERSION';
   end if;
@@ -811,7 +863,7 @@ begin
   begin
     if coalesce((p_payload ->> 'backup_reminder_days')::integer, 7)
         not between 1 and 365
-      or coalesce((p_payload ->> 'schema_version')::integer, 1) < 1 then
+    then
       raise exception using errcode = 'P0001', message = 'INVALID_FIELD_RANGE';
     end if;
 
