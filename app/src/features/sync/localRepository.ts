@@ -1322,7 +1322,7 @@ function classifyOutboxEnvelope(
 }
 
 function isSyncMutation(value: unknown): value is SyncMutation {
-  if (!isRecord(value) || !isRecord(value.payload)) {
+  if (!isRecord(value) || !isPlainRecord(value.payload)) {
     return false
   }
   if (
@@ -1360,7 +1360,256 @@ function isSyncMutation(value: unknown): value is SyncMutation {
   if (value.entityType === 'userSettings' && value.operation === 'delete') {
     return false
   }
-  return value.operation !== 'delete' || isEmptyRecord(value.payload)
+  if (value.operation === 'delete') {
+    return isEmptyRecord(value.payload)
+  }
+
+  switch (value.entityType) {
+    case 'bean':
+      return isBeanUpsertPayload(value.payload)
+    case 'brewLog':
+      return isBrewLogUpsertPayload(value.payload)
+    case 'brewTemplate':
+      return isBrewTemplateUpsertPayload(value.payload)
+    case 'userSettings':
+      return isUserSettingsUpsertPayload(value.payload)
+  }
+}
+
+function isBeanUpsertPayload(value: Record<string, unknown>) {
+  if (!hasExactKeys(value, [
+    'name',
+    'roaster',
+    'origin',
+    'farm_or_station',
+    'process',
+    'variety',
+    'altitude_meters',
+    'roast_date',
+    'roast_level',
+    'flavor_tags',
+    'flavor_notes',
+    'net_weight_grams',
+    'price',
+    'purchase_date',
+    'source_url',
+    'image_url',
+    'bean_type',
+    'blend_components',
+    'blend_notes',
+    'notes',
+    'schema_version',
+  ])) {
+    return false
+  }
+  return (
+    typeof value.name === 'string' &&
+    isNullableString(value.roaster) &&
+    isNullableString(value.origin) &&
+    isNullableString(value.farm_or_station) &&
+    isNullableString(value.process) &&
+    isNullableString(value.variety) &&
+    isNullableFiniteNumber(value.altitude_meters) &&
+    isNullableString(value.roast_date) &&
+    isNullableString(value.roast_level) &&
+    isStringArray(value.flavor_tags) &&
+    isNullableString(value.flavor_notes) &&
+    isNullableFiniteNumber(value.net_weight_grams) &&
+    isNullableFiniteNumber(value.price) &&
+    isNullableString(value.purchase_date) &&
+    isNullableString(value.source_url) &&
+    isNullableString(value.image_url) &&
+    (value.bean_type === 'single_origin' || value.bean_type === 'blend') &&
+    Array.isArray(value.blend_components) &&
+    value.blend_components.every(isBeanBlendComponent) &&
+    isNullableString(value.blend_notes) &&
+    isNullableString(value.notes) &&
+    isPositiveInteger(value.schema_version)
+  )
+}
+
+function isBeanBlendComponent(value: unknown) {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, [
+      'origin',
+      'process',
+      'variety',
+      'percentage',
+      'role',
+      'notes',
+    ]) &&
+    typeof value.origin === 'string' &&
+    typeof value.process === 'string' &&
+    typeof value.variety === 'string' &&
+    isNullableFiniteNumber(value.percentage) &&
+    typeof value.role === 'string' &&
+    typeof value.notes === 'string'
+  )
+}
+
+function isBrewLogUpsertPayload(value: Record<string, unknown>) {
+  if (!hasExactKeys(value, [
+    'bean_id',
+    'brewed_at',
+    'method',
+    'dripper',
+    'filter_paper',
+    'grinder',
+    'grind_setting',
+    'coffee_grams',
+    'water_grams',
+    'ratio',
+    'water_temperature_c',
+    'total_time_seconds',
+    'pour_steps',
+    'rating',
+    'acidity',
+    'sweetness',
+    'bitterness',
+    'astringency',
+    'body',
+    'aftertaste',
+    'flavor_tags',
+    'is_pinned_recipe',
+    'notes',
+    'schema_version',
+  ])) {
+    return false
+  }
+  return (
+    isNullableString(value.bean_id) &&
+    typeof value.brewed_at === 'string' &&
+    isNullableString(value.method) &&
+    isNullableString(value.dripper) &&
+    isNullableString(value.filter_paper) &&
+    isNullableString(value.grinder) &&
+    isNullableString(value.grind_setting) &&
+    isNullableFiniteNumber(value.coffee_grams) &&
+    isNullableFiniteNumber(value.water_grams) &&
+    isNullableString(value.ratio) &&
+    isNullableFiniteNumber(value.water_temperature_c) &&
+    isNullableFiniteNumber(value.total_time_seconds) &&
+    Array.isArray(value.pour_steps) &&
+    value.pour_steps.every(isJsonValue) &&
+    isNullableFiniteNumber(value.rating) &&
+    isNullableFiniteNumber(value.acidity) &&
+    isNullableFiniteNumber(value.sweetness) &&
+    isNullableFiniteNumber(value.bitterness) &&
+    isNullableFiniteNumber(value.astringency) &&
+    isNullableFiniteNumber(value.body) &&
+    isNullableFiniteNumber(value.aftertaste) &&
+    isStringArray(value.flavor_tags) &&
+    typeof value.is_pinned_recipe === 'boolean' &&
+    isNullableString(value.notes) &&
+    isPositiveInteger(value.schema_version)
+  )
+}
+
+function isBrewTemplateUpsertPayload(value: Record<string, unknown>) {
+  if (!hasExactKeys(value, [
+    'name',
+    'category',
+    'difficulty',
+    'brewer',
+    'filter',
+    'dose_grams',
+    'water_grams',
+    'ratio',
+    'water_temperature_min',
+    'water_temperature_max',
+    'grind_size',
+    'target_time_min',
+    'target_time_max',
+    'pour_steps',
+    'suitable_for',
+    'avoid_for',
+    'flavor_goal',
+    'adjustment_rules',
+    'source_notes',
+    'source_urls',
+    'is_champion_reference',
+    'copied_from_template_id',
+    'schema_version',
+  ])) {
+    return false
+  }
+  return (
+    typeof value.name === 'string' &&
+    isBrewTemplateCategory(value.category) &&
+    (value.difficulty === 'easy' ||
+      value.difficulty === 'medium' ||
+      value.difficulty === 'advanced') &&
+    typeof value.brewer === 'string' &&
+    typeof value.filter === 'string' &&
+    isFiniteNumber(value.dose_grams) &&
+    isFiniteNumber(value.water_grams) &&
+    typeof value.ratio === 'string' &&
+    isFiniteNumber(value.water_temperature_min) &&
+    isFiniteNumber(value.water_temperature_max) &&
+    typeof value.grind_size === 'string' &&
+    isFiniteNumber(value.target_time_min) &&
+    isFiniteNumber(value.target_time_max) &&
+    Array.isArray(value.pour_steps) &&
+    value.pour_steps.every(isBrewTemplatePourStep) &&
+    isStringArray(value.suitable_for) &&
+    isStringArray(value.avoid_for) &&
+    typeof value.flavor_goal === 'string' &&
+    isStringArray(value.adjustment_rules) &&
+    typeof value.source_notes === 'string' &&
+    isStringArray(value.source_urls) &&
+    typeof value.is_champion_reference === 'boolean' &&
+    isNullableString(value.copied_from_template_id) &&
+    isPositiveInteger(value.schema_version)
+  )
+}
+
+function isBrewTemplateCategory(value: unknown) {
+  return (
+    value === 'daily-pourover' ||
+    value === 'immersion-hybrid' ||
+    value === 'bean-specific' ||
+    value === 'cold-brew' ||
+    value === 'moka-pot' ||
+    value === 'champion-reference'
+  )
+}
+
+function isBrewTemplatePourStep(value: unknown) {
+  return (
+    isPlainRecord(value) &&
+    hasExactKeys(value, [
+      'order',
+      'startSeconds',
+      'endSeconds',
+      'targetWaterGrams',
+      'label',
+      'action',
+    ]) &&
+    isFiniteNumber(value.order) &&
+    isFiniteNumber(value.startSeconds) &&
+    isNullableFiniteNumber(value.endSeconds) &&
+    isFiniteNumber(value.targetWaterGrams) &&
+    typeof value.label === 'string' &&
+    typeof value.action === 'string'
+  )
+}
+
+function isUserSettingsUpsertPayload(value: Record<string, unknown>) {
+  return (
+    hasExactKeys(value, [
+      'preferred_units',
+      'default_gear',
+      'taste_preferences',
+      'backup_reminder_days',
+      'schema_version',
+    ]) &&
+    isJsonObject(value.preferred_units) &&
+    isJsonObject(value.default_gear) &&
+    isJsonObject(value.taste_preferences) &&
+    isFiniteNumber(value.backup_reminder_days) &&
+    isPositiveInteger(value.schema_version)
+  )
 }
 
 function assertSnapshotOwnership(userId: string, snapshot: SyncSnapshot) {
@@ -1491,7 +1740,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isEmptyRecord(value: unknown) {
-  return isRecord(value) && Object.keys(value).length === 0
+  return isPlainRecord(value) && Object.keys(value).length === 0
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value) as unknown
+  return prototype === Object.prototype || prototype === null
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[],
+) {
+  const actualKeys = Object.keys(value).sort()
+  const sortedExpectedKeys = [...expectedKeys].sort()
+  return (
+    actualKeys.length === sortedExpectedKeys.length &&
+    actualKeys.every((key, index) => key === sortedExpectedKeys[index])
+  )
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || isFiniteNumber(value)
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return (
+    isPlainRecord(value) &&
+    Object.values(value).every((item) => isJsonValue(item))
+  )
+}
+
+function isJsonValue(value: unknown): boolean {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    isFiniteNumber(value)
+  ) {
+    return true
+  }
+  if (Array.isArray(value)) {
+    return value.every((item) => isJsonValue(item))
+  }
+  return isJsonObject(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -1507,11 +1810,54 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 function isIsoTime(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-](\d{2}):(\d{2}))$/.exec(
+    value,
+  )
+  if (match === null) {
+    return false
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const zone = match[8]
+  const offsetHour = zone === 'Z' ? 0 : Number(match[9])
+  const offsetMinute = zone === 'Z' ? 0 : Number(match[10])
+  const daysInMonth = getDaysInMonth(year, month)
+
   return (
-    typeof value === 'string' &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(
-      value,
-    ) &&
+    year >= 1 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= daysInMonth &&
+    hour >= 0 &&
+    hour <= 23 &&
+    minute >= 0 &&
+    minute <= 59 &&
+    second >= 0 &&
+    second <= 59 &&
+    offsetHour >= 0 &&
+    offsetHour <= 23 &&
+    offsetMinute >= 0 &&
+    offsetMinute <= 59 &&
     Number.isFinite(Date.parse(value))
   )
+}
+
+function getDaysInMonth(year: number, month: number) {
+  if (month === 2) {
+    return isLeapYear(year) ? 29 : 28
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31
+}
+
+function isLeapYear(year: number) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
 }

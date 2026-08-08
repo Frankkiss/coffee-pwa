@@ -82,7 +82,7 @@ describe('localRepository atomic entity writes', () => {
         ...mutation,
         entityType: 'brewLog',
       } as unknown as Parameters<typeof saveLocalEntity<'beans'>>[3]),
-    ).rejects.toThrow('entity type')
+    ).rejects.toThrow('Invalid sync mutation')
     await expect(
       saveLocalEntity('beans', userOne, bean, {
         ...mutation,
@@ -269,6 +269,58 @@ describe('localRepository Outbox isolation and state transitions', () => {
     expect(await listOutbox(userOne)).toEqual([offset, zulu])
   })
 
+  it('accepts complete allowlisted upserts for all four mutable entity types', async () => {
+    const bean = createBean(userOne, 'bean-valid', 'bean')
+    const brewLog = createBrewLog(userOne, 'brew-valid')
+    const brewTemplate = createBrewTemplate(userOne, 'template-valid')
+    const settings = createSettings(userOne, 7)
+    const mutations = [
+      createBeanUpsertMutation(bean, 'mutation-bean'),
+      createRawUpsertMutation(
+        userOne,
+        brewLog.id,
+        'brewLog',
+        'mutation-brew',
+        omitFields(brewLog, [
+          'id',
+          'user_id',
+          'created_at',
+          'updated_at',
+          'deleted_at',
+        ]),
+      ),
+      createRawUpsertMutation(
+        userOne,
+        brewTemplate.id,
+        'brewTemplate',
+        'mutation-template',
+        omitFields(brewTemplate, [
+          'id',
+          'user_id',
+          'created_at',
+          'updated_at',
+          'deleted_at',
+        ]),
+      ),
+      createRawUpsertMutation(
+        userOne,
+        userOne,
+        'userSettings',
+        'mutation-settings',
+        omitFields(settings, ['user_id', 'created_at', 'updated_at']),
+      ),
+    ]
+    for (const mutation of mutations) {
+      await putOutbox(mutation)
+    }
+
+    expect(await listOutbox(userOne)).toEqual(
+      [...mutations].sort((left, right) =>
+        left.mutationId.localeCompare(right.mutationId),
+      ),
+    )
+  })
+
   it.each<[
     string,
     (mutation: BeanDeleteMutation) => { key: string; userId: string; value: unknown },
@@ -319,6 +371,59 @@ describe('localRepository Outbox isolation and state transitions', () => {
     await expect(listOutbox(userOne)).rejects.toBeInstanceOf(
       LocalSyncDataCorruptionError,
     )
+  })
+
+  it('classifies an empty current-user upsert payload as corrupt-owned', async () => {
+    const bean = createBean(userOne, 'bean-empty', 'empty payload')
+    const mutation = createBeanUpsertMutation(bean, 'mutation-empty')
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: { ...mutation, payload: {} },
+    })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+  })
+
+  it('rolls back a batch when an upsert payload contains an unknown field', async () => {
+    const valid = createBeanDeleteMutation(userOne, 'bean-valid', 'mutation-valid')
+    const bean = createBean(userOne, 'bean-unknown', 'unknown payload')
+    const corrupt = createBeanUpsertMutation(bean, 'mutation-unknown')
+    await putOutbox(valid)
+    await putEnvelope('outbox', {
+      key: corrupt.mutationId,
+      userId: userOne,
+      value: {
+        ...corrupt,
+        payload: { ...corrupt.payload, unexpected: true },
+      },
+    })
+
+    await expect(
+      markMutationsSyncing(userOne, [valid.mutationId, corrupt.mutationId]),
+    ).rejects.toMatchObject({ code: 'LOCAL_SYNC_DATA_CORRUPT' })
+
+    expect(await getOutboxMutation(valid.mutationId)).toEqual(valid)
+    expect(await getOutboxMutation(corrupt.mutationId)).toEqual({
+      ...corrupt,
+      payload: { ...corrupt.payload, unexpected: true },
+    })
+  })
+
+  it('rejects a normalized but impossible RFC3339 calendar date', async () => {
+    const mutation = createBeanDeleteMutation(
+      userOne,
+      'bean-date',
+      'mutation-date',
+      { queuedAt: '2026-02-30T10:00:00Z' },
+    )
+    await putOutbox(mutation)
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
   })
 
   it('applies guarded status transitions without changing another user', async () => {
@@ -747,6 +852,43 @@ describe('localRepository server snapshots and sync metadata', () => {
     })
   })
 
+  it('rolls back replace and discard when a persisted upsert payload is empty', async () => {
+    const original = createBean(userOne, 'bean-original', 'local overlay')
+    const mutation = createBeanUpsertMutation(original, 'mutation-empty', {
+      status: 'needs_attention',
+    })
+    const corruptValue = { ...mutation, payload: {} }
+    await putEntityRows('beans', [original])
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: corruptValue,
+    })
+    await writeSyncMeta(userOne, {
+      syncEpoch: 2,
+      lastSyncedAt: fixedNow,
+    })
+    const snapshot = createSnapshot(userOne, {
+      syncEpoch: 3,
+      serverTime: '2026-08-08T11:00:00Z',
+      beans: [createBean(userOne, original.id, 'server version')],
+    })
+
+    await expect(replaceServerSnapshot(userOne, snapshot)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+    await expect(
+      discardMutationAndReplaceSnapshot(userOne, mutation.mutationId, snapshot),
+    ).rejects.toMatchObject({ code: 'LOCAL_SYNC_DATA_CORRUPT' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await getOutboxMutation(mutation.mutationId)).toEqual(corruptValue)
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 2,
+      lastSyncedAt: fixedNow,
+    })
+  })
+
   it('rejects lower epochs and older same-epoch snapshots without degrading rows or meta', async () => {
     const original = createBean(userOne, 'bean-original', 'original')
     await putEntityRows('beans', [original])
@@ -1004,6 +1146,41 @@ function createBeanDeleteMutation(
     lastErrorMessage: null,
     ...overrides,
   } as BeanDeleteMutation
+}
+
+function createRawUpsertMutation(
+  userId: string,
+  entityId: string,
+  entityType: SyncMutation['entityType'],
+  mutationId: string,
+  payload: Record<string, unknown>,
+): SyncMutation {
+  return {
+    mutationId,
+    deviceId: 'device-1',
+    entityId,
+    entityType,
+    operation: 'upsert',
+    payload,
+    userId,
+    baseSyncEpoch: 1,
+    queuedAt: fixedNow,
+    attemptCount: 0,
+    status: 'pending',
+    lastErrorCode: null,
+    lastErrorMessage: null,
+  } as SyncMutation
+}
+
+function omitFields<Row extends object>(
+  row: Row,
+  excludedFields: readonly string[],
+) {
+  return Object.fromEntries(
+    (Object.entries(row) as Array<[string, unknown]>).filter(
+      ([key]) => !excludedFields.includes(key),
+    ),
+  )
 }
 
 function createBrewLog(userId: string, id: string): BrewLog {
