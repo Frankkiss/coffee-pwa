@@ -248,6 +248,57 @@ describe('compactMutations', () => {
     ).toEqual(['independent'])
   })
 
+  it('does not create a reverse cycle for an early delete followed by bean recovery and brew', () => {
+    const earlyDelete = mutation('early-delete', {
+      entityId: 'bean-recovered',
+      operation: 'delete',
+      queuedAt: '2026-08-08T10:00:00.000001Z',
+    })
+    const barrier = mutation('barrier', {
+      entityId: 'unrelated-attention',
+      status: 'needs_attention',
+      queuedAt: '2026-08-08T10:00:00.000002Z',
+    })
+    const recoveredBean = mutation('recovered-bean', {
+      entityId: 'bean-recovered',
+      queuedAt: '2026-08-08T10:00:00.000003Z',
+    })
+    const brew = mutation('brew-after-recovery', {
+      entityId: 'brew-after-recovery',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-recovered', schema_version: 1 },
+      queuedAt: '2026-08-08T10:00:00.000004Z',
+    })
+    const unrelated = mutation('unrelated', {
+      entityId: 'unrelated-bean',
+      queuedAt: '2026-08-08T10:00:00.000005Z',
+    })
+
+    expect(() =>
+      selectSendableMutations([
+        earlyDelete,
+        barrier,
+        recoveredBean,
+        brew,
+        unrelated,
+      ]),
+    ).not.toThrow()
+    expect(
+      selectSendableMutations([
+        earlyDelete,
+        barrier,
+        recoveredBean,
+        brew,
+        unrelated,
+      ]).map((item) => item.mutationId),
+    ).toEqual([
+      'early-delete',
+      'recovered-bean',
+      'brew-after-recovery',
+      'unrelated',
+    ])
+  })
+
   it('does not mutate inputs or share mutable payloads with its result', () => {
     const input = mutation('mutation-1', {
       payload: { name: 'original', tags: ['cocoa'], schema_version: 1 },

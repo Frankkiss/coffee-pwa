@@ -400,7 +400,9 @@ function stableTopologicalOrder<Entry extends IndexedMutation>(
       addDependency(beanUpsert, entry, adjacency, indegree)
     }
     for (const beanDelete of beanDeletesById.get(beanId) ?? []) {
-      addDependency(entry, beanDelete, adjacency, indegree)
+      if (beanDelete.index > entry.index) {
+        addDependency(entry, beanDelete, adjacency, indegree)
+      }
     }
   }
 
