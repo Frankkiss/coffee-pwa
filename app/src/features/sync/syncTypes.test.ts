@@ -6,11 +6,13 @@ import type { SavedRecommendationRow } from '../recommendations/savedRecommendat
 import type { UserSettingsRow } from '../settings/userSettingsTypes'
 import type { JsonObject, JsonValue } from '../../lib/jsonTypes'
 import {
+  createDeletePayload,
   createEntityId,
   createMutationId,
   type BeanUpsertPayload,
   type BrewLogUpsertPayload,
   type BrewTemplateUpsertPayload,
+  type EmptyJsonObject,
   type SyncMutation,
   type SyncRpcOperation,
   type SyncSnapshot,
@@ -239,6 +241,18 @@ const userSettingsPayload = {
   schema_version: userSettings.schema_version,
 } satisfies UserSettingsUpsertPayload
 
+const beanPayloadWithUserId = { ...beanPayload, user_id: userId }
+const beanPayloadWithId = { ...beanPayload, id: serverBean.id }
+const beanPayloadWithCreatedAt = {
+  ...beanPayload,
+  created_at: serverBean.created_at,
+}
+const settingsPayloadWithUserId = { ...userSettingsPayload, user_id: userId }
+// Intentionally models a legacy value widened to `{}` to test the brand boundary.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+const widenedNonEmptyDeletePayload: {} = { reason: 'legacy value' }
+const plainEmptyDeletePayload = {}
+
 const upsertOperations = [
   {
     mutationId: '30000000-0000-4000-8000-000000000001',
@@ -281,7 +295,7 @@ const deleteOperations = [
     entityType: 'bean',
     entityId: serverBean.id,
     operation: 'delete',
-    payload: {},
+    payload: createDeletePayload(),
   },
   {
     mutationId: '30000000-0000-4000-8000-000000000006',
@@ -289,7 +303,7 @@ const deleteOperations = [
     entityType: 'brewLog',
     entityId: brewLog.id,
     operation: 'delete',
-    payload: {},
+    payload: createDeletePayload(),
   },
   {
     mutationId: '30000000-0000-4000-8000-000000000007',
@@ -297,12 +311,24 @@ const deleteOperations = [
     entityType: 'brewTemplate',
     entityId: brewTemplate.id,
     operation: 'delete',
-    payload: {},
+    payload: createDeletePayload(),
   },
 ] satisfies SyncRpcOperation[]
 
 function acceptOperation(operation: SyncRpcOperation) {
   return operation
+}
+
+function acceptBeanPayload(payload: BeanUpsertPayload) {
+  return payload
+}
+
+function acceptSettingsPayload(payload: UserSettingsUpsertPayload) {
+  return payload
+}
+
+function acceptDeletePayload(payload: EmptyJsonObject) {
+  return payload
 }
 
 function acceptJsonValue(value: JsonValue) {
@@ -375,6 +401,13 @@ describe('synchronization type boundaries', () => {
     expectTypeOf(deleteOperations).toMatchTypeOf<SyncRpcOperation[]>()
   })
 
+  it('creates a branded delete payload with plain empty JSON at runtime', () => {
+    const payload = createDeletePayload()
+
+    expect(Object.keys(payload)).toHaveLength(0)
+    expect(JSON.stringify(payload)).toBe('{}')
+  })
+
   it('keeps wire operations free of local Outbox metadata', () => {
     expect(Object.keys(upsertOperations[0]).sort()).toEqual([
       'deviceId',
@@ -401,19 +434,37 @@ describe('synchronization type boundaries', () => {
 
   it('uses compile-time rejections for invalid operations and JSON', () => {
     // @ts-expect-error user settings cannot be deleted
-    acceptOperation({ mutationId: 'invalid-1', deviceId, entityType: 'userSettings', entityId: userId, operation: 'delete', payload: {} })
+    acceptOperation({ mutationId: 'invalid-1', deviceId, entityType: 'userSettings', entityId: userId, operation: 'delete', payload: createDeletePayload() })
 
     // @ts-expect-error sync payloads are never nullable
     acceptOperation({ mutationId: 'invalid-2', deviceId, entityType: 'bean', entityId: serverBean.id, operation: 'upsert', payload: null })
 
-    // @ts-expect-error delete payloads must be strictly empty
-    acceptOperation({ mutationId: 'invalid-3', deviceId, entityType: 'bean', entityId: serverBean.id, operation: 'delete', payload: { reason: 'cleanup' } })
+    // @ts-expect-error ordinary empty object literals are not branded delete payloads
+    acceptDeletePayload({})
 
-    // @ts-expect-error ownership fields cannot be submitted in an upsert payload
-    acceptOperation({ mutationId: 'invalid-4', deviceId, entityType: 'bean', entityId: serverBean.id, operation: 'upsert', payload: { ...beanPayload, user_id: userId } })
+    // @ts-expect-error ordinary empty object variables are not branded delete payloads
+    acceptDeletePayload(plainEmptyDeletePayload)
 
-    // @ts-expect-error server timestamps cannot be submitted in an upsert payload
-    acceptOperation({ mutationId: 'invalid-5', deviceId, entityType: 'bean', entityId: serverBean.id, operation: 'upsert', payload: { ...beanPayload, updated_at: '2026-08-08T00:00:00.000Z' } })
+    // @ts-expect-error non-empty object literals are not delete payloads
+    acceptDeletePayload({ reason: 'cleanup' })
+
+    // @ts-expect-error widening a non-empty value to {} cannot create a delete payload
+    acceptDeletePayload(widenedNonEmptyDeletePayload)
+
+    // @ts-expect-error ordinary variables retaining ownership fields are forbidden
+    acceptBeanPayload(beanPayloadWithUserId)
+
+    // @ts-expect-error ordinary variables retaining primary keys are forbidden
+    acceptBeanPayload(beanPayloadWithId)
+
+    // @ts-expect-error ordinary variables retaining server timestamps are forbidden
+    acceptBeanPayload(beanPayloadWithCreatedAt)
+
+    // @ts-expect-error settings payload variables cannot retain ownership
+    acceptSettingsPayload(settingsPayloadWithUserId)
+
+    // @ts-expect-error a wide variable with ownership cannot enter an operation
+    acceptOperation({ mutationId: 'invalid-4', deviceId, entityType: 'bean', entityId: serverBean.id, operation: 'upsert', payload: beanPayloadWithUserId })
 
     // @ts-expect-error local ownership metadata is not part of a wire operation
     acceptOperation({ ...upsertOperations[0], userId })

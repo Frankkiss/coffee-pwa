@@ -21,23 +21,34 @@ type ServerOwnedFields =
   | 'updated_at'
   | 'deleted_at'
 
+export type ForbiddenServerFields<Keys extends PropertyKey> = {
+  readonly [Key in Keys]?: never
+}
+
+declare const deletePayloadBrand: unique symbol
+
 export type EmptyJsonObject = {
+  readonly [deletePayloadBrand]: true
   readonly [key: string]: never
 }
 
-export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields>
+export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields> &
+  ForbiddenServerFields<ServerOwnedFields>
 
-export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields>
+export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields> &
+  ForbiddenServerFields<ServerOwnedFields>
 
 export type BrewTemplateUpsertPayload = Omit<
   UserBrewTemplateRow,
   ServerOwnedFields
->
+> &
+  ForbiddenServerFields<ServerOwnedFields>
 
 export type UserSettingsUpsertPayload = Omit<
   UserSettingsRow,
   'user_id' | 'created_at' | 'updated_at'
->
+> &
+  ForbiddenServerFields<ServerOwnedFields>
 
 type SyncRpcOperationBase = {
   mutationId: string
@@ -176,4 +187,9 @@ export function createEntityId() {
 
 export function createMutationId() {
   return crypto.randomUUID()
+}
+
+export function createDeletePayload(): EmptyJsonObject {
+  // The unique-symbol brand exists only at compile time; wire JSON stays `{}`.
+  return {} as EmptyJsonObject
 }
