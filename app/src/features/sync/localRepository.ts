@@ -1691,7 +1691,8 @@ function assertMonotonicSyncMeta(
   }
   if (
     next.syncEpoch === current.syncEpoch &&
-    Date.parse(next.lastSyncedAt) < Date.parse(current.lastSyncedAt)
+    isoInstantNanoseconds(next.lastSyncedAt) <
+      isoInstantNanoseconds(current.lastSyncedAt)
   ) {
     throw new StaleLocalSnapshotError(
       'Same-epoch server time cannot move backwards',
@@ -1874,6 +1875,22 @@ function isIsoTime(value: unknown): value is string {
     offsetMinute <= 59 &&
     Number.isFinite(Date.parse(value))
   )
+}
+
+function isoInstantNanoseconds(value: string) {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(
+    value,
+  )
+  if (match === null) {
+    throw new Error('Invalid ISO time')
+  }
+
+  const epochMilliseconds = Date.parse(`${match[1]}${match[3]}`)
+  if (!Number.isFinite(epochMilliseconds)) {
+    throw new Error('Invalid ISO time')
+  }
+  const fractionalNanoseconds = BigInt((match[2] ?? '').padEnd(9, '0') || '0')
+  return BigInt(epochMilliseconds) * 1_000_000n + fractionalNanoseconds
 }
 
 function getDaysInMonth(year: number, month: number) {

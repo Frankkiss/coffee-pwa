@@ -976,6 +976,77 @@ describe('localRepository server snapshots and sync metadata', () => {
     })
   })
 
+  it('compares same-epoch snapshot times at full fractional precision', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    await putEntityRows('beans', [original])
+    await writeSyncMeta(userOne, {
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000900Z',
+    })
+    const staleEntity = createBean(userOne, 'bean-stale', 'stale')
+
+    await expect(
+      replaceServerSnapshot(
+        userOne,
+        createSnapshot(userOne, {
+          syncEpoch: 3,
+          serverTime: '2026-08-08T10:00:00.000100Z',
+          beans: [staleEntity],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'STALE_LOCAL_SNAPSHOT' })
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000900Z',
+    })
+
+    const newerEntity = createBean(userOne, 'bean-newer', 'newer')
+    await replaceServerSnapshot(
+      userOne,
+      createSnapshot(userOne, {
+        syncEpoch: 3,
+        serverTime: '2026-08-08T10:00:00.000901Z',
+        beans: [newerEntity],
+      }),
+    )
+    expect(await listLocalEntities('beans', userOne)).toEqual([newerEntity])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000901Z',
+    })
+  })
+
+  it('compares same-epoch metadata writes at full fractional precision', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    await putEntityRows('beans', [original])
+    await writeSyncMeta(userOne, {
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000900Z',
+    })
+
+    await expect(
+      writeSyncMeta(userOne, {
+        syncEpoch: 3,
+        lastSyncedAt: '2026-08-08T10:00:00.000100Z',
+      }),
+    ).rejects.toMatchObject({ code: 'STALE_LOCAL_SNAPSHOT' })
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000900Z',
+    })
+
+    await writeSyncMeta(userOne, {
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000901Z',
+    })
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 3,
+      lastSyncedAt: '2026-08-08T10:00:00.000901Z',
+    })
+  })
+
   it('allows a higher epoch even when its canonical server time is earlier', async () => {
     await writeSyncMeta(userOne, {
       syncEpoch: 3,
