@@ -824,6 +824,11 @@ Also add `satisfies` fixtures for all four upserts and the three legal deletes. 
 and a server bean missing required `bean_type`, `blend_components`, or `blend_notes`. Assert wire fixtures contain exactly the six transport
 fields and no Outbox metadata. The positive JSON fixtures must cover scalars, arrays, objects, and `null`.
 
+Do not rely only on excess-property checks. Add negative cases where `{ ...beanPayload, user_id: userId }`, representative `id` / timestamp
+fields, and a settings payload with `user_id` are first assigned to ordinary variables and then passed as payloads; structural width
+compatibility must still reject them. Legal deletes must use `createDeletePayload()`. Prove a literal `{}`, a non-empty literal, and a non-empty
+value widened to `{}` cannot be assigned to `EmptyJsonObject`; at runtime the factory result must have zero enumerable keys and stringify to `{}`.
+
 - [ ] **Step 2: Run the focused test and verify failure**
 
 ```powershell
@@ -861,14 +866,26 @@ export type SyncOperation = 'upsert' | 'delete'
 export type OutboxStatus = 'pending' | 'syncing' | 'needs_attention'
 
 type ServerOwnedFields = 'id' | 'user_id' | 'created_at' | 'updated_at' | 'deleted_at'
-export type EmptyJsonObject = { [key: string]: never }
-export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields>
-export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields>
-export type BrewTemplateUpsertPayload = Omit<UserBrewTemplateRow, ServerOwnedFields>
+export type ForbiddenServerFields<Keys extends PropertyKey> = {
+  readonly [Key in Keys]?: never
+}
+
+declare const deletePayloadBrand: unique symbol
+export type EmptyJsonObject = {
+  readonly [deletePayloadBrand]: true
+  readonly [key: string]: never
+}
+
+export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields> &
+  ForbiddenServerFields<ServerOwnedFields>
+export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields> &
+  ForbiddenServerFields<ServerOwnedFields>
+export type BrewTemplateUpsertPayload = Omit<UserBrewTemplateRow, ServerOwnedFields> &
+  ForbiddenServerFields<ServerOwnedFields>
 export type UserSettingsUpsertPayload = Omit<
   UserSettingsRow,
   'user_id' | 'created_at' | 'updated_at'
->
+> & ForbiddenServerFields<ServerOwnedFields>
 
 type WireBase = {
   mutationId: string
@@ -942,6 +959,11 @@ export function createEntityId() {
 
 export function createMutationId() {
   return crypto.randomUUID()
+}
+
+export function createDeletePayload(): EmptyJsonObject {
+  // The unique-symbol brand is compile-time only; the RPC must receive plain `{}` JSON.
+  return {} as EmptyJsonObject
 }
 ```
 
@@ -1143,6 +1165,8 @@ export function deriveSyncState(input: {
 ```
 
 Use priority `bean = 0`, `brewTemplate = 1`, `userSettings = 1`, `brewLog = 2`. Cap retry delay at 60 seconds. Preserve `needs_attention` rows during compaction and never send them automatically.
+Whenever compaction constructs or replaces a delete mutation payload, it must call `createDeletePayload()`; it must not use a literal `{}` or
+reuse a legacy payload object.
 
 - [ ] **Step 4: Run the test**
 
@@ -1201,6 +1225,9 @@ Expected: FAIL because the migrator does not exist.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
 9. Return `{ status: 'completed', idMap, sourcePreserved: true }`.
+
+Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is
+copied into the v3 Outbox.
 
 Add a read-only export function for failed migration recovery:
 
@@ -1281,6 +1308,12 @@ export function createSyncApi(supabase: SupabaseClient) {
 ```
 
 Export `toSyncRpcOperation(mutation: SyncMutation): SyncRpcOperation` and explicitly construct the six wire fields; never spread an Outbox row.
+For each entity/operation branch, validate the outgoing payload against that entity's complete mutable-field allowlist and rebuild a fresh payload
+object field by field. Upserts reject missing, unknown, ownership, primary-key, server timestamp, and soft-delete keys while retaining the allowed
+`schema_version`; they must not return the original payload reference. Deletes require a plain record with `Object.keys(payload).length === 0`,
+then emit a new plain `{}` wire value—the local unique-symbol brand is compile-time-only and never enters JSON. Thus the outgoing mapper remains
+a runtime safety boundary even if untyped storage, migration data, or JavaScript callers bypass TypeScript.
+
 Treat both RPC `data` values as `unknown`. Add recursive JSON validation plus complete validators for every snapshot row, timestamps, numbers,
 nullability, template enums/steps, and result enums before returning `ApplySyncResult` or `SyncSnapshot`. The database intentionally remains able
 to store general JSON and unconstrained template text in this task; the validator is the trust boundary and direct casts are forbidden.
@@ -1372,6 +1405,8 @@ git commit -m "feat: add unified sync manager"
 - [ ] **Step 1: Write repository behavior tests**
 
 For each editable entity assert list, create, update, and soft delete operate locally and enqueue exactly one full-record mutation. Bean creation must use a permanent UUID before local save. Brew creation must preserve a newly created bean UUID. Settings must use `userId` as its stable entity ID. Saved recommendations expose local list only and no offline write method.
+Every bean, brew-log, and template soft-delete repository path calls `createDeletePayload()`; settings has no delete path. Tests assert the stored
+delete payload has zero enumerable keys and is not assembled from caller input.
 
 - [ ] **Step 2: Verify repository tests fail**
 
