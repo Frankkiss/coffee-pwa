@@ -270,46 +270,7 @@ describe('localRepository Outbox isolation and state transitions', () => {
   })
 
   it('accepts complete allowlisted upserts for all four mutable entity types', async () => {
-    const bean = createBean(userOne, 'bean-valid', 'bean')
-    const brewLog = createBrewLog(userOne, 'brew-valid')
-    const brewTemplate = createBrewTemplate(userOne, 'template-valid')
-    const settings = createSettings(userOne, 7)
-    const mutations = [
-      createBeanUpsertMutation(bean, 'mutation-bean'),
-      createRawUpsertMutation(
-        userOne,
-        brewLog.id,
-        'brewLog',
-        'mutation-brew',
-        omitFields(brewLog, [
-          'id',
-          'user_id',
-          'created_at',
-          'updated_at',
-          'deleted_at',
-        ]),
-      ),
-      createRawUpsertMutation(
-        userOne,
-        brewTemplate.id,
-        'brewTemplate',
-        'mutation-template',
-        omitFields(brewTemplate, [
-          'id',
-          'user_id',
-          'created_at',
-          'updated_at',
-          'deleted_at',
-        ]),
-      ),
-      createRawUpsertMutation(
-        userOne,
-        userOne,
-        'userSettings',
-        'mutation-settings',
-        omitFields(settings, ['user_id', 'created_at', 'updated_at']),
-      ),
-    ]
+    const mutations = createCompleteUpsertMutations()
     for (const mutation of mutations) {
       await putOutbox(mutation)
     }
@@ -319,6 +280,95 @@ describe('localRepository Outbox isolation and state transitions', () => {
         left.mutationId.localeCompare(right.mutationId),
       ),
     )
+  })
+
+  it.each(['roast_date', 'purchase_date'] as const)(
+    'rejects an impossible bean %s calendar date',
+    async (field) => {
+      const bean = createBean(userOne, 'bean-date', 'date')
+      const mutation = createBeanUpsertMutation(bean, 'mutation-date')
+      await putEnvelope('outbox', {
+        key: mutation.mutationId,
+        userId: userOne,
+        value: {
+          ...mutation,
+          payload: { ...mutation.payload, [field]: '2026-02-30' },
+        },
+      })
+
+      await expect(listOutbox(userOne)).rejects.toMatchObject({
+        code: 'LOCAL_SYNC_DATA_CORRUPT',
+      })
+    },
+  )
+
+  it('accepts a real leap-day bean calendar date', async () => {
+    const bean = {
+      ...createBean(userOne, 'bean-leap', 'leap'),
+      roast_date: '2024-02-29',
+      purchase_date: '2024-02-29',
+    }
+    const mutation = createBeanUpsertMutation(bean, 'mutation-leap')
+    await putOutbox(mutation)
+
+    expect(await listOutbox(userOne)).toEqual([mutation])
+  })
+
+  it.each([
+    'infinity',
+    '2026-08-08T10:00:00',
+    '2026-02-30T10:00:00Z',
+  ])('rejects non-canonical brewLog brewed_at %s', async (brewedAt) => {
+    const mutation = getCompleteUpsertMutation('brewLog')
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: {
+        ...mutation,
+        payload: { ...mutation.payload, brewed_at: brewedAt },
+      },
+    })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+  })
+
+  it.each([
+    'bean',
+    'brewLog',
+    'brewTemplate',
+    'userSettings',
+  ] as const)('rejects %s payload schema_version other than one', async (entityType) => {
+    const mutation = getCompleteUpsertMutation(entityType)
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: {
+        ...mutation,
+        payload: { ...mutation.payload, schema_version: 2 },
+      },
+    })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+  })
+
+  it('requires schema_version in a complete upsert payload', async () => {
+    const mutation = getCompleteUpsertMutation('bean')
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: {
+        ...mutation,
+        payload: omitFields(mutation.payload, ['schema_version']),
+      },
+    })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
   })
 
   it.each<[
@@ -1146,6 +1196,59 @@ function createBeanDeleteMutation(
     lastErrorMessage: null,
     ...overrides,
   } as BeanDeleteMutation
+}
+
+function createCompleteUpsertMutations() {
+  const bean = createBean(userOne, 'bean-valid', 'bean')
+  const brewLog = createBrewLog(userOne, 'brew-valid')
+  const brewTemplate = createBrewTemplate(userOne, 'template-valid')
+  const settings = createSettings(userOne, 7)
+  return [
+    createBeanUpsertMutation(bean, 'mutation-bean'),
+    createRawUpsertMutation(
+      userOne,
+      brewLog.id,
+      'brewLog',
+      'mutation-brew',
+      omitFields(brewLog, [
+        'id',
+        'user_id',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ]),
+    ),
+    createRawUpsertMutation(
+      userOne,
+      brewTemplate.id,
+      'brewTemplate',
+      'mutation-template',
+      omitFields(brewTemplate, [
+        'id',
+        'user_id',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ]),
+    ),
+    createRawUpsertMutation(
+      userOne,
+      userOne,
+      'userSettings',
+      'mutation-settings',
+      omitFields(settings, ['user_id', 'created_at', 'updated_at']),
+    ),
+  ]
+}
+
+function getCompleteUpsertMutation(entityType: SyncMutation['entityType']) {
+  const mutation = createCompleteUpsertMutations().find(
+    (candidate) => candidate.entityType === entityType,
+  )
+  if (mutation === undefined) {
+    throw new Error(`Missing test mutation for ${entityType}`)
+  }
+  return mutation
 }
 
 function createRawUpsertMutation(

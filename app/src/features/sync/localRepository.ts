@@ -1410,13 +1410,13 @@ function isBeanUpsertPayload(value: Record<string, unknown>) {
     isNullableString(value.process) &&
     isNullableString(value.variety) &&
     isNullableFiniteNumber(value.altitude_meters) &&
-    isNullableString(value.roast_date) &&
+    isNullableCalendarDate(value.roast_date) &&
     isNullableString(value.roast_level) &&
     isStringArray(value.flavor_tags) &&
     isNullableString(value.flavor_notes) &&
     isNullableFiniteNumber(value.net_weight_grams) &&
     isNullableFiniteNumber(value.price) &&
-    isNullableString(value.purchase_date) &&
+    isNullableCalendarDate(value.purchase_date) &&
     isNullableString(value.source_url) &&
     isNullableString(value.image_url) &&
     (value.bean_type === 'single_origin' || value.bean_type === 'blend') &&
@@ -1424,7 +1424,7 @@ function isBeanUpsertPayload(value: Record<string, unknown>) {
     value.blend_components.every(isBeanBlendComponent) &&
     isNullableString(value.blend_notes) &&
     isNullableString(value.notes) &&
-    isPositiveInteger(value.schema_version)
+    value.schema_version === 1
   )
 }
 
@@ -1479,7 +1479,7 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
   }
   return (
     isNullableString(value.bean_id) &&
-    typeof value.brewed_at === 'string' &&
+    isIsoTime(value.brewed_at) &&
     isNullableString(value.method) &&
     isNullableString(value.dripper) &&
     isNullableString(value.filter_paper) &&
@@ -1502,7 +1502,7 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
     isStringArray(value.flavor_tags) &&
     typeof value.is_pinned_recipe === 'boolean' &&
     isNullableString(value.notes) &&
-    isPositiveInteger(value.schema_version)
+    value.schema_version === 1
   )
 }
 
@@ -1560,7 +1560,7 @@ function isBrewTemplateUpsertPayload(value: Record<string, unknown>) {
     isStringArray(value.source_urls) &&
     typeof value.is_champion_reference === 'boolean' &&
     isNullableString(value.copied_from_template_id) &&
-    isPositiveInteger(value.schema_version)
+    value.schema_version === 1
   )
 }
 
@@ -1608,7 +1608,7 @@ function isUserSettingsUpsertPayload(value: Record<string, unknown>) {
     isJsonObject(value.default_gear) &&
     isJsonObject(value.taste_preferences) &&
     isFiniteNumber(value.backup_reminder_days) &&
-    isPositiveInteger(value.schema_version)
+    value.schema_version === 1
   )
 }
 
@@ -1803,6 +1803,31 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
+}
+
+function isNullableCalendarDate(value: unknown): value is string | null {
+  return value === null || isCalendarDate(value)
+}
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (match === null) {
+    return false
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  return (
+    year >= 1 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= getDaysInMonth(year, month)
+  )
 }
 
 function isPositiveInteger(value: unknown): value is number {
