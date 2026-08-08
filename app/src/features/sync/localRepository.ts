@@ -50,7 +50,7 @@ export type LocalRepositoryTestOperation =
   | 'recordRetryableFailure'
   | 'markMutationAttention'
   | 'markMutationPending'
-  | 'discardMutation'
+  | 'discardMutationAndReplaceSnapshot'
   | 'quarantineOlderEpoch'
   | 'replaceServerSnapshot'
   | 'writeSyncMeta'
@@ -92,6 +92,40 @@ type SyncMetaValue = {
 }
 
 type TransactionAbort = (cause: unknown) => void
+
+type EnvelopeClassification<Value> =
+  | { kind: 'missing' }
+  | { kind: 'foreign' }
+  | { kind: 'orphan' }
+  | { kind: 'corrupt-owned' }
+  | { kind: 'valid'; envelope: StoredEnvelope<Value> }
+
+export class LocalSyncDataCorruptionError extends Error {
+  readonly code = 'LOCAL_SYNC_DATA_CORRUPT'
+
+  constructor(message = 'Current-user local sync data is corrupt') {
+    super(message)
+    this.name = 'LocalSyncDataCorruptionError'
+  }
+}
+
+export class StaleLocalSnapshotError extends Error {
+  readonly code = 'STALE_LOCAL_SNAPSHOT'
+
+  constructor(message = 'Local snapshot metadata would move backwards') {
+    super(message)
+    this.name = 'StaleLocalSnapshotError'
+  }
+}
+
+export class LocalSyncMutationNotFoundError extends Error {
+  readonly code = 'LOCAL_SYNC_MUTATION_NOT_FOUND'
+
+  constructor(message = 'Owned local sync mutation was not found') {
+    super(message)
+    this.name = 'LocalSyncMutationNotFoundError'
+  }
+}
 
 const entityStoreNames: readonly LocalEntityStoreName[] = [
   syncStoreNames.beans,
@@ -183,8 +217,16 @@ export function createLocalRepository(
     ),
     markMutationPending: (userId: string, mutationId: string) =>
       markMutationPendingWithOptions(userId, mutationId, testOptions),
-    discardMutation: (userId: string, mutationId: string) =>
-      discardMutationWithOptions(userId, mutationId, testOptions),
+    discardMutationAndReplaceSnapshot: (
+      userId: string,
+      mutationId: string,
+      snapshot: SyncSnapshot,
+    ) => discardMutationAndReplaceSnapshotWithOptions(
+      userId,
+      mutationId,
+      snapshot,
+      testOptions,
+    ),
     quarantineOlderEpoch: (
       userId: string,
       currentEpoch: number,
@@ -281,7 +323,7 @@ export async function listOutbox(userId: string): Promise<SyncMutation[]> {
             .map((row) => row.value)
             .sort(
               (left, right) =>
-                left.queuedAt.localeCompare(right.queuedAt) ||
+                Date.parse(left.queuedAt) - Date.parse(right.queuedAt) ||
                 left.mutationId.localeCompare(right.mutationId),
             )
         } catch (error) {
@@ -334,12 +376,18 @@ export function markMutationPending(userId: string, mutationId: string) {
   return markMutationPendingWithOptions(userId, mutationId, defaultOptions)
 }
 
-/**
- * Removes only the owned queue entry. It deliberately does not claim to restore
- * the server row; SyncManager must fetch and install a fresh snapshot next.
- */
-export function discardMutation(userId: string, mutationId: string) {
-  return discardMutationWithOptions(userId, mutationId, defaultOptions)
+/** Accepts only a SyncSnapshot already fully validated by the Task 9 RPC boundary. */
+export function discardMutationAndReplaceSnapshot(
+  userId: string,
+  mutationId: string,
+  snapshot: SyncSnapshot,
+) {
+  return discardMutationAndReplaceSnapshotWithOptions(
+    userId,
+    mutationId,
+    snapshot,
+    defaultOptions,
+  )
 }
 
 export function quarantineOlderEpoch(
@@ -357,6 +405,7 @@ export function quarantineOlderEpoch(
   )
 }
 
+/** Accepts only a SyncSnapshot already fully validated by the Task 9 RPC boundary. */
 export function replaceServerSnapshot(userId: string, snapshot: SyncSnapshot) {
   return replaceServerSnapshotWithOptions(userId, snapshot, defaultOptions)
 }
@@ -622,20 +671,6 @@ function markMutationPendingWithOptions(
   )
 }
 
-function discardMutationWithOptions(
-  userId: string,
-  mutationId: string,
-  options: LocalRepositoryTestOptions,
-) {
-  return mutateSelectedOutbox(
-    userId,
-    [mutationId],
-    'discardMutation',
-    () => 'delete',
-    options,
-  )
-}
-
 async function quarantineOlderEpochWithOptions(
   userId: string,
   currentEpoch: number,
@@ -736,6 +771,24 @@ async function replaceServerSnapshotWithOptions(
   snapshot: SyncSnapshot,
   options: LocalRepositoryTestOptions,
 ) {
+  return runSnapshotTransaction(userId, snapshot, options)
+}
+
+async function discardMutationAndReplaceSnapshotWithOptions(
+  userId: string,
+  mutationId: string,
+  snapshot: SyncSnapshot,
+  options: LocalRepositoryTestOptions,
+) {
+  return runSnapshotTransaction(userId, snapshot, options, mutationId)
+}
+
+async function runSnapshotTransaction(
+  userId: string,
+  snapshot: SyncSnapshot,
+  options: LocalRepositoryTestOptions,
+  discardedMutationId?: string,
+) {
   assertSnapshotOwnership(userId, snapshot)
   await withDatabase((database) => {
     const transactionStores = [
@@ -748,30 +801,119 @@ async function replaceServerSnapshotWithOptions(
     return waitForTransaction(transaction, (abort) => {
       const rowsByStore = new Map<string, unknown[]>()
       const storesToRead = [...entityStoreNames, syncStoreNames.outbox]
-      let remaining = storesToRead.length
+      let currentMetaRow: unknown
+      let remaining = storesToRead.length + 1
+
+      const finishRead = () => {
+        remaining -= 1
+        if (remaining !== 0) {
+          return
+        }
+
+        validateLocalSnapshotInputs(
+          rowsByStore,
+          currentMetaRow,
+          userId,
+          snapshot,
+          discardedMutationId,
+        )
+        applySnapshotTransaction(
+          transaction,
+          rowsByStore,
+          userId,
+          snapshot,
+          discardedMutationId,
+        )
+        options.beforeCommit?.(
+          discardedMutationId === undefined
+            ? 'replaceServerSnapshot'
+            : 'discardMutationAndReplaceSnapshot',
+        )
+      }
 
       for (const storeName of storesToRead) {
         const request = transaction.objectStore(storeName).getAll()
         request.onsuccess = () => {
           try {
             rowsByStore.set(storeName, request.result as unknown[])
-            remaining -= 1
-            if (remaining === 0) {
-              applySnapshotTransaction(
-                transaction,
-                rowsByStore,
-                userId,
-                snapshot,
-              )
-              options.beforeCommit?.('replaceServerSnapshot')
-            }
+            finishRead()
           } catch (error) {
             abort(error)
           }
         }
       }
+
+      const metaRequest = transaction
+        .objectStore(syncStoreNames.syncMeta)
+        .get(syncMetaKey(userId))
+      metaRequest.onsuccess = () => {
+        try {
+          currentMetaRow = metaRequest.result as unknown
+          finishRead()
+        } catch (error) {
+          abort(error)
+        }
+      }
     })
   })
+}
+
+function validateLocalSnapshotInputs(
+  rowsByStore: Map<string, unknown[]>,
+  currentMetaRow: unknown,
+  userId: string,
+  snapshot: SyncSnapshot,
+  discardedMutationId?: string,
+) {
+  const currentMeta = readSyncMetaEnvelope(currentMetaRow, userId)
+  assertMonotonicSyncMeta(currentMeta?.value ?? null, {
+    syncEpoch: snapshot.syncEpoch,
+    lastSyncedAt: snapshot.serverTime,
+  })
+
+  const outboxRows = rowsByStore.get(syncStoreNames.outbox) ?? []
+  for (const row of outboxRows) {
+    readOutboxEnvelope(row, userId)
+  }
+  if (discardedMutationId !== undefined) {
+    const targetRow = outboxRows.find(
+      (row) => isRecord(row) && row.key === discardedMutationId,
+    )
+    const target = classifyOutboxEnvelope(
+      targetRow,
+      userId,
+      discardedMutationId,
+    )
+    if (target.kind === 'corrupt-owned') {
+      throw new LocalSyncDataCorruptionError(
+        'Discard target local Outbox envelope is corrupt',
+      )
+    }
+    if (target.kind !== 'valid') {
+      throw new LocalSyncMutationNotFoundError()
+    }
+  }
+
+  for (const storeName of entityStoreNames) {
+    for (const row of rowsByStore.get(storeName) ?? []) {
+      readEntityEnvelope(storeName, row, userId)
+    }
+  }
+
+  const snapshotRows: {
+    [Store in LocalEntityStoreName]: Array<EntityByStore[Store]>
+  } = {
+    beans: snapshot.beans,
+    brewLogs: snapshot.brewLogs,
+    brewTemplates: snapshot.brewTemplates,
+    userSettings: snapshot.userSettings === null ? [] : [snapshot.userSettings],
+    aiRecommendations: snapshot.aiRecommendations,
+  }
+  for (const storeName of entityStoreNames) {
+    for (const row of snapshotRows[storeName]) {
+      createEntityEnvelope(storeName, userId, row)
+    }
+  }
 }
 
 function applySnapshotTransaction(
@@ -779,6 +921,7 @@ function applySnapshotTransaction(
   rowsByStore: Map<string, unknown[]>,
   userId: string,
   snapshot: SyncSnapshot,
+  discardedMutationId?: string,
 ) {
   const protectedKeys = new Map<LocalEntityStoreName, Set<string>>()
   for (const storeName of entityStoreNames) {
@@ -787,12 +930,21 @@ function applySnapshotTransaction(
 
   for (const row of rowsByStore.get(syncStoreNames.outbox) ?? []) {
     const envelope = readOutboxEnvelope(row, userId)
-    if (envelope !== null) {
+    if (
+      envelope !== null &&
+      envelope.key !== discardedMutationId
+    ) {
       const storeName = storeByEntityType[envelope.value.entityType]
       protectedKeys
         .get(storeName)
         ?.add(entityKey(userId, envelope.value.entityId))
     }
+  }
+
+  if (discardedMutationId !== undefined) {
+    transaction
+      .objectStore(syncStoreNames.outbox)
+      .delete(discardedMutationId)
   }
 
   const snapshotRows: {
@@ -865,13 +1017,20 @@ async function writeSyncMetaWithOptions(
   await withDatabase((database) => {
     const transaction = database.transaction(syncStoreNames.syncMeta, 'readwrite')
     return waitForTransaction(transaction, (abort) => {
-      try {
-        transaction
-          .objectStore(syncStoreNames.syncMeta)
-          .put(createSyncMetaEnvelope(userId, input))
-        options.beforeCommit?.('writeSyncMeta')
-      } catch (error) {
-        abort(error)
+      const store = transaction.objectStore(syncStoreNames.syncMeta)
+      const request = store.get(syncMetaKey(userId))
+      request.onsuccess = () => {
+        try {
+          const current = readSyncMetaEnvelope(
+            request.result as unknown,
+            userId,
+          )
+          assertMonotonicSyncMeta(current?.value ?? null, input)
+          store.put(createSyncMetaEnvelope(userId, input))
+          options.beforeCommit?.('writeSyncMeta')
+        } catch (error) {
+          abort(error)
+        }
       }
     })
   })
@@ -1052,23 +1211,53 @@ function readEntityEnvelope<Store extends LocalEntityStoreName>(
   row: unknown,
   userId: string,
 ): StoredEnvelope<EntityByStore[Store]> | null {
+  const classification = classifyEntityEnvelope(storeName, row, userId)
+  if (classification.kind === 'corrupt-owned') {
+    throw new LocalSyncDataCorruptionError(
+      `Corrupt current-user entity envelope in ${storeName}`,
+    )
+  }
+  return classification.kind === 'valid' ? classification.envelope : null
+}
+
+function classifyEntityEnvelope<Store extends LocalEntityStoreName>(
+  storeName: Store,
+  row: unknown,
+  userId: string,
+): EnvelopeClassification<EntityByStore[Store]> {
+  if (row === undefined) {
+    return { kind: 'missing' }
+  }
+  const envelopeOwner = isRecord(row) ? row.userId : undefined
+  const valueOwner =
+    isRecord(row) && isRecord(row.value) ? row.value.user_id : undefined
+  const pointsToCurrentUser =
+    envelopeOwner === userId || valueOwner === userId
+
   if (
-    !isRecord(row) ||
-    typeof row.key !== 'string' ||
-    row.userId !== userId ||
-    !isRecord(row.value) ||
-    row.value.user_id !== userId
+    isRecord(row) &&
+    typeof row.key === 'string' &&
+    typeof envelopeOwner === 'string' &&
+    isRecord(row.value) &&
+    typeof valueOwner === 'string' &&
+    envelopeOwner === valueOwner
   ) {
-    return null
+    const id =
+      storeName === syncStoreNames.userSettings
+        ? row.value.user_id
+        : row.value.id
+    if (typeof id === 'string' && row.key === entityKey(envelopeOwner, id)) {
+      if (envelopeOwner === userId) {
+        return {
+          kind: 'valid',
+          envelope: row as StoredEnvelope<EntityByStore[Store]>,
+        }
+      }
+      return { kind: 'foreign' }
+    }
   }
-  const id =
-    storeName === syncStoreNames.userSettings
-      ? row.value.user_id
-      : row.value.id
-  if (typeof id !== 'string' || row.key !== entityKey(userId, id)) {
-    return null
-  }
-  return row as StoredEnvelope<EntityByStore[Store]>
+
+  return pointsToCurrentUser ? { kind: 'corrupt-owned' } : { kind: 'orphan' }
 }
 
 function readOutboxEnvelope(
@@ -1076,22 +1265,60 @@ function readOutboxEnvelope(
   userId: string,
   expectedMutationId?: string,
 ): StoredEnvelope<SyncMutation> | null {
-  if (
-    !isRecord(row) ||
-    typeof row.key !== 'string' ||
-    row.userId !== userId ||
-    !isSyncMutation(row.value) ||
-    row.value.userId !== userId ||
-    row.key !== row.value.mutationId ||
-    (expectedMutationId !== undefined && row.key !== expectedMutationId)
-  ) {
-    return null
-  }
-  return {
-    key: row.key,
+  const classification = classifyOutboxEnvelope(
+    row,
     userId,
-    value: row.value,
+    expectedMutationId,
+  )
+  if (classification.kind === 'corrupt-owned') {
+    throw new LocalSyncDataCorruptionError('Corrupt current-user Outbox envelope')
   }
+  return classification.kind === 'valid' ? classification.envelope : null
+}
+
+function classifyOutboxEnvelope(
+  row: unknown,
+  userId: string,
+  expectedMutationId?: string,
+): EnvelopeClassification<SyncMutation> {
+  if (row === undefined) {
+    return { kind: 'missing' }
+  }
+  const envelopeOwner = isRecord(row) ? row.userId : undefined
+  const valueOwner =
+    isRecord(row) && isRecord(row.value) ? row.value.userId : undefined
+  const pointsToCurrentUser =
+    envelopeOwner === userId || valueOwner === userId
+  const directlyTargeted =
+    expectedMutationId !== undefined &&
+    isRecord(row) &&
+    row.key === expectedMutationId
+
+  if (
+    isRecord(row) &&
+    typeof row.key === 'string' &&
+    typeof envelopeOwner === 'string' &&
+    isSyncMutation(row.value) &&
+    envelopeOwner === row.value.userId &&
+    row.key === row.value.mutationId &&
+    (expectedMutationId === undefined || row.key === expectedMutationId)
+  ) {
+    if (envelopeOwner === userId) {
+      return {
+        kind: 'valid',
+        envelope: {
+          key: row.key,
+          userId,
+          value: row.value,
+        },
+      }
+    }
+    return { kind: 'foreign' }
+  }
+
+  return pointsToCurrentUser || directlyTargeted
+    ? { kind: 'corrupt-owned' }
+    : { kind: 'orphan' }
 }
 
 function isSyncMutation(value: unknown): value is SyncMutation {
@@ -1170,6 +1397,9 @@ function readSyncMetaEnvelope(
   row: unknown,
   userId: string,
 ): StoredEnvelope<SyncMetaValue> | null {
+  if (row === undefined) {
+    return null
+  }
   if (
     !isRecord(row) ||
     row.key !== syncMetaKey(userId) ||
@@ -1178,7 +1408,9 @@ function readSyncMetaEnvelope(
     !isPositiveInteger(row.value.syncEpoch) ||
     !isIsoTime(row.value.lastSyncedAt)
   ) {
-    return null
+    throw new LocalSyncDataCorruptionError(
+      'Corrupt current-user sync metadata envelope',
+    )
   }
   return {
     key: syncMetaKey(userId),
@@ -1194,6 +1426,27 @@ function assertSyncMetaValue(value: SyncMetaValue) {
   assertPositiveEpoch(value.syncEpoch)
   if (!isIsoTime(value.lastSyncedAt)) {
     throw new Error('Invalid last synced time')
+  }
+}
+
+function assertMonotonicSyncMeta(
+  current: SyncMetaValue | null,
+  next: SyncMetaValue,
+) {
+  assertSyncMetaValue(next)
+  if (current === null) {
+    return
+  }
+  if (next.syncEpoch < current.syncEpoch) {
+    throw new StaleLocalSnapshotError('Sync epoch cannot move backwards')
+  }
+  if (
+    next.syncEpoch === current.syncEpoch &&
+    Date.parse(next.lastSyncedAt) < Date.parse(current.lastSyncedAt)
+  ) {
+    throw new StaleLocalSnapshotError(
+      'Same-epoch server time cannot move backwards',
+    )
   }
 }
 
@@ -1254,5 +1507,11 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 function isIsoTime(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
+  return (
+    typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value,
+    ) &&
+    Number.isFinite(Date.parse(value))
+  )
 }

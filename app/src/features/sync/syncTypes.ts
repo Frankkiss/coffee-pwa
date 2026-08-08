@@ -155,7 +155,11 @@ export type SyncStorage = {
     message: string,
   ): Promise<void>
   markMutationPending(userId: string, mutationId: string): Promise<void>
-  discardMutation(userId: string, mutationId: string): Promise<void>
+  discardMutationAndReplaceSnapshot(
+    userId: string,
+    mutationId: string,
+    snapshot: SyncSnapshot,
+  ): Promise<void>
   quarantineOlderEpoch(
     userId: string,
     currentEpoch: number,

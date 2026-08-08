@@ -20,9 +20,11 @@ import {
 import {
   acknowledgeMutations,
   createLocalRepository,
-  discardMutation,
+  discardMutationAndReplaceSnapshot,
   listLocalEntities,
   listOutbox,
+  LocalSyncDataCorruptionError,
+  LocalSyncMutationNotFoundError,
   markMutationAttention,
   markMutationPending,
   markMutationsSyncing,
@@ -31,6 +33,7 @@ import {
   recordRetryableFailure,
   replaceServerSnapshot,
   saveLocalEntity,
+  StaleLocalSnapshotError,
   writeSyncMeta,
 } from './localRepository'
 
@@ -180,7 +183,7 @@ describe('localRepository atomic entity writes', () => {
     expect(await listOutbox(userOne)).toEqual([])
   })
 
-  it('lists stable owned rows including tombstones and ignores malformed envelopes', async () => {
+  it('lists stable owned rows including tombstones and ignores valid foreign envelopes', async () => {
     const later = createBean(userOne, 'bean-z', 'later', fixedNow)
     const tombstone = {
       ...createBean(userOne, 'bean-a', 'deleted'),
@@ -202,16 +205,23 @@ describe('localRepository atomic entity writes', () => {
       userId: userTwo,
       value: other,
     })
-    await putEnvelope('beans', {
-      key: entityKey(userOne, 'malformed'),
-      userId: userOne,
-      value: { ...later, id: 'wrong-id' },
-    })
-
     expect(await listLocalEntities('beans', userOne)).toEqual([
       tombstone,
       later,
     ])
+  })
+
+  it('rejects a corrupt-owned entity envelope instead of hiding it', async () => {
+    const bean = createBean(userOne, 'bean-1', 'local')
+    await putEnvelope('beans', {
+      key: entityKey(userOne, 'wrong-id'),
+      userId: userOne,
+      value: bean,
+    })
+
+    await expect(listLocalEntities('beans', userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
   })
 })
 
@@ -240,17 +250,75 @@ describe('localRepository Outbox isolation and state transitions', () => {
     await putOutbox(firstA)
     await putOutbox(other)
     await putEnvelope('outbox', {
-      key: 'bad-key',
-      userId: userOne,
-      value: { ...firstA, mutationId: 'different-key' },
+      key: 'unowned-orphan',
+      value: { broken: true },
     })
-    await putEnvelope('outbox', {
-      key: 'bad-owner',
-      userId: userOne,
-      value: { ...firstA, mutationId: 'bad-owner', userId: userTwo },
-    })
-
     expect(await listOutbox(userOne)).toEqual([firstA, firstB, second])
+  })
+
+  it('sorts equivalent RFC3339 offsets by mutation id after parsed time', async () => {
+    const zulu = createBeanDeleteMutation(userOne, 'bean-z', 'mutation-z', {
+      queuedAt: '2026-08-08T10:00:00Z',
+    })
+    const offset = createBeanDeleteMutation(userOne, 'bean-a', 'mutation-a', {
+      queuedAt: '2026-08-08T18:00:00+08:00',
+    })
+    await putOutbox(zulu)
+    await putOutbox(offset)
+
+    expect(await listOutbox(userOne)).toEqual([offset, zulu])
+  })
+
+  it.each<[
+    string,
+    (mutation: BeanDeleteMutation) => { key: string; userId: string; value: unknown },
+  ]>([
+    [
+      'envelope owner',
+      (mutation) => ({
+        key: mutation.mutationId,
+        userId: userTwo,
+        value: mutation,
+      }),
+    ],
+    [
+      'value owner',
+      (mutation) => ({
+        key: mutation.mutationId,
+        userId: userOne,
+        value: { ...mutation, userId: userTwo },
+      }),
+    ],
+    [
+      'key',
+      (mutation) => ({
+        key: 'different-key',
+        userId: userOne,
+        value: mutation,
+      }),
+    ],
+    [
+      'queuedAt',
+      (mutation) => ({
+        key: mutation.mutationId,
+        userId: userOne,
+        value: { ...mutation, queuedAt: 'August 8, 2026 10:00' },
+      }),
+    ],
+  ])('rejects current-user corrupt-owned %s data', async (_label, createRow) => {
+    const mutation = createBeanDeleteMutation(
+      userOne,
+      'bean-corrupt',
+      'mutation-corrupt',
+    )
+    await putEnvelope('outbox', createRow(mutation))
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+    await expect(listOutbox(userOne)).rejects.toBeInstanceOf(
+      LocalSyncDataCorruptionError,
+    )
   })
 
   it('applies guarded status transitions without changing another user', async () => {
@@ -326,36 +394,28 @@ describe('localRepository Outbox isolation and state transitions', () => {
     await markMutationAttention(userOne, [other.mutationId], 'NO', 'no')
     await markMutationPending(userOne, other.mutationId)
     await quarantineOlderEpoch(userOne, 2, 'STALE', 'stale')
-    await discardMutation(userOne, other.mutationId)
+    await expect(
+      discardMutationAndReplaceSnapshot(
+        userOne,
+        other.mutationId,
+        createSnapshot(userOne),
+      ),
+    ).rejects.toBeInstanceOf(LocalSyncMutationNotFoundError)
 
     expect(await getOutboxMutation(other.mutationId)).toEqual(other)
   })
 
-  it('acknowledges and discards only exact owned envelopes', async () => {
+  it('acknowledges only exact owned envelopes', async () => {
     const acknowledged = createBeanDeleteMutation(
       userOne,
       'bean-1',
       'mutation-ack',
     )
-    const discarded = createBeanDeleteMutation(
-      userOne,
-      'bean-2',
-      'mutation-discard',
-    )
-    const localOverlay = createBean(userOne, discarded.entityId, 'still local')
     await putOutbox(acknowledged)
-    await putOutbox(discarded)
-    await putEnvelope('beans', {
-      key: entityKey(userOne, localOverlay.id),
-      userId: userOne,
-      value: localOverlay,
-    })
 
     await acknowledgeMutations(userOne, [acknowledged.mutationId])
-    await discardMutation(userOne, discarded.mutationId)
 
     expect(await listOutbox(userOne)).toEqual([])
-    expect(await listLocalEntities('beans', userOne)).toEqual([localOverlay])
   })
 
   it('quarantines only current-user rows from an older epoch', async () => {
@@ -404,6 +464,43 @@ describe('localRepository Outbox isolation and state transitions', () => {
 
     expect(await getOutboxMutation(first.mutationId)).toEqual(first)
     expect(await getOutboxMutation(second.mutationId)).toEqual(second)
+  })
+
+  it('aborts all selected state changes when one target is corrupt-owned', async () => {
+    const valid = createBeanDeleteMutation(userOne, 'bean-valid', 'mutation-valid')
+    const corrupt = createBeanDeleteMutation(
+      userOne,
+      'bean-corrupt',
+      'mutation-corrupt-value',
+    )
+    await putOutbox(valid)
+    await putEnvelope('outbox', {
+      key: 'mutation-corrupt',
+      userId: userOne,
+      value: corrupt,
+    })
+
+    await expect(
+      markMutationsSyncing(userOne, [valid.mutationId, 'mutation-corrupt']),
+    ).rejects.toMatchObject({ code: 'LOCAL_SYNC_DATA_CORRUPT' })
+
+    expect(await getOutboxMutation(valid.mutationId)).toEqual(valid)
+    expect(await getOutboxMutation('mutation-corrupt')).toEqual(corrupt)
+  })
+
+  it('rejects a directly targeted unowned corrupt orphan without modifying valid rows', async () => {
+    const valid = createBeanDeleteMutation(userOne, 'bean-valid', 'mutation-valid')
+    await putOutbox(valid)
+    await putEnvelope('outbox', {
+      key: 'mutation-orphan',
+      value: { broken: true },
+    })
+
+    await expect(
+      markMutationsSyncing(userOne, [valid.mutationId, 'mutation-orphan']),
+    ).rejects.toMatchObject({ code: 'LOCAL_SYNC_DATA_CORRUPT' })
+
+    expect(await getOutboxMutation(valid.mutationId)).toEqual(valid)
   })
 })
 
@@ -474,6 +571,106 @@ describe('localRepository server snapshots and sync metadata', () => {
     })
   })
 
+  it('atomically discards one mutation, restores its server tombstone, and preserves other intent', async () => {
+    const discardedLocal = createBean(userOne, 'bean-discarded', 'local edit')
+    const protectedLocal = createBean(userOne, 'bean-protected', 'keep local')
+    const otherUserBean = createBean(userTwo, 'bean-other', 'other user')
+    const discardedMutation = createBeanUpsertMutation(
+      discardedLocal,
+      'mutation-discarded',
+      { status: 'needs_attention' },
+    )
+    const protectedMutation = createBeanUpsertMutation(
+      protectedLocal,
+      'mutation-protected',
+    )
+    await putEntityRows('beans', [discardedLocal, protectedLocal, otherUserBean])
+    await putOutbox(discardedMutation)
+    await putOutbox(protectedMutation)
+    const serverTombstone = {
+      ...createBean(userOne, discardedLocal.id, 'server deleted'),
+      deleted_at: fixedNow,
+    }
+    const snapshot = createSnapshot(userOne, {
+      beans: [
+        serverTombstone,
+        { ...protectedLocal, name: 'stale server protected' },
+      ],
+    })
+
+    await discardMutationAndReplaceSnapshot(
+      userOne,
+      discardedMutation.mutationId,
+      snapshot,
+    )
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      serverTombstone,
+      protectedLocal,
+    ])
+    expect(await listOutbox(userOne)).toEqual([protectedMutation])
+    expect(await listLocalEntities('beans', userTwo)).toEqual([otherUserBean])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: snapshot.syncEpoch,
+      lastSyncedAt: snapshot.serverTime,
+    })
+  })
+
+  it('rolls back discard, overlay, snapshot, and meta on forced failure', async () => {
+    const local = createBean(userOne, 'bean-discarded', 'local edit')
+    const mutation = createBeanUpsertMutation(local, 'mutation-discarded', {
+      status: 'needs_attention',
+    })
+    await putEntityRows('beans', [local])
+    await putOutbox(mutation)
+    const repository = createLocalRepository({
+      beforeCommit: (operation) => {
+        if (operation === 'discardMutationAndReplaceSnapshot') {
+          throw new Error('forced discard failure')
+        }
+      },
+    })
+
+    await expect(
+      repository.discardMutationAndReplaceSnapshot(
+        userOne,
+        mutation.mutationId,
+        createSnapshot(userOne, {
+          beans: [createBean(userOne, local.id, 'server version')],
+        }),
+      ),
+    ).rejects.toThrow('forced discard failure')
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([local])
+    expect(await listOutbox(userOne)).toEqual([mutation])
+    expect(await readSyncEpoch(userOne)).toBe(1)
+  })
+
+  it('rejects missing or foreign discard targets without applying a snapshot', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    const foreign = createBeanDeleteMutation(
+      userTwo,
+      'bean-foreign',
+      'mutation-foreign',
+    )
+    await putEntityRows('beans', [original])
+    await putOutbox(foreign)
+    const snapshot = createSnapshot(userOne, {
+      beans: [createBean(userOne, 'bean-new', 'must not apply')],
+    })
+
+    await expect(
+      discardMutationAndReplaceSnapshot(userOne, 'missing', snapshot),
+    ).rejects.toBeInstanceOf(LocalSyncMutationNotFoundError)
+    await expect(
+      discardMutationAndReplaceSnapshot(userOne, foreign.mutationId, snapshot),
+    ).rejects.toBeInstanceOf(LocalSyncMutationNotFoundError)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await getOutboxMutation(foreign.mutationId)).toEqual(foreign)
+    expect(await readSyncEpoch(userOne)).toBe(1)
+  })
+
   it('replaces brew logs, templates, and settings for only the requested user', async () => {
     const oldBrew = createBrewLog(userOne, 'brew-old')
     const otherBrew = createBrewLog(userTwo, 'brew-other')
@@ -515,6 +712,98 @@ describe('localRepository server snapshots and sync metadata', () => {
     expect(await readSyncEpoch(userOne)).toBe(1)
   })
 
+  it('rejects corrupt-owned Outbox during snapshot replacement and rolls back all stores', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    const corrupt = createBeanDeleteMutation(
+      userOne,
+      original.id,
+      'mutation-corrupt-value',
+    )
+    await putEntityRows('beans', [original])
+    await writeSyncMeta(userOne, {
+      syncEpoch: 2,
+      lastSyncedAt: fixedNow,
+    })
+    await putEnvelope('outbox', {
+      key: 'mutation-corrupt',
+      userId: userOne,
+      value: corrupt,
+    })
+    const snapshot = createSnapshot(userOne, {
+      syncEpoch: 3,
+      serverTime: '2026-08-08T11:00:00.000Z',
+      beans: [createBean(userOne, 'bean-new', 'new')],
+    })
+
+    await expect(replaceServerSnapshot(userOne, snapshot)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await getOutboxMutation('mutation-corrupt')).toEqual(corrupt)
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 2,
+      lastSyncedAt: fixedNow,
+    })
+  })
+
+  it('rejects lower epochs and older same-epoch snapshots without degrading rows or meta', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    await putEntityRows('beans', [original])
+    await writeSyncMeta(userOne, {
+      syncEpoch: 3,
+      lastSyncedAt: fixedNow,
+    })
+    const staleEntity = createBean(userOne, 'bean-stale', 'stale')
+
+    await expect(
+      replaceServerSnapshot(
+        userOne,
+        createSnapshot(userOne, {
+          syncEpoch: 2,
+          serverTime: '2026-08-08T11:00:00.000Z',
+          beans: [staleEntity],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(StaleLocalSnapshotError)
+    await expect(
+      replaceServerSnapshot(
+        userOne,
+        createSnapshot(userOne, {
+          syncEpoch: 3,
+          serverTime: '2026-08-08T09:00:00.000Z',
+          beans: [staleEntity],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'STALE_LOCAL_SNAPSHOT' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 3,
+      lastSyncedAt: fixedNow,
+    })
+  })
+
+  it('allows a higher epoch even when its canonical server time is earlier', async () => {
+    await writeSyncMeta(userOne, {
+      syncEpoch: 3,
+      lastSyncedAt: fixedNow,
+    })
+    const higherEpoch = createSnapshot(userOne, {
+      syncEpoch: 4,
+      serverTime: '2020-01-01T00:00:00Z',
+      beans: [createBean(userOne, 'bean-new', 'higher epoch')],
+    })
+
+    await replaceServerSnapshot(userOne, higherEpoch)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual(higherEpoch.beans)
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: 4,
+      lastSyncedAt: higherEpoch.serverTime,
+    })
+  })
+
   it('rolls back snapshot rows and metadata together on forced failure', async () => {
     const original = createBean(userOne, 'bean-original', 'original')
     await putEntityRows('beans', [original])
@@ -547,6 +836,30 @@ describe('localRepository server snapshots and sync metadata', () => {
     })
   })
 
+  it('rejects corrupt current-user sync metadata before snapshot or meta writes', async () => {
+    const original = createBean(userOne, 'bean-original', 'original')
+    await putEntityRows('beans', [original])
+    await putEnvelope('syncMeta', {
+      key: entityKey(userOne, 'syncMeta'),
+      userId: userOne,
+      value: { syncEpoch: 'broken', lastSyncedAt: fixedNow },
+    })
+
+    await expect(
+      replaceServerSnapshot(
+        userOne,
+        createSnapshot(userOne, {
+          beans: [createBean(userOne, 'bean-new', 'must not apply')],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(LocalSyncDataCorruptionError)
+    await expect(
+      writeSyncMeta(userOne, { syncEpoch: 3, lastSyncedAt: fixedNow }),
+    ).rejects.toMatchObject({ code: 'LOCAL_SYNC_DATA_CORRUPT' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+  })
+
   it('defaults missing sync metadata to epoch one and validates writes', async () => {
     expect(await readSyncEpoch(userOne)).toBe(1)
 
@@ -561,6 +874,24 @@ describe('localRepository server snapshots and sync metadata', () => {
     ).rejects.toThrow('sync epoch')
     await expect(
       writeSyncMeta(userOne, { syncEpoch: 5, lastSyncedAt: 'not-a-date' }),
+    ).rejects.toThrow('last synced')
+    await expect(
+      writeSyncMeta(userOne, {
+        syncEpoch: 3,
+        lastSyncedAt: '2026-08-08T11:00:00.000Z',
+      }),
+    ).rejects.toBeInstanceOf(StaleLocalSnapshotError)
+    await expect(
+      writeSyncMeta(userOne, {
+        syncEpoch: 4,
+        lastSyncedAt: '2026-08-08T09:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({ code: 'STALE_LOCAL_SNAPSHOT' })
+    await expect(
+      writeSyncMeta(userOne, {
+        syncEpoch: 5,
+        lastSyncedAt: 'August 8, 2026 12:00',
+      }),
     ).rejects.toThrow('last synced')
     expect(await readSyncEpoch(userOne)).toBe(4)
   })

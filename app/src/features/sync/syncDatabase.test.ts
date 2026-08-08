@@ -19,6 +19,7 @@ describe('syncDatabase', () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
     await deleteTestDatabase(syncDatabaseName)
   })
 
@@ -81,11 +82,16 @@ describe('syncDatabase', () => {
     await expect(openSyncDatabase()).rejects.toThrow('IndexedDB unavailable')
   })
 
-  it('rejects a blocked upgrade and closes the late connection', async () => {
+  it('deduplicates a blocked upgrade and closes the late connection', async () => {
     const blocker = await createVersionTwoDatabase()
+    const openSpy = vi.spyOn(indexedDB, 'open')
 
     const opening = openSyncDatabase()
     await expect(opening).rejects.toThrow('IndexedDB open blocked')
+    expect(openSpy).toHaveBeenCalledTimes(1)
+
+    await expect(openSyncDatabase()).rejects.toThrow('IndexedDB open blocked')
+    expect(openSpy).toHaveBeenCalledTimes(1)
 
     blocker.close()
     await new Promise((resolve) => setTimeout(resolve, 0))

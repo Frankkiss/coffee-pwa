@@ -16,14 +16,47 @@ export function entityKey(userId: string, entityId: string) {
   return `${userId}:${entityId}`
 }
 
+type OpenWaiter = {
+  resolve: (database: IDBDatabase) => void
+  reject: (error: Error | DOMException) => void
+}
+
+type InFlightOpen = {
+  blockedError: Error | null
+  waiters: OpenWaiter[]
+}
+
+let inFlightOpen: InFlightOpen | null = null
+
 export function openSyncDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined') {
     return Promise.reject(new Error('IndexedDB unavailable'))
   }
 
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(syncDatabaseName, syncDatabaseVersion)
-    let settled = false
+    if (inFlightOpen !== null) {
+      if (inFlightOpen.blockedError !== null) {
+        reject(inFlightOpen.blockedError)
+      } else {
+        inFlightOpen.waiters.push({ resolve, reject })
+      }
+      return
+    }
+
+    const state: InFlightOpen = {
+      blockedError: null,
+      waiters: [{ resolve, reject }],
+    }
+    inFlightOpen = state
+    let request: IDBOpenDBRequest
+
+    try {
+      request = indexedDB.open(syncDatabaseName, syncDatabaseVersion)
+    } catch (error) {
+      inFlightOpen = null
+      reject(normalizeOpenError(error))
+      return
+    }
 
     request.onupgradeneeded = () => {
       const database = request.result
@@ -43,26 +76,51 @@ export function openSyncDatabase(): Promise<IDBDatabase> {
     request.onsuccess = () => {
       const database = request.result
       database.onversionchange = () => database.close()
-      if (settled) {
+      if (state.blockedError !== null) {
         database.close()
+        if (inFlightOpen === state) {
+          inFlightOpen = null
+        }
         return
       }
-      settled = true
-      resolve(database)
+
+      const [firstWaiter, ...queuedWaiters] = state.waiters
+      state.waiters = []
+      if (inFlightOpen === state) {
+        inFlightOpen = null
+      }
+      firstWaiter?.resolve(database)
+      for (const waiter of queuedWaiters) {
+        openSyncDatabase().then(waiter.resolve, waiter.reject)
+      }
     }
 
     request.onerror = () => {
-      if (!settled) {
-        settled = true
-        reject(request.error ?? new Error('IndexedDB open failed'))
+      const error = request.error ?? new Error('IndexedDB open failed')
+      const waiters = state.waiters
+      state.waiters = []
+      if (inFlightOpen === state) {
+        inFlightOpen = null
+      }
+      for (const waiter of waiters) {
+        waiter.reject(error)
       }
     }
 
     request.onblocked = () => {
-      if (!settled) {
-        settled = true
-        reject(new Error('IndexedDB open blocked'))
+      const error = new Error('IndexedDB open blocked')
+      state.blockedError = error
+      const waiters = state.waiters
+      state.waiters = []
+      for (const waiter of waiters) {
+        waiter.reject(error)
       }
     }
   })
+}
+
+function normalizeOpenError(error: unknown) {
+  return error instanceof DOMException || error instanceof Error
+    ? error
+    : new Error(String(error))
 }
