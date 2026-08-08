@@ -397,13 +397,13 @@ select ok(
     where conrelid = 'public.brew_logs'::regclass
       and conname = 'brew_logs_bean_user_fkey'
       and contype = 'f'
-      and confdeltype = 'r'
+      and confdeltype = 'a'
       and condeferrable
       and condeferred
       and pg_get_constraintdef(oid)
         like 'FOREIGN KEY (bean_id, user_id) REFERENCES beans(id, user_id)%'
   ),
-  'brew logs use a deferred same-user bean foreign key with delete restrict'
+  'brew logs use a deferred same-user bean foreign key with NO ACTION'
 );
 -- 39.
 select ok(
@@ -413,23 +413,32 @@ select ok(
     where conrelid = 'public.ai_recommendations'::regclass
       and conname = 'ai_recommendations_bean_user_fkey'
       and contype = 'f'
-      and confdeltype = 'r'
+      and confdeltype = 'a'
       and condeferrable
       and condeferred
       and pg_get_constraintdef(oid)
         like 'FOREIGN KEY (bean_id, user_id) REFERENCES beans(id, user_id)%'
   ),
-  'AI recommendations use a deferred same-user bean foreign key with delete restrict'
+  'AI recommendations use a deferred same-user bean foreign key with NO ACTION'
 );
 -- 40.
 select ok(
   not exists (
     select 1
-    from pg_catalog.pg_constraint
-    where conrelid = 'public.brew_logs'::regclass
-      and contype = 'f'
-      and array_length(conkey, 1) = 1
-      and pg_get_constraintdef(oid) like 'FOREIGN KEY (bean_id)%'
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.conrelid = 'public.brew_logs'::regclass
+      and constraints.confrelid = 'public.beans'::regclass
+      and constraints.contype = 'f'
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
   ),
   'brew logs no longer has a simple bean_id foreign key'
 );
@@ -437,11 +446,20 @@ select ok(
 select ok(
   not exists (
     select 1
-    from pg_catalog.pg_constraint
-    where conrelid = 'public.ai_recommendations'::regclass
-      and contype = 'f'
-      and array_length(conkey, 1) = 1
-      and pg_get_constraintdef(oid) like 'FOREIGN KEY (bean_id)%'
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.conrelid = 'public.ai_recommendations'::regclass
+      and constraints.confrelid = 'public.beans'::regclass
+      and constraints.contype = 'f'
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
   ),
   'AI recommendations no longer has a simple bean_id foreign key'
 );

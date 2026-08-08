@@ -51,24 +51,59 @@ create index source_imports_active_user_created_at_idx
 on public.source_imports(user_id, created_at desc)
 where deleted_at is null;
 
-alter table public.brew_logs
-drop constraint brew_logs_bean_id_fkey;
+do $$
+declare
+  old_fk record;
+begin
+  for old_fk in
+    select
+      source_namespace.nspname as table_schema,
+      source_table.relname as table_name,
+      constraints.conname
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_class as source_table
+      on source_table.oid = constraints.conrelid
+    join pg_catalog.pg_namespace as source_namespace
+      on source_namespace.oid = source_table.relnamespace
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.contype = 'f'
+      and constraints.conrelid in (
+        'public.brew_logs'::regclass,
+        'public.ai_recommendations'::regclass
+      )
+      and constraints.confrelid = 'public.beans'::regclass
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
+  loop
+    execute format(
+      'alter table %I.%I drop constraint %I',
+      old_fk.table_schema,
+      old_fk.table_name,
+      old_fk.conname
+    );
+  end loop;
+end;
+$$;
 
 alter table public.brew_logs
 add constraint brew_logs_bean_user_fkey
 foreign key (bean_id, user_id)
 references public.beans(id, user_id)
-on delete restrict
+on delete no action
 deferrable initially deferred;
-
-alter table public.ai_recommendations
-drop constraint ai_recommendations_bean_id_fkey;
 
 alter table public.ai_recommendations
 add constraint ai_recommendations_bean_user_fkey
 foreign key (bean_id, user_id)
 references public.beans(id, user_id)
-on delete restrict
+on delete no action
 deferrable initially deferred;
 
 alter table public.brew_logs
