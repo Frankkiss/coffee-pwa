@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(60);
+select plan(143);
 
 -- 1. Technical sync tables exist.
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
@@ -648,6 +648,1297 @@ select is(
   ),
   '1',
   'brew template schema_version defaults to one'
+);
+
+-- 61. Transactional sync RPCs exist with the public contract.
+select has_function('public', 'apply_sync_batch', array['bigint', 'jsonb']);
+-- 62.
+select has_function('public', 'get_sync_snapshot', array[]::text[]);
+
+-- 63. The write RPC is definer-owned and search-path hardened.
+select ok(
+  (
+    select prosecdef
+    from pg_catalog.pg_proc
+    where oid = 'public.apply_sync_batch(bigint,jsonb)'::regprocedure
+  ),
+  'apply_sync_batch is SECURITY DEFINER'
+);
+-- 64.
+select ok(
+  (
+    select coalesce(
+      proconfig @> array['search_path=pg_catalog, pg_temp']::text[],
+      false
+    )
+    from pg_catalog.pg_proc
+    where oid = 'public.apply_sync_batch(bigint,jsonb)'::regprocedure
+  ),
+  'apply_sync_batch fixes search_path to pg_catalog with pg_temp last'
+);
+
+-- 65. The snapshot RPC preserves caller RLS and also fixes its search path.
+select ok(
+  not (
+    select prosecdef
+    from pg_catalog.pg_proc
+    where oid = 'public.get_sync_snapshot()'::regprocedure
+  ),
+  'get_sync_snapshot is SECURITY INVOKER'
+);
+-- 66.
+select ok(
+  (
+    select coalesce(
+      proconfig @> array['search_path=pg_catalog, pg_temp']::text[],
+      false
+    )
+    from pg_catalog.pg_proc
+    where oid = 'public.get_sync_snapshot()'::regprocedure
+  ),
+  'get_sync_snapshot fixes search_path to pg_catalog with pg_temp last'
+);
+
+-- 67. PUBLIC and anon cannot execute either RPC; authenticated can execute both.
+select ok(
+  not exists (
+    select 1
+    from pg_catalog.pg_proc as procedures
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        procedures.proacl,
+        pg_catalog.acldefault('f', procedures.proowner)
+      )
+    ) as privileges
+    where procedures.oid in (
+        'public.apply_sync_batch(bigint,jsonb)'::regprocedure,
+        'public.get_sync_snapshot()'::regprocedure
+      )
+      and privileges.grantee = 0
+      and privileges.privilege_type = 'EXECUTE'
+  ),
+  'PUBLIC cannot execute sync RPCs'
+);
+-- 68.
+select ok(
+  not has_function_privilege('anon', 'public.apply_sync_batch(bigint,jsonb)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.get_sync_snapshot()', 'EXECUTE'),
+  'anon cannot execute sync RPCs'
+);
+-- 69.
+select ok(
+  has_function_privilege('authenticated', 'public.apply_sync_batch(bigint,jsonb)', 'EXECUTE')
+    and has_function_privilege('authenticated', 'public.get_sync_snapshot()', 'EXECUTE'),
+  'authenticated can execute sync RPCs'
+);
+
+-- 70. Four private mutation helpers exist with one fixed signature.
+select ok(
+  to_regprocedure('private.apply_bean_mutation(uuid,uuid,text,jsonb)') is not null
+    and to_regprocedure('private.apply_brew_log_mutation(uuid,uuid,text,jsonb)') is not null
+    and to_regprocedure('private.apply_brew_template_mutation(uuid,uuid,text,jsonb)') is not null
+    and to_regprocedure('private.apply_user_settings_mutation(uuid,uuid,text,jsonb)') is not null,
+  'all four private mutation helpers exist'
+);
+-- 71.
+select ok(
+  not exists (
+    select 1
+    from pg_catalog.pg_proc as procedures
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        procedures.proacl,
+        pg_catalog.acldefault('f', procedures.proowner)
+      )
+    ) as privileges
+    where procedures.oid in (
+        'private.apply_bean_mutation(uuid,uuid,text,jsonb)'::regprocedure,
+        'private.apply_brew_log_mutation(uuid,uuid,text,jsonb)'::regprocedure,
+        'private.apply_brew_template_mutation(uuid,uuid,text,jsonb)'::regprocedure,
+        'private.apply_user_settings_mutation(uuid,uuid,text,jsonb)'::regprocedure
+      )
+      and privileges.privilege_type = 'EXECUTE'
+      and privileges.grantee in (
+        0,
+        (select oid from pg_catalog.pg_roles where rolname = 'anon'),
+        (select oid from pg_catalog.pg_roles where rolname = 'authenticated')
+      )
+  ),
+  'public, anon, and authenticated cannot execute mutation helpers'
+);
+
+insert into auth.users (id, email)
+values
+  ('00000000-0000-0000-0000-000000000001', 'sync-one@example.invalid'),
+  ('00000000-0000-0000-0000-000000000002', 'sync-two@example.invalid');
+
+insert into public.beans (
+  id, user_id, name, flavor_tags, bean_type, blend_components, deleted_at
+)
+values
+  (
+    '40000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'Snapshot bean',
+    '{}',
+    'single_origin',
+    '[]'::jsonb,
+    null
+  ),
+  (
+    '40000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000001',
+    'Snapshot tombstone',
+    '{}',
+    'single_origin',
+    '[]'::jsonb,
+    clock_timestamp()
+  ),
+  (
+    '40000000-0000-0000-0000-000000000003',
+    '00000000-0000-0000-0000-000000000002',
+    'Other user bean',
+    '{}',
+    'single_origin',
+    '[]'::jsonb,
+    null
+  );
+
+insert into public.brew_logs (id, user_id, bean_id, brewed_at)
+values
+  (
+    '41000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001',
+    '2026-08-08T01:00:00Z'
+  ),
+  (
+    '41000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000002',
+    '40000000-0000-0000-0000-000000000003',
+    '2026-08-08T02:00:00Z'
+  );
+
+insert into public.brew_templates (
+  id, user_id, name, category, difficulty, brewer, dose_grams, water_grams,
+  water_temperature_min, water_temperature_max, target_time_min, target_time_max
+)
+values
+  (
+    '42000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'Snapshot template', 'pour-over', 'easy', 'V60', 15, 250, 90, 94, 150, 210
+  ),
+  (
+    '42000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000002',
+    'Other template', 'pour-over', 'easy', 'V60', 15, 250, 90, 94, 150, 210
+  );
+
+insert into public.user_settings (
+  user_id, preferred_units, default_gear, taste_preferences, backup_reminder_days
+)
+values
+  (
+    '00000000-0000-0000-0000-000000000001',
+    '{"weight":"grams"}'::jsonb,
+    '{"grinder":"Sync grinder"}'::jsonb,
+    '{"acidity":3}'::jsonb,
+    9
+  ),
+  (
+    '00000000-0000-0000-0000-000000000002',
+    '{"weight":"ounces"}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    14
+  );
+
+insert into public.ai_recommendations (
+  id, user_id, bean_id, input_context, recommendation, model_name
+)
+values
+  (
+    '43000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001',
+    '{}'::jsonb,
+    '{"method":"V60"}'::jsonb,
+    'test-model'
+  ),
+  (
+    '43000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000002',
+    '40000000-0000-0000-0000-000000000003',
+    '{}'::jsonb,
+    '{"method":"other"}'::jsonb,
+    'test-model'
+  );
+
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000001',
+  true
+);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+set local role authenticated;
+
+-- 72. A new user can read the initial snapshot without a sync-state row.
+select lives_ok(
+  $$select public.get_sync_snapshot()$$,
+  'initial snapshot succeeds before sync state exists'
+);
+-- 73.
+select is(
+  (public.get_sync_snapshot()->>'syncEpoch')::bigint,
+  1::bigint,
+  'initial snapshot defaults syncEpoch to one'
+);
+-- 74.
+select is(
+  (select count(*) from public.user_sync_state),
+  0::bigint,
+  'initial snapshot does not create sync state'
+);
+-- 75.
+select ok(
+  public.get_sync_snapshot() ?& array[
+    'syncEpoch', 'serverTime', 'beans', 'brewLogs', 'brewTemplates',
+    'userSettings', 'aiRecommendations'
+  ]
+    and jsonb_typeof(public.get_sync_snapshot()->'serverTime') = 'string',
+  'snapshot contains every collection and serverTime'
+);
+-- 76.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot()->'beans' as rows
+    )
+    select jsonb_array_length(rows) = 2
+      and not exists (
+        select 1
+        from jsonb_array_elements(rows) as item
+        where item->>'user_id' <> '00000000-0000-0000-0000-000000000001'
+      )
+      and exists (
+        select 1
+        from jsonb_array_elements(rows) as item
+        where item->>'id' = '40000000-0000-0000-0000-000000000002'
+          and item->>'deleted_at' is not null
+      )
+    from snapshot
+  ),
+  'snapshot contains only own beans and includes tombstones'
+);
+-- 77.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot()->'brewLogs' as rows
+    )
+    select jsonb_array_length(rows) = 1
+      and rows #>> '{0,user_id}' = '00000000-0000-0000-0000-000000000001'
+    from snapshot
+  ),
+  'snapshot contains only own brew logs'
+);
+-- 78.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot()->'brewTemplates' as rows
+    )
+    select jsonb_array_length(rows) = 1
+      and rows #>> '{0,user_id}' = '00000000-0000-0000-0000-000000000001'
+    from snapshot
+  ),
+  'snapshot contains only own brew templates'
+);
+-- 79.
+select is(
+  public.get_sync_snapshot() #>> '{userSettings,user_id}',
+  '00000000-0000-0000-0000-000000000001',
+  'snapshot contains only own user settings'
+);
+-- 80.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot()->'aiRecommendations' as rows
+    )
+    select jsonb_array_length(rows) = 1
+      and rows #>> '{0,user_id}' = '00000000-0000-0000-0000-000000000001'
+    from snapshot
+  ),
+  'snapshot contains only own AI recommendations'
+);
+
+select set_config('request.jwt.claim.sub', '', true);
+
+-- 81. Both RPCs reject a caller without an authenticated user id.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[]'::jsonb)$$,
+  '42501',
+  'AUTH_REQUIRED',
+  'apply_sync_batch rejects an unauthenticated caller'
+);
+-- 82.
+select throws_ok(
+  $$select public.get_sync_snapshot()$$,
+  '42501',
+  'AUTH_REQUIRED',
+  'get_sync_snapshot rejects an unauthenticated caller'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000001',
+  true
+);
+
+-- 83. Batch guards reject non-arrays and batches over the fixed limit.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '{}'::jsonb)$$,
+  'P0001',
+  'INVALID_BATCH: OPERATIONS_MUST_BE_ARRAY',
+  'batch operations must be a JSON array'
+);
+-- 84.
+select throws_ok(
+  $$select public.apply_sync_batch(
+    1,
+    (select jsonb_agg('{}'::jsonb) from generate_series(1, 101))
+  )$$,
+  'P0001',
+  'INVALID_BATCH: TOO_MANY_OPERATIONS',
+  'batch rejects more than one hundred operations'
+);
+
+-- 85. A valid bean upsert initializes state and records one receipt.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000001",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{
+      "name":"RPC bean",
+      "roaster":"RPC roaster",
+      "flavor_tags":["berry"],
+      "bean_type":"single_origin",
+      "blend_components":[],
+      "schema_version":1
+    }
+  }]'::jsonb)$$,
+  'applies a bean mutation'
+);
+-- 86.
+select ok(
+  exists (
+    select 1
+    from public.beans
+    where id = '30000000-0000-0000-0000-000000000001'
+      and user_id = '00000000-0000-0000-0000-000000000001'
+      and name = 'RPC bean'
+      and deleted_at is null
+  ),
+  'bean upsert writes only the authenticated owner'
+);
+-- 87.
+select is(
+  (
+    select sync_epoch
+    from public.user_sync_state
+    where user_id = '00000000-0000-0000-0000-000000000001'
+  ),
+  1::bigint,
+  'first batch initializes sync state at epoch one'
+);
+-- 88.
+select is(
+  (
+    select count(*)
+    from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000001'
+  ),
+  1::bigint,
+  'successful bean upsert records one receipt'
+);
+
+-- 89. A repeated mutation id is acknowledged without replaying its payload.
+select is(
+  public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000001",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{"name":"must not replay"}
+  }]'::jsonb) #>> '{results,0,status}',
+  'duplicate',
+  'duplicate mutation returns duplicate status'
+);
+-- 90.
+select is(
+  (
+    select name
+    from public.beans
+    where id = '30000000-0000-0000-0000-000000000001'
+  ),
+  'RPC bean',
+  'duplicate mutation does not replay changed payload'
+);
+-- 91.
+select is(
+  (
+    select count(*)
+    from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000001'
+  ),
+  1::bigint,
+  'duplicate mutation does not add another receipt'
+);
+
+-- 92. A stale epoch fails before any business or receipt write.
+select throws_ok(
+  $$select public.apply_sync_batch(0, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000002",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000002",
+    "operation":"upsert",
+    "payload":{"name":"stale bean"}
+  }]'::jsonb)$$,
+  'P0001',
+  'STALE_SYNC_EPOCH',
+  'stale epoch is rejected'
+);
+-- 93.
+select is(
+  (
+    select count(*)
+    from public.beans
+    where id = '30000000-0000-0000-0000-000000000002'
+  ),
+  0::bigint,
+  'stale epoch writes no bean'
+);
+-- 94.
+select is(
+  (
+    select count(*)
+    from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000002'
+  ),
+  0::bigint,
+  'stale epoch writes no receipt'
+);
+
+-- 95. A later structural error rolls back earlier valid operations in the batch.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000003",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"bean",
+      "entityId":"30000000-0000-0000-0000-000000000003",
+      "operation":"upsert",
+      "payload":{"name":"must roll back"}
+    },
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000004",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"aiRecommendation",
+      "entityId":"30000000-0000-0000-0000-000000000004",
+      "operation":"upsert",
+      "payload":{}
+    }
+  ]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[2]: UNKNOWN_ENTITY_TYPE',
+  'unknown entity makes the entire batch fail'
+);
+-- 96.
+select is(
+  (
+    select count(*)
+    from public.beans
+    where id = '30000000-0000-0000-0000-000000000003'
+  ),
+  0::bigint,
+  'earlier valid business write is rolled back'
+);
+-- 97.
+select is(
+  (
+    select count(*)
+    from public.sync_mutation_receipts
+    where mutation_id in (
+      '10000000-0000-0000-0000-000000000003',
+      '10000000-0000-0000-0000-000000000004'
+    )
+  ),
+  0::bigint,
+  'atomic failure leaves no receipt from the batch'
+);
+
+-- 98. Payload allowlists reject unknown and ownership fields.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000005",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000005",
+    "operation":"upsert",
+    "payload":{"name":"unknown field bean","surprise":true}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: UNKNOWN_FIELDS',
+  'bean payload rejects unknown fields'
+);
+-- 99.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000005'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000005'
+    ),
+  'unknown payload field writes neither row nor receipt'
+);
+-- 100.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000006",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000006",
+    "operation":"upsert",
+    "payload":{
+      "name":"forged owner",
+      "user_id":"00000000-0000-0000-0000-000000000002"
+    }
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: UNKNOWN_FIELDS',
+  'client cannot submit user_id in a payload'
+);
+-- 101.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000006'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000006'
+    ),
+  'forged ownership payload writes neither row nor receipt'
+);
+
+-- 102. A brew log cannot reference another user's bean.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000007",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{
+      "bean_id":"40000000-0000-0000-0000-000000000003",
+      "brewed_at":"2026-08-08T03:00:00Z"
+    }
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: BEAN_REFERENCE_NOT_AVAILABLE',
+  'brew log rejects a cross-user bean reference'
+);
+-- 103.
+select ok(
+  not exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000001'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000007'
+    ),
+  'cross-user reference writes neither log nor receipt'
+);
+
+-- 104. Operations run in client order so a later log can reference a new bean.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000008",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"bean",
+      "entityId":"30000000-0000-0000-0000-000000000008",
+      "operation":"upsert",
+      "payload":{"name":"Ordered bean"}
+    },
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000009",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"brewLog",
+      "entityId":"31000000-0000-0000-0000-000000000009",
+      "operation":"upsert",
+      "payload":{
+        "bean_id":"30000000-0000-0000-0000-000000000008",
+        "brewed_at":"2026-08-08T04:00:00Z",
+        "coffee_grams":15,
+        "water_grams":250,
+        "flavor_tags":["clean"],
+        "pour_steps":[],
+        "schema_version":1
+      }
+    }
+  ]'::jsonb)$$,
+  'same-batch bean then brew log succeeds in client order'
+);
+-- 105.
+select ok(
+  exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000008'
+  )
+    and exists (
+      select 1 from public.brew_logs
+      where id = '31000000-0000-0000-0000-000000000009'
+        and bean_id = '30000000-0000-0000-0000-000000000008'
+    ),
+  'same-batch dependency writes both records'
+);
+
+-- 106. The remaining two entity helpers accept complete valid upserts.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000010",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"brewTemplate",
+      "entityId":"32000000-0000-0000-0000-000000000010",
+      "operation":"upsert",
+      "payload":{
+        "name":"RPC template",
+        "category":"pour-over",
+        "difficulty":"medium",
+        "brewer":"V60",
+        "filter":"paper",
+        "dose_grams":16,
+        "water_grams":256,
+        "ratio":"1:16",
+        "water_temperature_min":91,
+        "water_temperature_max":94,
+        "grind_size":"medium-fine",
+        "target_time_min":150,
+        "target_time_max":210,
+        "pour_steps":[{"water":50}],
+        "suitable_for":["washed"],
+        "avoid_for":[],
+        "flavor_goal":"clarity",
+        "adjustment_rules":["grind finer if fast"],
+        "source_notes":"test",
+        "source_urls":["https://example.invalid/template"],
+        "is_champion_reference":false,
+        "copied_from_template_id":null,
+        "schema_version":1
+      }
+    },
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000011",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"userSettings",
+      "entityId":"00000000-0000-0000-0000-000000000001",
+      "operation":"upsert",
+      "payload":{
+        "preferred_units":{"weight":"grams"},
+        "default_gear":{"grinder":"RPC grinder"},
+        "taste_preferences":{"sweetness":5},
+        "backup_reminder_days":21,
+        "schema_version":1
+      }
+    }
+  ]'::jsonb)$$,
+  'brew template and user settings upserts succeed'
+);
+-- 107.
+select ok(
+  exists (
+    select 1 from public.brew_templates
+    where id = '32000000-0000-0000-0000-000000000010'
+      and name = 'RPC template'
+      and source_urls = array['https://example.invalid/template']
+  ),
+  'brew template helper maps the complete payload'
+);
+-- 108.
+select ok(
+  exists (
+    select 1 from public.user_settings
+    where user_id = '00000000-0000-0000-0000-000000000001'
+      and backup_reminder_days = 21
+      and default_gear = '{"grinder":"RPC grinder"}'::jsonb
+  ),
+  'user settings helper enforces the user singleton id and replaces fields'
+);
+
+-- 109. Delete is a server-stamped soft delete, never a physical delete.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000012",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000008",
+    "operation":"delete",
+    "payload":{}
+  }]'::jsonb)$$,
+  'bean delete succeeds as a soft delete'
+);
+-- 110.
+select ok(
+  exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000008'
+      and deleted_at is not null
+      and updated_at is not null
+  ),
+  'bean delete keeps the row and stamps deleted_at and updated_at'
+);
+
+-- 111. New logs cannot attach to a soft-deleted bean.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000013",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000013",
+    "operation":"upsert",
+    "payload":{
+      "bean_id":"30000000-0000-0000-0000-000000000008",
+      "brewed_at":"2026-08-08T05:00:00Z"
+    }
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: BEAN_REFERENCE_NOT_AVAILABLE',
+  'brew log rejects a soft-deleted bean reference'
+);
+
+-- 112. userSettings delete has explicit safe semantics: it is rejected.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000014",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"userSettings",
+    "entityId":"00000000-0000-0000-0000-000000000001",
+    "operation":"delete",
+    "payload":{}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: USER_SETTINGS_DELETE_NOT_ALLOWED',
+  'user settings delete is rejected'
+);
+-- 113.
+select ok(
+  exists (
+    select 1 from public.user_settings
+    where user_id = '00000000-0000-0000-0000-000000000001'
+      and backup_reminder_days = 21
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000014'
+    ),
+  'rejected settings delete leaves settings and no receipt'
+);
+
+-- 114. Brew log and template delete paths also create tombstones.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000015",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"brewLog",
+      "entityId":"31000000-0000-0000-0000-000000000009",
+      "operation":"delete",
+      "payload":{}
+    },
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000016",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"brewTemplate",
+      "entityId":"32000000-0000-0000-0000-000000000010",
+      "operation":"delete",
+      "payload":{}
+    }
+  ]'::jsonb)$$,
+  'brew log and template deletes succeed'
+);
+-- 115.
+select ok(
+  exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000009'
+      and deleted_at is not null
+  ),
+  'brew log delete creates a tombstone'
+);
+-- 116.
+select ok(
+  exists (
+    select 1 from public.brew_templates
+    where id = '32000000-0000-0000-0000-000000000010'
+      and deleted_at is not null
+  ),
+  'brew template delete creates a tombstone'
+);
+
+-- 117. Top-level keys, UUIDs, operation, and payload shape have stable errors.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000017",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000017",
+    "operation":"upsert",
+    "payload":{"name":"extra top-level"},
+    "unexpected":true
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: UNKNOWN_FIELDS',
+  'operation rejects unknown top-level fields'
+);
+-- 118.
+select is(
+  (
+    select count(*) from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000017'
+  ),
+  0::bigint,
+  'unknown top-level field writes no receipt'
+);
+-- 119.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"not-a-uuid",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000018",
+    "operation":"upsert",
+    "payload":{"name":"bad uuid"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: INVALID_MUTATION_ID',
+  'operation rejects malformed mutation UUID without leaking cast errors'
+);
+-- 120.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id = '30000000-0000-0000-0000-000000000018'
+  ),
+  'malformed UUID writes no business row'
+);
+-- 121.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000019",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000019",
+    "operation":"remove",
+    "payload":{}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: UNKNOWN_OPERATION',
+  'operation rejects unsupported delete spelling'
+);
+-- 122.
+select is(
+  (
+    select count(*) from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000019'
+  ),
+  0::bigint,
+  'unsupported operation writes no receipt'
+);
+-- 123.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000020",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000020",
+    "operation":"upsert",
+    "payload":[]
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: PAYLOAD_MUST_BE_OBJECT',
+  'operation payload must be an object'
+);
+-- 124.
+select is(
+  (
+    select count(*) from public.sync_mutation_receipts
+    where mutation_id = '10000000-0000-0000-0000-000000000020'
+  ),
+  0::bigint,
+  'invalid payload shape writes no receipt'
+);
+
+-- 125. Later snapshots still include soft-delete tombstones.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot() as body
+    )
+    select exists (
+      select 1 from jsonb_array_elements(body->'beans') as item
+      where item->>'id' = '30000000-0000-0000-0000-000000000008'
+        and item->>'deleted_at' is not null
+    )
+      and exists (
+        select 1 from jsonb_array_elements(body->'brewLogs') as item
+        where item->>'id' = '31000000-0000-0000-0000-000000000009'
+          and item->>'deleted_at' is not null
+      )
+      and exists (
+        select 1 from jsonb_array_elements(body->'brewTemplates') as item
+        where item->>'id' = '32000000-0000-0000-0000-000000000010'
+          and item->>'deleted_at' is not null
+      )
+    from snapshot
+  ),
+  'snapshot returns bean, brew log, and template tombstones'
+);
+-- 126.
+select ok(
+  (
+    with snapshot as (
+      select public.get_sync_snapshot() as body
+    )
+    select not exists (
+      select 1
+      from jsonb_array_elements(body->'beans') as item
+      where item->>'user_id' <> '00000000-0000-0000-0000-000000000001'
+    )
+      and not exists (
+        select 1
+        from jsonb_array_elements(body->'brewLogs') as item
+        where item->>'user_id' <> '00000000-0000-0000-0000-000000000001'
+      )
+      and not exists (
+        select 1
+        from jsonb_array_elements(body->'brewTemplates') as item
+        where item->>'user_id' <> '00000000-0000-0000-0000-000000000001'
+      )
+      and not exists (
+        select 1
+        from jsonb_array_elements(body->'aiRecommendations') as item
+        where item->>'user_id' <> '00000000-0000-0000-0000-000000000001'
+      )
+      and body #>> '{userSettings,user_id}' =
+        '00000000-0000-0000-0000-000000000001'
+    from snapshot
+  ),
+  'snapshot never returns another user data after mutations'
+);
+
+-- 127. SECURITY DEFINER cannot overwrite another user's entity ids directly.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000021",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"40000000-0000-0000-0000-000000000003",
+    "operation":"upsert",
+    "payload":{"name":"hijacked bean"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: ENTITY_NOT_OWNED',
+  'bean helper rejects another user entity id'
+);
+-- 128.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000022",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"41000000-0000-0000-0000-000000000002",
+    "operation":"upsert",
+    "payload":{"brewed_at":"2026-08-09T00:00:00Z"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: ENTITY_NOT_OWNED',
+  'brew log helper rejects another user entity id'
+);
+-- 129.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000023",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewTemplate",
+    "entityId":"42000000-0000-0000-0000-000000000002",
+    "operation":"upsert",
+    "payload":{
+      "name":"hijacked template",
+      "category":"pour-over",
+      "difficulty":"easy",
+      "brewer":"V60",
+      "dose_grams":15,
+      "water_grams":250,
+      "water_temperature_min":90,
+      "water_temperature_max":94,
+      "target_time_min":150,
+      "target_time_max":210
+    }
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: ENTITY_NOT_OWNED',
+  'brew template helper rejects another user entity id'
+);
+-- 130.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000024",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"userSettings",
+    "entityId":"00000000-0000-0000-0000-000000000002",
+    "operation":"upsert",
+    "payload":{"backup_reminder_days":99}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: ENTITY_ID_MUST_EQUAL_USER_ID',
+  'settings helper rejects another user singleton id'
+);
+-- 131.
+select is(
+  (
+    select count(*)
+    from public.sync_mutation_receipts
+    where mutation_id in (
+      '10000000-0000-0000-0000-000000000021',
+      '10000000-0000-0000-0000-000000000022',
+      '10000000-0000-0000-0000-000000000023',
+      '10000000-0000-0000-0000-000000000024'
+    )
+  ),
+  0::bigint,
+  'direct cross-user attacks leave no receipts'
+);
+
+reset role;
+-- 132.
+select ok(
+  exists (
+    select 1 from public.beans
+    where id = '40000000-0000-0000-0000-000000000003'
+      and name = 'Other user bean'
+  )
+    and exists (
+      select 1 from public.brew_logs
+      where id = '41000000-0000-0000-0000-000000000002'
+        and brewed_at = '2026-08-08T02:00:00Z'
+    )
+    and exists (
+      select 1 from public.brew_templates
+      where id = '42000000-0000-0000-0000-000000000002'
+        and name = 'Other template'
+    )
+    and exists (
+      select 1 from public.user_settings
+      where user_id = '00000000-0000-0000-0000-000000000002'
+        and backup_reminder_days = 14
+    ),
+  'direct cross-user attacks leave every target unchanged'
+);
+
+create temporary table sync_rpc_created_at_before as
+select id, created_at
+from public.beans
+where id in (
+  '30000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000008'
+);
+
+set local role authenticated;
+
+-- 133. Bean upsert is a full replacement and also restores tombstones.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000025",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"bean",
+      "entityId":"30000000-0000-0000-0000-000000000001",
+      "operation":"upsert",
+      "payload":{"name":"Replaced RPC bean"}
+    },
+    {
+      "mutationId":"10000000-0000-0000-0000-000000000026",
+      "deviceId":"20000000-0000-0000-0000-000000000001",
+      "entityType":"bean",
+      "entityId":"30000000-0000-0000-0000-000000000008",
+      "operation":"upsert",
+      "payload":{"name":"Restored ordered bean"}
+    }
+  ]'::jsonb)$$,
+  'bean replacements and tombstone restoration succeed'
+);
+
+reset role;
+-- 134.
+select ok(
+  exists (
+    select 1
+    from public.beans as beans
+    join sync_rpc_created_at_before as prior using (id)
+    where beans.id = '30000000-0000-0000-0000-000000000001'
+      and beans.name = 'Replaced RPC bean'
+      and beans.roaster is null
+      and beans.created_at = prior.created_at
+      and beans.updated_at > beans.created_at
+  )
+    and exists (
+      select 1
+      from public.beans as beans
+      join sync_rpc_created_at_before as prior using (id)
+      where beans.id = '30000000-0000-0000-0000-000000000008'
+        and beans.name = 'Restored ordered bean'
+        and beans.deleted_at is null
+        and beans.created_at = prior.created_at
+        and beans.updated_at > beans.created_at
+    ),
+  'replacement clears omitted fields, preserves created_at, updates time, and restores'
+);
+
+set local role authenticated;
+
+-- 135. Remaining operation structure branches return stable indexed errors.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[42]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: OPERATION_MUST_BE_OBJECT',
+  'operation array elements must be objects'
+);
+-- 136.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000027",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000027",
+    "operation":"upsert"
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: MISSING_FIELDS',
+  'operation rejects missing required fields'
+);
+-- 137.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000028",
+    "deviceId":"bad-device",
+    "entityType":"bean",
+    "entityId":"30000000-0000-0000-0000-000000000028",
+    "operation":"upsert",
+    "payload":{"name":"bad device"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: INVALID_DEVICE_ID',
+  'operation rejects malformed device UUID'
+);
+-- 138.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000029",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"bean",
+    "entityId":"bad-entity",
+    "operation":"upsert",
+    "payload":{"name":"bad entity"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_OPERATION[1]: INVALID_ENTITY_ID',
+  'operation rejects malformed entity UUID'
+);
+-- 139.
+select ok(
+  not exists (
+    select 1 from public.beans
+    where id in (
+      '30000000-0000-0000-0000-000000000027',
+      '30000000-0000-0000-0000-000000000028'
+    )
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id in (
+        '10000000-0000-0000-0000-000000000027',
+        '10000000-0000-0000-0000-000000000028',
+        '10000000-0000-0000-0000-000000000029'
+      )
+    ),
+  'strict structure failures write no business rows or receipts'
+);
+
+-- 140. Every remaining helper also rejects unknown payload fields.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000030",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000030",
+    "operation":"upsert",
+    "payload":{"surprise":true}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: UNKNOWN_FIELDS',
+  'brew log payload rejects unknown fields'
+);
+-- 141.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000031",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewTemplate",
+    "entityId":"32000000-0000-0000-0000-000000000031",
+    "operation":"upsert",
+    "payload":{"surprise":true}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: UNKNOWN_FIELDS',
+  'brew template payload rejects unknown fields'
+);
+-- 142.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000032",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"userSettings",
+    "entityId":"00000000-0000-0000-0000-000000000001",
+    "operation":"upsert",
+    "payload":{"surprise":true}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: UNKNOWN_FIELDS',
+  'user settings payload rejects unknown fields'
+);
+-- 143.
+select ok(
+  not exists (
+    select 1 from public.sync_mutation_receipts
+    where mutation_id in (
+      '10000000-0000-0000-0000-000000000030',
+      '10000000-0000-0000-0000-000000000031',
+      '10000000-0000-0000-0000-000000000032'
+    )
+  ),
+  'unknown helper payload fields leave no receipts'
 );
 
 select * from finish();
