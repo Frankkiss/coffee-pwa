@@ -1180,6 +1180,10 @@ Export:
 ```ts
 export function compactMutations(mutations: SyncMutation[]): SyncMutation[]
 export function orderMutations(mutations: SyncMutation[]): SyncMutation[]
+export function selectSendableMutationBatch(
+  mutations: SyncMutation[]
+): Array<{ mutation: SyncMutation; coveredMutationIds: string[] }>
+export function selectSendableMutations(mutations: SyncMutation[]): SyncMutation[]
 export function nextRetryDelayMs(attemptCount: number): number
 export function isRetryableSyncError(error: unknown): boolean
 export function deriveSyncState(input: {
@@ -1197,8 +1201,17 @@ cancel them, because the entity may already exist on the server. A `delete → u
 become the last complete upsert; multiple deletes become the last delete. Only future, validated origin metadata may allow a confirmed
 never-on-server create/delete pair to cancel.
 
-Use priority `bean = 0`, `brewTemplate = 1`, `userSettings = 1`, `brewLog = 2`. Compare canonical RFC 3339 timestamps without losing
-sub-millisecond precision, then use `mutationId` as a stable tie-breaker while preserving operation order within an entity. Cap retry delay at
+Each selected sendable mutation must expose every original mutation ID it covers. Task 9 must acknowledge a selected operation and its covered
+IDs only after the whole atomic RPC succeeds and that operation has an `applied | duplicate` result; a failed batch acknowledges none. This
+prevents superseded Outbox rows from reappearing on the next cycle. Treat every `syncing` mutation as an uncompressed, unselectable boundary
+because it may already be in flight or applied; compact only `pending` runs between `syncing`/`needs_attention` boundaries. After acquiring the
+cross-tab lock, Task 9 must recover stale `syncing` rows with the existing user-scoped `markMutationPending`, reload Outbox, and only then select
+a new batch.
+
+Compare canonical RFC 3339 timestamps without losing sub-millisecond precision and use priority `bean = 0`, `brewTemplate = 1`,
+`userSettings = 1`, `brewLog = 2` only as an equal-time tie-breaker before `mutationId`. Apply true bean-to-referencing-brew dependencies and
+same-entity input order as stable topological constraints over that base order: same-entity operations may not reverse, while unrelated
+mutations retain time order. Cap retry delay at
 60 seconds. Preserve `needs_attention` rows during compaction, never merge them with `pending`/`syncing` rows, and never send them
 automatically. Export `selectSendableMutations()` as the compact + filter + order boundary so callers cannot accidentally upload attention rows.
 Whenever compaction constructs or replaces a delete mutation payload, it must call `createDeletePayload()`; it must not use a literal `{}` or

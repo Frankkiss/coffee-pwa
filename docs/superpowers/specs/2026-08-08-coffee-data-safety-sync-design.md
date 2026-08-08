@@ -215,7 +215,15 @@ Outbox 压缩必须保守。当前 `SyncMutation` 没有可靠的服务器存在
 及其后的 `delete`，并按该顺序发送；不得把两者自动抵消。`delete → upsert` 可压缩为最后一个完整 `upsert`，连续
 `upsert` 只保留最后一个完整 `upsert`，连续 `delete` 只保留最后一个 `delete`。只有未来为 mutation 增加并验证可信的
 origin metadata 后，才可以针对已证明从未存在于服务器的实体抵消 `upsert → delete`。压缩不得跨用户，也不得把
-`needs_attention` 与可发送项合并或自动发送。
+`needs_attention` 与可发送项合并或自动发送。已标记为 `syncing` 的 mutation 可能已经在途或已被服务器应用，必须作为
+不可压缩边界保留原 mutationId，且默认不得选入新批次；只能压缩边界之间的 `pending` 序列。Task 9 在取得跨标签锁后，
+必须先把上一次中断遗留的 stale `syncing` 恢复为 `pending` 并重新读取 Outbox，之后才能选择新批次。
+
+压缩批次必须为每个实际发送的 mutation 同时保留其覆盖的所有原 mutationId。只有该发送项得到服务器确认后，存储层才能
+在同一用户作用域内原子确认该项及其覆盖的 IDs，避免旧 Outbox 行在下一轮重新出现并覆盖新状态。失败批次不得确认任何
+covered ID；只有整个原子 RPC 成功且对应发送 operation 收到 `applied | duplicate` 后才可确认。排序以精确 RFC 3339 时间
+为稳定基准，只为真实实体依赖和同一实体的原操作因果增加拓扑边；优先级只用于同一时间的稳定决胜。不得为了保持实体连续
+而破坏无依赖 mutation 的时间顺序，也不得用非传递比较器造成同实体操作反转。
 
 发送前，存储层必须在单个、显式 `userId` 作用域的 IndexedDB 事务中将本批 mutation 标记为 `syncing` 并递增
 `attemptCount`。网络、超时或 5xx 等可重试失败必须在同样的用户作用域内原子恢复为 `pending`，同时记录稳定错误码与
