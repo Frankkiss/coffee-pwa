@@ -12,3 +12,5 @@ app/node_modules/
 app/dist/
 app/.env
 app/.env.*
+
+.worktrees/
