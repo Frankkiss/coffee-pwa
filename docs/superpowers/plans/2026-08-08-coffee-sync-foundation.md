@@ -567,7 +567,15 @@ Extend the SQL test with cases that set a test JWT claim, insert one test user, 
 
 - each supported entity upsert succeeds with `schema_version: 1` (or the omitted default of `1`);
 - `schema_version: 2` and non-integer versions are rejected with stable errors and leave no business row or receipt;
+- `brewLog.brewed_at` accepts a valid `Z` timestamp and a valid numeric-offset timestamp, but rejects
+  `infinity`, space-separated or timezone-free values, impossible dates, and invalid timezone offsets with a stable
+  `INVALID_BREWED_AT` error; every rejected operation leaves neither a business row nor a receipt;
 - ownership and server fields `id`, `user_id`, `created_at`, `updated_at`, and `deleted_at` remain forbidden in payloads.
+
+Also inspect the stored `get_sync_snapshot()` definition to enforce that `syncEpoch` and every entity collection are
+constructed by one SQL statement. This catalog-level assertion is only a static contract check. A real two-session test
+that races a full snapshot with a concurrent write remains a required database runtime gate; do not substitute a
+single-session test or assume `dblink` is installed.
 
 ```sql
 select has_function('public', 'apply_sync_batch', array['bigint', 'jsonb']);
@@ -724,33 +732,36 @@ set search_path = public, pg_temp
 as $$
 declare
   v_user_id uuid := auth.uid();
-  v_epoch bigint;
+  v_result jsonb;
 begin
   if v_user_id is null then
     raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
   end if;
 
-  select coalesce(
-    (
-      select sync_epoch
-      from public.user_sync_state
-      where user_id = v_user_id
+  select jsonb_build_object(
+    'syncEpoch', coalesce(
+      (
+        select sync_epoch
+        from public.user_sync_state
+        where user_id = v_user_id
+      ),
+      1
     ),
-    1
-  ) into v_epoch;
-
-  return jsonb_build_object(
-    'syncEpoch', v_epoch,
     'serverTime', clock_timestamp(),
     'beans', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.beans x where x.user_id = v_user_id), '[]'::jsonb),
     'brewLogs', coalesce((select jsonb_agg(to_jsonb(x) order by x.brewed_at, x.id) from public.brew_logs x where x.user_id = v_user_id), '[]'::jsonb),
     'brewTemplates', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.brew_templates x where x.user_id = v_user_id), '[]'::jsonb),
     'userSettings', (select to_jsonb(x) from public.user_settings x where x.user_id = v_user_id),
     'aiRecommendations', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at, x.id) from public.ai_recommendations x where x.user_id = v_user_id), '[]'::jsonb)
-  );
+  ) into v_result;
+
+  return v_result;
 end;
 $$;
 ```
+
+The authentication check may run first, but the epoch and all entity collections must be read by this single `select`
+so they share one PostgreSQL statement snapshot. Keep the snapshot function `SECURITY INVOKER` and rely on RLS.
 
 - [ ] **Step 5: Lock down function grants**
 
@@ -769,6 +780,9 @@ supabase test db supabase/tests/005_sync_foundation.test.sql
 ```
 
 Expected: schema, RLS, idempotency, stale epoch, and snapshot tests pass.
+
+Database runtime release gate: run a real two-session concurrency test that overlaps `get_sync_snapshot()` with a
+committed sync write and proves the returned `syncEpoch` and entity collections form one consistent MVCC snapshot.
 
 - [ ] **Step 7: Commit RPCs**
 
