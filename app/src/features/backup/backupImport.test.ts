@@ -95,6 +95,7 @@ const brewTemplate = {
   created_at: '2026-06-12T02:30:00.000Z',
   updated_at: '2026-06-12T02:30:00.000Z',
   deleted_at: null,
+  schema_version: 1,
 } satisfies UserBrewTemplateRow
 
 function createBackupDocument(

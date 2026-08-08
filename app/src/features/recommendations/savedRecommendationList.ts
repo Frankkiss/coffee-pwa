@@ -1,12 +1,27 @@
 export type SavedRecommendationRow = {
   id: string
+  user_id: string
   bean_id: string | null
-  input_context: unknown
-  recommendation: unknown
+  input_context: Record<string, unknown>
+  recommendation: Record<string, unknown>
   model_name: string | null
   accepted: boolean | null
   created_at: string
+  updated_at: string
+  deleted_at: string | null
+  schema_version: number
 }
+
+export type SavedRecommendationDisplayRow = Pick<
+  SavedRecommendationRow,
+  | 'id'
+  | 'bean_id'
+  | 'input_context'
+  | 'recommendation'
+  | 'model_name'
+  | 'accepted'
+  | 'created_at'
+>
 
 export type SavedRecommendationCard = {
   id: string
@@ -30,13 +45,15 @@ export type SavedRecommendationCard = {
 
 const maxSummaryLength = 120
 
-export function toSavedRecommendationCards(rows: SavedRecommendationRow[]) {
+export function toSavedRecommendationCards(rows: SavedRecommendationDisplayRow[]) {
   return [...rows]
     .sort((left, right) => right.created_at.localeCompare(left.created_at))
     .map(toSavedRecommendationCard)
 }
 
-export function toSavedRecommendationCard(row: SavedRecommendationRow): SavedRecommendationCard {
+export function toSavedRecommendationCard(
+  row: SavedRecommendationDisplayRow,
+): SavedRecommendationCard {
   return {
     id: row.id,
     targetName: getTargetName(row),
@@ -58,7 +75,7 @@ export function toSavedRecommendationCard(row: SavedRecommendationRow): SavedRec
   }
 }
 
-function getTargetName(row: SavedRecommendationRow) {
+function getTargetName(row: SavedRecommendationDisplayRow) {
   const targetName = getNestedString(row.input_context, [
     'targetBean',
     'name',
@@ -67,7 +84,7 @@ function getTargetName(row: SavedRecommendationRow) {
   return targetName || row.bean_id || '未知咖啡豆'
 }
 
-function getParameterSummary(row: SavedRecommendationRow) {
+function getParameterSummary(row: SavedRecommendationDisplayRow) {
   const recommended = getNestedRecord(row.recommendation, [
     'rule',
     'recommended',
@@ -95,7 +112,7 @@ function getParameterSummary(row: SavedRecommendationRow) {
   )
 }
 
-function getAiSummary(row: SavedRecommendationRow) {
+function getAiSummary(row: SavedRecommendationDisplayRow) {
   const suggestion = getAiDetail(row)
 
   if (!suggestion) {
@@ -107,7 +124,7 @@ function getAiSummary(row: SavedRecommendationRow) {
     : suggestion
 }
 
-function getAiDetail(row: SavedRecommendationRow) {
+function getAiDetail(row: SavedRecommendationDisplayRow) {
   return (
     getNestedString(row.recommendation, ['ai', 'structured', 'rawText']) ??
     getNestedString(row.recommendation, ['ai', 'suggestion']) ??
@@ -115,11 +132,11 @@ function getAiDetail(row: SavedRecommendationRow) {
   )
 }
 
-function getStructuredSummary(row: SavedRecommendationRow) {
+function getStructuredSummary(row: SavedRecommendationDisplayRow) {
   return getNestedString(row.recommendation, ['ai', 'structured', 'summary']) ?? ''
 }
 
-function getStructuredRecipeSummary(row: SavedRecommendationRow) {
+function getStructuredRecipeSummary(row: SavedRecommendationDisplayRow) {
   const recipe = getNestedRecord(row.recommendation, ['ai', 'structured', 'recipe'])
 
   if (!recipe) {
@@ -129,17 +146,17 @@ function getStructuredRecipeSummary(row: SavedRecommendationRow) {
   return formatRecipeSummary(recipe)
 }
 
-function getStructuredPourPlan(row: SavedRecommendationRow) {
+function getStructuredPourPlan(row: SavedRecommendationDisplayRow) {
   return getNestedArray(row.recommendation, ['ai', 'structured', 'pourPlan'])
     .map(formatPourStep)
     .filter((line): line is string => Boolean(line))
 }
 
-function getRuleReasons(row: SavedRecommendationRow) {
+function getRuleReasons(row: SavedRecommendationDisplayRow) {
   return getNestedStringArray(row.recommendation, ['rule', 'reasons'])
 }
 
-function getTemplateNames(row: SavedRecommendationRow) {
+function getTemplateNames(row: SavedRecommendationDisplayRow) {
   const candidates = getNestedArray(row.recommendation, ['rule', 'templateCandidates'])
 
   return candidates

@@ -87,9 +87,10 @@ export type UserBrewTemplateRow = {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  schema_version: number
 }
 
 export type UserBrewTemplatePayload = Omit<
   UserBrewTemplateRow,
-  'id' | 'created_at' | 'updated_at' | 'deleted_at'
+  'id' | 'created_at' | 'updated_at' | 'deleted_at' | 'schema_version'
 >

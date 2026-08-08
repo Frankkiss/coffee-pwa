@@ -69,6 +69,7 @@ describe('brew template model', () => {
       created_at: '2026-06-15T01:00:00.000Z',
       updated_at: '2026-06-15T01:00:00.000Z',
       deleted_at: null,
+      schema_version: 1,
     })
 
     expect(mapped).toMatchObject({

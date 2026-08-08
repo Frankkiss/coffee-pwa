@@ -9,7 +9,7 @@ import type {
 } from './recommendationTypes'
 import { generateRuleRecommendation } from './ruleRecommendation'
 import type { SavedRecommendationPayload } from './savedRecommendation'
-import type { SavedRecommendationRow } from './savedRecommendationList'
+import type { SavedRecommendationDisplayRow } from './savedRecommendationList'
 import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 
 export async function loadRuleRecommendationData(supabase: SupabaseClient) {
@@ -99,7 +99,7 @@ export async function listSavedRecommendations(supabase: SupabaseClient) {
     throw new Error(error.message)
   }
 
-  return (data ?? []) as SavedRecommendationRow[]
+  return (data ?? []) as SavedRecommendationDisplayRow[]
 }
 
 export async function updateSavedRecommendationAccepted(
