@@ -565,6 +565,10 @@ Extend the SQL test with cases that set a test JWT claim, insert one test user, 
 `get_sync_snapshot` before any sync-state row exists. Assert that this initial snapshot succeeds with
 `syncEpoch = 1` and does not create a `user_sync_state` row. Then call `apply_sync_batch` and assert:
 
+- each supported entity upsert succeeds with `schema_version: 1` (or the omitted default of `1`);
+- `schema_version: 2` and non-integer versions are rejected with stable errors and leave no business row or receipt;
+- ownership and server fields `id`, `user_id`, `created_at`, `updated_at`, and `deleted_at` remain forbidden in payloads.
+
 ```sql
 select has_function('public', 'apply_sync_batch', array['bigint', 'jsonb']);
 select has_function('public', 'get_sync_snapshot', array[]::text[]);
@@ -704,7 +708,7 @@ end;
 $$;
 ```
 
-The four private helper functions must explicitly map every mutable column from the current row types. They must implement `delete` as `deleted_at = clock_timestamp()` and `upsert` as full replacement while preserving server-owned `created_at` for existing rows. Do not build table or column names from client strings.
+The four private helper functions must explicitly map every mutable column from the current row types. They must implement `delete` as `deleted_at = clock_timestamp()` and `upsert` as full replacement while preserving server-owned `created_at` for existing rows. `schema_version` remains in each entity payload allowlist as a controlled migration label: it defaults to `1`, must be a JSON integer when present, and the current RPC accepts only version `1`. Reject future versions until the corresponding server migration and compatibility path ship. Continue to reject `id`, `user_id`, `created_at`, `updated_at`, and `deleted_at`, and do not build table or column names from client strings.
 Revoke public execution from the four helpers and the public batch RPC before granting only `apply_sync_batch` to `authenticated`. Because the public RPC uses definer rights, every helper must accept the already verified `v_user_id`, overwrite all payload ownership, reject cross-user relations, and never read a client-supplied user ID.
 
 - [ ] **Step 4: Implement the complete snapshot RPC**
