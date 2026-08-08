@@ -365,28 +365,14 @@ function stableTopologicalOrder<Entry extends IndexedMutation>(
     }
   }
 
-  const beanUpsertsById = new Map<string, Entry[]>()
-  const beanDeletesById = new Map<string, Entry[]>()
+  const beanMutationsById = new Map<string, Entry[]>()
   for (const entry of entries) {
-    if (
-      entry.mutation.entityType === 'bean' &&
-      entry.mutation.operation === 'upsert'
-    ) {
-      const beanUpserts = beanUpsertsById.get(entry.mutation.entityId)
-      if (beanUpserts) {
-        beanUpserts.push(entry)
+    if (entry.mutation.entityType === 'bean') {
+      const beanMutations = beanMutationsById.get(entry.mutation.entityId)
+      if (beanMutations) {
+        beanMutations.push(entry)
       } else {
-        beanUpsertsById.set(entry.mutation.entityId, [entry])
-      }
-    } else if (
-      entry.mutation.entityType === 'bean' &&
-      entry.mutation.operation === 'delete'
-    ) {
-      const beanDeletes = beanDeletesById.get(entry.mutation.entityId)
-      if (beanDeletes) {
-        beanDeletes.push(entry)
-      } else {
-        beanDeletesById.set(entry.mutation.entityId, [entry])
+        beanMutationsById.set(entry.mutation.entityId, [entry])
       }
     }
   }
@@ -396,12 +382,24 @@ function stableTopologicalOrder<Entry extends IndexedMutation>(
     if (beanId === null) {
       continue
     }
-    for (const beanUpsert of beanUpsertsById.get(beanId) ?? []) {
-      addDependency(beanUpsert, entry, adjacency, indegree)
+    const beanMutations = beanMutationsById.get(beanId) ?? []
+    const latestPriorBeanMutation = beanMutations
+      .filter((beanMutation) => beanMutation.index < entry.index)
+      .at(-1)
+    if (latestPriorBeanMutation?.mutation.operation === 'upsert') {
+      addDependency(
+        latestPriorBeanMutation,
+        entry,
+        adjacency,
+        indegree,
+      )
     }
-    for (const beanDelete of beanDeletesById.get(beanId) ?? []) {
-      if (beanDelete.index > entry.index) {
-        addDependency(entry, beanDelete, adjacency, indegree)
+    for (const beanMutation of beanMutations) {
+      if (
+        beanMutation.mutation.operation === 'delete' &&
+        beanMutation.index > entry.index
+      ) {
+        addDependency(entry, beanMutation, adjacency, indegree)
       }
     }
   }
