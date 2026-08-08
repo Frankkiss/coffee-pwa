@@ -1,3 +1,5 @@
+import type { JsonValue } from '../../lib/jsonTypes'
+
 export type BrewLog = {
   id: string
   user_id: string
@@ -13,7 +15,7 @@ export type BrewLog = {
   ratio: string | null
   water_temperature_c: number | null
   total_time_seconds: number | null
-  pour_steps: unknown[]
+  pour_steps: JsonValue[]
   rating: number | null
   acidity: number | null
   sweetness: number | null
@@ -72,7 +74,7 @@ export type BrewLogUpdatePayload = {
   ratio: string | null
   water_temperature_c: number | null
   total_time_seconds: number | null
-  pour_steps: unknown[]
+  pour_steps: JsonValue[]
   rating: number | null
   acidity: number | null
   sweetness: number | null

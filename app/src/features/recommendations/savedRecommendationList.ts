@@ -1,9 +1,11 @@
+import type { JsonObject } from '../../lib/jsonTypes'
+
 export type SavedRecommendationRow = {
   id: string
   user_id: string
   bean_id: string | null
-  input_context: Record<string, unknown>
-  recommendation: Record<string, unknown>
+  input_context: JsonObject
+  recommendation: JsonObject
   model_name: string | null
   accepted: boolean | null
   created_at: string

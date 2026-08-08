@@ -1,4 +1,4 @@
-import type { Bean } from '../beans/beanTypes'
+import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import type { SavedRecommendationRow } from '../recommendations/savedRecommendationList'
@@ -14,15 +14,90 @@ export type SyncOperation = 'upsert' | 'delete'
 
 export type OutboxStatus = 'pending' | 'syncing' | 'needs_attention'
 
-export type SyncMutation = {
+type ServerOwnedFields =
+  | 'id'
+  | 'user_id'
+  | 'created_at'
+  | 'updated_at'
+  | 'deleted_at'
+
+export type EmptyJsonObject = {
+  readonly [key: string]: never
+}
+
+export type BeanUpsertPayload = Omit<ServerBeanRow, ServerOwnedFields>
+
+export type BrewLogUpsertPayload = Omit<BrewLog, ServerOwnedFields>
+
+export type BrewTemplateUpsertPayload = Omit<
+  UserBrewTemplateRow,
+  ServerOwnedFields
+>
+
+export type UserSettingsUpsertPayload = Omit<
+  UserSettingsRow,
+  'user_id' | 'created_at' | 'updated_at'
+>
+
+type SyncRpcOperationBase = {
   mutationId: string
-  userId: string
   deviceId: string
-  baseSyncEpoch: number
-  entityType: SyncEntityType
   entityId: string
-  operation: SyncOperation
-  payload: Record<string, unknown> | null
+}
+
+type BeanSyncRpcOperation =
+  | {
+      entityType: 'bean'
+      operation: 'upsert'
+      payload: BeanUpsertPayload
+    }
+  | {
+      entityType: 'bean'
+      operation: 'delete'
+      payload: EmptyJsonObject
+    }
+
+type BrewLogSyncRpcOperation =
+  | {
+      entityType: 'brewLog'
+      operation: 'upsert'
+      payload: BrewLogUpsertPayload
+    }
+  | {
+      entityType: 'brewLog'
+      operation: 'delete'
+      payload: EmptyJsonObject
+    }
+
+type BrewTemplateSyncRpcOperation =
+  | {
+      entityType: 'brewTemplate'
+      operation: 'upsert'
+      payload: BrewTemplateUpsertPayload
+    }
+  | {
+      entityType: 'brewTemplate'
+      operation: 'delete'
+      payload: EmptyJsonObject
+    }
+
+type UserSettingsSyncRpcOperation = {
+  entityType: 'userSettings'
+  operation: 'upsert'
+  payload: UserSettingsUpsertPayload
+}
+
+export type SyncRpcOperation = SyncRpcOperationBase &
+  (
+    | BeanSyncRpcOperation
+    | BrewLogSyncRpcOperation
+    | BrewTemplateSyncRpcOperation
+    | UserSettingsSyncRpcOperation
+  )
+
+export type SyncMutation = SyncRpcOperation & {
+  userId: string
+  baseSyncEpoch: number
   queuedAt: string
   attemptCount: number
   status: OutboxStatus
@@ -33,7 +108,7 @@ export type SyncMutation = {
 export type SyncSnapshot = {
   syncEpoch: number
   serverTime: string
-  beans: Bean[]
+  beans: ServerBeanRow[]
   brewLogs: BrewLog[]
   brewTemplates: UserBrewTemplateRow[]
   userSettings: UserSettingsRow | null
@@ -51,14 +126,25 @@ export type ApplySyncResult = {
 
 export type SyncStorage = {
   listOutbox(userId: string): Promise<SyncMutation[]>
-  acknowledgeMutations(mutationIds: string[]): Promise<void>
-  markMutationAttention(
+  acknowledgeMutations(
+    userId: string,
+    mutationIds: string[],
+  ): Promise<void>
+  markMutationsSyncing(userId: string, mutationIds: string[]): Promise<void>
+  recordRetryableFailure(
+    userId: string,
     mutationIds: string[],
     code: string,
     message: string,
   ): Promise<void>
-  markMutationPending(mutationId: string): Promise<void>
-  discardMutation(mutationId: string): Promise<void>
+  markMutationAttention(
+    userId: string,
+    mutationIds: string[],
+    code: string,
+    message: string,
+  ): Promise<void>
+  markMutationPending(userId: string, mutationId: string): Promise<void>
+  discardMutation(userId: string, mutationId: string): Promise<void>
   quarantineOlderEpoch(
     userId: string,
     currentEpoch: number,

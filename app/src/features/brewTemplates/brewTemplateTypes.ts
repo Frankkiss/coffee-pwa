@@ -59,6 +59,10 @@ export type BrewTemplateFilters = {
   includeChampionReferences: boolean
 }
 
+/**
+ * A complete template row after server-response validation.
+ * Never cast raw RPC data directly to this type.
+ */
 export type UserBrewTemplateRow = {
   id: string
   user_id: string

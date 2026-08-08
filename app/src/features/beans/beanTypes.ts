@@ -38,6 +38,16 @@ export type Bean = {
   schema_version: number
 }
 
+/** A complete bean row after validation at the server-response boundary. */
+export type ServerBeanRow = Omit<
+  Bean,
+  'bean_type' | 'blend_components' | 'blend_notes'
+> & {
+  bean_type: BeanType
+  blend_components: BeanBlendComponent[]
+  blend_notes: string | null
+}
+
 export type BeanForm = {
   name: string
   roaster: string
