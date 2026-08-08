@@ -271,7 +271,7 @@ Create `supabase/tests/005_sync_foundation.test.sql` with pgTAP assertions:
 
 ```sql
 begin;
-select plan(17);
+select plan(21);
 
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
 select has_table('public', 'sync_mutation_receipts', 'sync_mutation_receipts exists');
@@ -290,6 +290,68 @@ select has_check('public', 'source_imports', 'source_imports_status_check');
 select has_check('public', 'user_settings', 'user_settings_backup_days_check');
 select table_privs_are('public', 'user_sync_state', 'anon', array[]::text[], 'anon has no sync-state privileges');
 select table_privs_are('public', 'sync_mutation_receipts', 'anon', array[]::text[], 'anon has no receipt privileges');
+select ok(
+  exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.brew_logs'::regclass
+      and conname = 'brew_logs_bean_user_fkey'
+      and confdeltype = 'a'
+      and condeferrable
+      and condeferred
+  ),
+  'brew FK is deferred NO ACTION'
+);
+select ok(
+  exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.ai_recommendations'::regclass
+      and conname = 'ai_recommendations_bean_user_fkey'
+      and confdeltype = 'a'
+      and condeferrable
+      and condeferred
+  ),
+  'AI FK is deferred NO ACTION'
+);
+select ok(
+  not exists (
+    select 1
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.contype = 'f'
+      and constraints.conrelid = 'public.brew_logs'::regclass
+      and constraints.confrelid = 'public.beans'::regclass
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
+  ),
+  'brew legacy bean FK is removed by semantics'
+);
+select ok(
+  not exists (
+    select 1
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.contype = 'f'
+      and constraints.conrelid = 'public.ai_recommendations'::regclass
+      and constraints.confrelid = 'public.beans'::regclass
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
+  ),
+  'AI legacy bean FK is removed by semantics'
+);
 
 select * from finish();
 rollback;
@@ -343,17 +405,56 @@ create index if not exists brew_templates_user_active_idx on public.brew_templat
 create index if not exists ai_recommendations_user_active_idx on public.ai_recommendations(user_id, created_at desc) where deleted_at is null;
 create index if not exists source_imports_user_active_idx on public.source_imports(user_id, created_at desc) where deleted_at is null;
 
-alter table public.brew_logs drop constraint if exists brew_logs_bean_id_fkey;
+do $$
+declare
+  old_fk record;
+begin
+  for old_fk in
+    select
+      source_namespace.nspname as table_schema,
+      source_table.relname as table_name,
+      constraints.conname
+    from pg_catalog.pg_constraint as constraints
+    join pg_catalog.pg_class as source_table
+      on source_table.oid = constraints.conrelid
+    join pg_catalog.pg_namespace as source_namespace
+      on source_namespace.oid = source_table.relnamespace
+    join pg_catalog.pg_attribute as source_column
+      on source_column.attrelid = constraints.conrelid
+      and source_column.attnum = constraints.conkey[1]
+    join pg_catalog.pg_attribute as target_column
+      on target_column.attrelid = constraints.confrelid
+      and target_column.attnum = constraints.confkey[1]
+    where constraints.contype = 'f'
+      and constraints.conrelid in (
+        'public.brew_logs'::regclass,
+        'public.ai_recommendations'::regclass
+      )
+      and constraints.confrelid = 'public.beans'::regclass
+      and cardinality(constraints.conkey) = 1
+      and cardinality(constraints.confkey) = 1
+      and source_column.attname = 'bean_id'
+      and target_column.attname = 'id'
+  loop
+    execute format(
+      'alter table %I.%I drop constraint %I',
+      old_fk.table_schema,
+      old_fk.table_name,
+      old_fk.conname
+    );
+  end loop;
+end;
+$$;
+
 alter table public.brew_logs
   add constraint brew_logs_bean_user_fkey
   foreign key (bean_id, user_id) references public.beans(id, user_id)
-  on delete restrict deferrable initially deferred;
+  on delete no action deferrable initially deferred;
 
-alter table public.ai_recommendations drop constraint if exists ai_recommendations_bean_id_fkey;
 alter table public.ai_recommendations
   add constraint ai_recommendations_bean_user_fkey
   foreign key (bean_id, user_id) references public.beans(id, user_id)
-  on delete restrict deferrable initially deferred;
+  on delete no action deferrable initially deferred;
 
 alter table public.brew_logs drop constraint if exists brew_logs_rating_check;
 alter table public.brew_logs add constraint brew_logs_rating_check

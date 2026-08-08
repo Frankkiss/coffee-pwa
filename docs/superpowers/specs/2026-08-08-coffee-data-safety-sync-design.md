@@ -246,6 +246,12 @@ lastErrorMessage
 实现时优先采用 `(id, user_id)` 唯一约束与复合外键；若线上数据或 PostgreSQL 限制要求其他实现，
 可使用事务内约束触发器，但行为必须一致。
 
+复合外键统一使用 `ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`。`RESTRICT` 引用动作不能延迟，
+会在从 `auth.users` 发起并同时经过豆子、冲煮记录和 AI 推荐等多条级联路径删除时过早检查；`NO ACTION`
+允许把关联完整性检查推迟到事务结束，避免级联执行顺序造成误报。上线迁移不得依赖历史约束名，而应通过
+`pg_constraint` 的引用表、被引用表及两侧列语义定位并删除旧的 `(bean_id) -> beans(id)` 单列外键，
+且不得误删目标复合外键或其他关系约束。
+
 迁移前先报告：
 
 - 悬空 `bean_id`；
