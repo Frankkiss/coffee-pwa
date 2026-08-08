@@ -561,7 +561,9 @@ git commit -m "feat: add sync database foundation"
 
 - [ ] **Step 1: Add failing RPC tests**
 
-Extend the SQL test with cases that set a test JWT claim, insert one test user, call `apply_sync_batch`, and assert:
+Extend the SQL test with cases that set a test JWT claim, insert one test user, and first call
+`get_sync_snapshot` before any sync-state row exists. Assert that this initial snapshot succeeds with
+`syncEpoch = 1` and does not create a `user_sync_state` row. Then call `apply_sync_batch` and assert:
 
 ```sql
 select has_function('public', 'apply_sync_batch', array['bigint', 'jsonb']);
@@ -724,13 +726,14 @@ begin
     raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
   end if;
 
-  insert into public.user_sync_state(user_id)
-  values (v_user_id)
-  on conflict (user_id) do nothing;
-
-  select sync_epoch into v_epoch
-  from public.user_sync_state
-  where user_id = v_user_id;
+  select coalesce(
+    (
+      select sync_epoch
+      from public.user_sync_state
+      where user_id = v_user_id
+    ),
+    1
+  ) into v_epoch;
 
   return jsonb_build_object(
     'syncEpoch', v_epoch,
