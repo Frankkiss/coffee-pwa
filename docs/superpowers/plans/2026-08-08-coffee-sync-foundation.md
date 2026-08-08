@@ -1155,7 +1155,10 @@ expect(compactMutations([createBean, editBean])).toEqual([expect.objectContainin
   payload: editBean.payload,
 })])
 
-expect(compactMutations([createBean, deleteUnsyncedBean])).toEqual([])
+expect(compactMutations([createBean, deleteBean])).toEqual([
+  expect.objectContaining({ mutationId: createBean.mutationId, operation: 'upsert' }),
+  expect.objectContaining({ mutationId: deleteBean.mutationId, operation: 'delete' }),
+])
 expect(orderMutations([brewMutation, beanMutation]).map((item) => item.entityType))
   .toEqual(['bean', 'brewLog'])
 expect(nextRetryDelayMs(1)).toBe(1000)
@@ -1188,7 +1191,16 @@ export function deriveSyncState(input: {
 }): SyncState
 ```
 
-Use priority `bean = 0`, `brewTemplate = 1`, `userSettings = 1`, `brewLog = 2`. Cap retry delay at 60 seconds. Preserve `needs_attention` rows during compaction and never send them automatically.
+Compaction is deliberately conservative because `SyncMutation` has no trustworthy server-existence/provenance field. Group only by
+`userId + entityType + entityId`. An `upsert → delete` chain must retain the latest complete upsert and the final delete in order; it must not
+cancel them, because the entity may already exist on the server. A `delete → upsert` chain becomes the final complete upsert; multiple upserts
+become the last complete upsert; multiple deletes become the last delete. Only future, validated origin metadata may allow a confirmed
+never-on-server create/delete pair to cancel.
+
+Use priority `bean = 0`, `brewTemplate = 1`, `userSettings = 1`, `brewLog = 2`. Compare canonical RFC 3339 timestamps without losing
+sub-millisecond precision, then use `mutationId` as a stable tie-breaker while preserving operation order within an entity. Cap retry delay at
+60 seconds. Preserve `needs_attention` rows during compaction, never merge them with `pending`/`syncing` rows, and never send them
+automatically. Export `selectSendableMutations()` as the compact + filter + order boundary so callers cannot accidentally upload attention rows.
 Whenever compaction constructs or replaces a delete mutation payload, it must call `createDeletePayload()`; it must not use a literal `{}` or
 reuse a legacy payload object.
 

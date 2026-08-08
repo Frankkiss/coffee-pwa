@@ -210,6 +210,13 @@ ownership、主键、服务器时间戳和软删除字段。
 9. 发布全局和逐实体同步状态。
 10. 释放锁。
 
+Outbox 压缩必须保守。当前 `SyncMutation` 没有可靠的服务器存在性或实体来源元数据，无法安全区分“仅在本地新建后又删除”与
+“编辑服务器既有实体后删除”。因此，同一用户、同一实体的最终操作为 `delete` 时，必须保留压缩后的最新完整 `upsert`
+及其后的 `delete`，并按该顺序发送；不得把两者自动抵消。`delete → upsert` 可压缩为最后一个完整 `upsert`，连续
+`upsert` 只保留最后一个完整 `upsert`，连续 `delete` 只保留最后一个 `delete`。只有未来为 mutation 增加并验证可信的
+origin metadata 后，才可以针对已证明从未存在于服务器的实体抵消 `upsert → delete`。压缩不得跨用户，也不得把
+`needs_attention` 与可发送项合并或自动发送。
+
 发送前，存储层必须在单个、显式 `userId` 作用域的 IndexedDB 事务中将本批 mutation 标记为 `syncing` 并递增
 `attemptCount`。网络、超时或 5xx 等可重试失败必须在同样的用户作用域内原子恢复为 `pending`，同时记录稳定错误码与
 消息。确认、标记需处理、手动重试、放弃和旧代次隔离等所有 mutation 写操作都必须显式接收并校验 `userId`，不能只凭
