@@ -112,7 +112,7 @@ describe('compactMutations', () => {
   })
 
   it('preserves attention and syncing boundaries without selecting them for upload', () => {
-    const pending = mutation('mutation-pending')
+    const pending = mutation('mutation-pending', { entityId: 'entity-safe' })
     const attention = mutation('mutation-attention', {
       status: 'needs_attention',
       lastErrorCode: 'VALIDATION_ERROR',
@@ -159,6 +159,30 @@ describe('compactMutations', () => {
     ])
   })
 
+  it.each(['syncing', 'needs_attention'] as const)(
+    'treats an unrelated %s mutation as a global compaction barrier',
+    (status) => {
+      const firstA = mutation('first-a', { entityId: 'entity-a' })
+      const firstB = mutation('first-b', { entityId: 'entity-b' })
+      const barrier = mutation('barrier', {
+        entityId: 'entity-barrier',
+        status,
+      })
+      const latestA = mutation('latest-a', { entityId: 'entity-a' })
+      const latestB = mutation('latest-b', { entityId: 'entity-b' })
+
+      expect(
+        compactMutations([
+          firstA,
+          firstB,
+          barrier,
+          latestA,
+          latestB,
+        ]).map((item) => item.mutationId),
+      ).toEqual(['first-a', 'first-b', 'barrier', 'latest-a', 'latest-b'])
+    },
+  )
+
   it('returns every source mutation id covered by each selected operation', () => {
     const first = mutation('mutation-1')
     const latest = mutation('mutation-2')
@@ -174,6 +198,54 @@ describe('compactMutations', () => {
         coveredMutationIds: ['mutation-3'],
       },
     ])
+  })
+
+  it('blocks pending work that directly or transitively depends on attention', () => {
+    const attentionEntity = mutation('attention-entity', {
+      entityId: 'entity-attention',
+      status: 'needs_attention',
+    })
+    const sameEntityPending = mutation('same-entity-pending', {
+      entityId: 'entity-attention',
+    })
+    const attentionBean = mutation('attention-bean', {
+      entityId: 'bean-attention',
+      status: 'needs_attention',
+    })
+    const dependentBrew = mutation('dependent-brew', {
+      entityId: 'brew-dependent',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-attention', schema_version: 1 },
+    })
+    const downstreamBrew = mutation('downstream-brew', {
+      entityId: 'brew-dependent',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-attention', schema_version: 1 },
+    })
+    const attentionBrew = mutation('attention-brew', {
+      entityId: 'brew-attention',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-delete', schema_version: 1 },
+      status: 'needs_attention',
+    })
+    const dependentBeanDelete = mutation('dependent-bean-delete', {
+      entityId: 'bean-delete',
+      operation: 'delete',
+    })
+    const independent = mutation('independent', { entityId: 'safe-bean' })
+
+    expect(
+      selectSendableMutations([
+        attentionEntity,
+        sameEntityPending,
+        attentionBean,
+        dependentBrew,
+        downstreamBrew,
+        attentionBrew,
+        dependentBeanDelete,
+        independent,
+      ]).map((item) => item.mutationId),
+    ).toEqual(['independent'])
   })
 
   it('does not mutate inputs or share mutable payloads with its result', () => {
@@ -419,14 +491,37 @@ describe('retry policy', () => {
 
   it('retries explicit retryable and common transient network errors', () => {
     expect(isRetryableSyncError({ retryable: true })).toBe(true)
+    expect(
+      isRetryableSyncError({
+        retryable: true,
+        status: 503,
+        message: 'AUTH validation failed',
+      }),
+    ).toBe(true)
+    expect(
+      isRetryableSyncError({ status: 503, message: 'AUTH validation failed' }),
+    ).toBe(true)
     expect(isRetryableSyncError({ code: 'ETIMEDOUT' })).toBe(true)
     expect(isRetryableSyncError({ status: 503 })).toBe(true)
     expect(isRetryableSyncError(new TypeError('Failed to fetch'))).toBe(true)
   })
 
   it('does not retry validation, auth, stale, corruption, or unknown errors', () => {
+    expect(
+      isRetryableSyncError({
+        retryable: false,
+        status: 503,
+        message: 'Failed to fetch',
+      }),
+    ).toBe(false)
     expect(isRetryableSyncError({ code: 'VALIDATION_ERROR' })).toBe(false)
     expect(isRetryableSyncError({ status: 401 })).toBe(false)
+    expect(
+      isRetryableSyncError({ status: 401, message: 'Failed to fetch' }),
+    ).toBe(false)
+    expect(isRetryableSyncError({ status: 403, code: 'ETIMEDOUT' })).toBe(
+      false,
+    )
     expect(isRetryableSyncError({ code: 'STALE_SYNC_EPOCH' })).toBe(false)
     expect(isRetryableSyncError({ code: 'LOCAL_DATA_CORRUPTION' })).toBe(false)
     expect(isRetryableSyncError({ status: Number.POSITIVE_INFINITY })).toBe(false)

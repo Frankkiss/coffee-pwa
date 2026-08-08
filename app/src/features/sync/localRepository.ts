@@ -323,7 +323,7 @@ export async function listOutbox(userId: string): Promise<SyncMutation[]> {
             .map((row) => row.value)
             .sort(
               (left, right) =>
-                Date.parse(left.queuedAt) - Date.parse(right.queuedAt) ||
+                compareCanonicalInstants(left.queuedAt, right.queuedAt) ||
                 left.mutationId.localeCompare(right.mutationId),
             )
         } catch (error) {
@@ -1891,6 +1891,12 @@ function isoInstantNanoseconds(value: string) {
   }
   const fractionalNanoseconds = BigInt((match[2] ?? '').padEnd(9, '0') || '0')
   return BigInt(epochMilliseconds) * 1_000_000n + fractionalNanoseconds
+}
+
+function compareCanonicalInstants(left: string, right: string) {
+  const leftInstant = isoInstantNanoseconds(left)
+  const rightInstant = isoInstantNanoseconds(right)
+  return leftInstant < rightInstant ? -1 : leftInstant > rightInstant ? 1 : 0
 }
 
 function getDaysInMonth(year: number, month: number) {

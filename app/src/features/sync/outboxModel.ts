@@ -48,9 +48,7 @@ export function selectSendableMutationBatch(
   mutations: SyncMutation[],
 ): SendableMutationSelection[] {
   return orderPendingEntries(
-    compactMutationSelections(mutations).filter(
-      (item) => item.mutation.status === 'pending',
-    ),
+    selectUnblockedPending(compactMutationSelections(mutations)),
   ).map((item) => ({
     mutation: cloneMutation(item.mutation),
     coveredMutationIds: [...item.coveredMutationIds],
@@ -83,8 +81,8 @@ export function nextRetryDelayMs(attemptCount: number): number {
 
 export function isRetryableSyncError(error: unknown): boolean {
   const retryable = readProperty(error, 'retryable')
-  if (retryable === false) {
-    return false
+  if (typeof retryable === 'boolean') {
+    return retryable
   }
 
   const status = readProperty(error, 'status')
@@ -95,25 +93,13 @@ export function isRetryableSyncError(error: unknown): boolean {
   const classification = `${code} ${name} ${message}`
 
   if (
-    /VALIDAT|UNAUTHORIZED|FORBIDDEN|AUTH|JWT|STALE|CORRUPT|INTEGRITY|MALFORMED/.test(
-      classification,
-    )
-  ) {
-    return false
-  }
-
-  if (
     Number.isFinite(numericStatus) &&
     numericStatus >= 400 &&
-    numericStatus < 500 &&
+    numericStatus <= 499 &&
     numericStatus !== 408 &&
     numericStatus !== 429
   ) {
     return false
-  }
-
-  if (retryable === true) {
-    return true
   }
 
   if (
@@ -136,9 +122,23 @@ export function isRetryableSyncError(error: unknown): boolean {
     return true
   }
 
-  return /FAILED TO FETCH|FETCH FAILED|NETWORK REQUEST FAILED|NETWORK ?ERROR|LOAD FAILED|TIMED? ?OUT|CONNECTION (RESET|REFUSED)/.test(
-    message,
-  )
+  if (
+    /FAILED TO FETCH|FETCH FAILED|NETWORK REQUEST FAILED|NETWORK ?ERROR|LOAD FAILED|TIMED? ?OUT|CONNECTION (RESET|REFUSED)/.test(
+      message,
+    )
+  ) {
+    return true
+  }
+
+  if (
+    /VALIDAT|UNAUTHORIZED|FORBIDDEN|AUTH|JWT|STALE|CORRUPT|INTEGRITY|MALFORMED/.test(
+      classification,
+    )
+  ) {
+    return false
+  }
+
+  return false
 }
 
 export function deriveSyncState(input: {
@@ -195,10 +195,16 @@ function compactMutationSelections(
     pendingGroups.delete(key)
   }
 
+  const flushAllPendingGroups = () => {
+    for (const key of [...pendingGroups.keys()]) {
+      flushPendingGroup(key)
+    }
+  }
+
   mutations.forEach((mutation, index) => {
     const key = entityKey(mutation)
     if (mutation.status !== 'pending') {
-      flushPendingGroup(key)
+      flushAllPendingGroups()
       retained.push({
         index,
         mutation: cloneMutation(mutation),
@@ -216,11 +222,57 @@ function compactMutationSelections(
     }
   })
 
-  for (const key of [...pendingGroups.keys()]) {
-    flushPendingGroup(key)
-  }
+  flushAllPendingGroups()
 
   return retained.sort((left, right) => left.index - right.index)
+}
+
+function selectUnblockedPending(
+  selections: IndexedSelection[],
+): IndexedSelection[] {
+  const blocked = new Set<IndexedSelection>(
+    selections.filter((item) => item.mutation.status !== 'pending'),
+  )
+
+  let changed = true
+  while (changed) {
+    changed = false
+    const blockedEntityKeys = new Set(
+      [...blocked].map((item) => entityKey(item.mutation)),
+    )
+    const blockedBeanIds = new Set(
+      [...blocked]
+        .filter((item) => item.mutation.entityType === 'bean')
+        .map((item) => item.mutation.entityId),
+    )
+    const blockedBrewBeanIds = new Set(
+      [...blocked]
+        .map((item) => referencedBeanId(item.mutation))
+        .filter((beanId): beanId is string => beanId !== null),
+    )
+
+    for (const selection of selections) {
+      if (blocked.has(selection)) {
+        continue
+      }
+      const mutation = selection.mutation
+      const beanId = referencedBeanId(mutation)
+      const dependsOnBlocked =
+        blockedEntityKeys.has(entityKey(mutation)) ||
+        (beanId !== null && blockedBeanIds.has(beanId)) ||
+        (mutation.entityType === 'bean' &&
+          mutation.operation === 'delete' &&
+          blockedBrewBeanIds.has(mutation.entityId))
+      if (dependsOnBlocked) {
+        blocked.add(selection)
+        changed = true
+      }
+    }
+  }
+
+  return selections.filter(
+    (item) => item.mutation.status === 'pending' && !blocked.has(item),
+  )
 }
 
 function compactPendingGroup(

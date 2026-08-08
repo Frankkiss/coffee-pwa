@@ -269,6 +269,22 @@ describe('localRepository Outbox isolation and state transitions', () => {
     expect(await listOutbox(userOne)).toEqual([offset, zulu])
   })
 
+  it('sorts RFC3339 instants without losing microsecond precision', async () => {
+    const later = createBeanDeleteMutation(userOne, 'bean-later', 'mutation-a', {
+      queuedAt: '2026-08-08T10:00:00.000002Z',
+    })
+    const earlier = createBeanDeleteMutation(
+      userOne,
+      'bean-earlier',
+      'mutation-z',
+      { queuedAt: '2026-08-08T10:00:00.000001Z' },
+    )
+    await putOutbox(later)
+    await putOutbox(earlier)
+
+    expect(await listOutbox(userOne)).toEqual([earlier, later])
+  })
+
   it('accepts complete allowlisted upserts for all four mutable entity types', async () => {
     const mutations = createCompleteUpsertMutations()
     for (const mutation of mutations) {
