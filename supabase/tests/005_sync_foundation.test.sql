@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(155);
+select plan(166);
 
 -- 1. Technical sync tables exist.
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
@@ -2151,6 +2151,165 @@ select ok(
       where mutation_id = '10000000-0000-0000-0000-000000000036'
     ),
   'impossible purchase_date writes neither bean nor receipt'
+);
+
+reset role;
+
+-- 156. Snapshot epoch and all collections are built by one SQL statement.
+select ok(
+  (
+    select pg_catalog.regexp_replace(
+      pg_catalog.pg_get_functiondef(
+        'public.get_sync_snapshot()'::pg_catalog.regprocedure
+      ),
+      '[[:space:]]+',
+      ' ',
+      'g'
+    ) ~
+      'select pg_catalog[.]jsonb_build_object[(][^;]*''syncEpoch''[^;]*from public[.]user_sync_state[^;]*''beans''[^;]*''brewLogs''[^;]*''brewTemplates''[^;]*''userSettings''[^;]*''aiRecommendations''[^;]*[)] into v_result;'
+  )
+    and pg_catalog.position(
+      'into v_epoch' in pg_catalog.pg_get_functiondef(
+        'public.get_sync_snapshot()'::pg_catalog.regprocedure
+      )
+    ) = 0,
+  'snapshot epoch and all collections share one SQL statement contract'
+);
+
+set local role authenticated;
+
+-- 157. A strict RFC 3339 timestamp with a numeric offset is accepted.
+select lives_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000037",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000037",
+    "operation":"upsert",
+    "payload":{"brewed_at":"2026-08-08T12:34:56.789+15:59","schema_version":1}
+  }]'::jsonb)$$,
+  'numeric-offset RFC 3339 brewed_at is accepted'
+);
+-- 158.
+select ok(
+  exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000037'
+      and brewed_at = '2026-08-07T20:35:56.789Z'::timestamptz
+  )
+    and exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000037'
+    ),
+  'numeric-offset brewed_at stores the expected instant and receipt'
+);
+
+-- 159. PostgreSQL special timestamp values are forbidden.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000038",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000038",
+    "operation":"upsert",
+    "payload":{"brewed_at":"infinity"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_BREWED_AT',
+  'infinity brewed_at is rejected with a stable error'
+);
+-- 160.
+select ok(
+  not exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000038'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000038'
+    ),
+  'infinity brewed_at writes neither brew log nor receipt'
+);
+
+-- 161. Loose non-ISO timestamp syntax is forbidden.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000039",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000039",
+    "operation":"upsert",
+    "payload":{"brewed_at":"2026-08-08 12:34:56"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_BREWED_AT',
+  'space-separated timezone-free brewed_at is rejected'
+);
+-- 162.
+select ok(
+  not exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000039'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000039'
+    ),
+  'non-ISO brewed_at writes neither brew log nor receipt'
+);
+
+-- 163. Impossible calendar dates normalize to the same business error.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000040",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000040",
+    "operation":"upsert",
+    "payload":{"brewed_at":"2026-02-30T12:34:56Z"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_BREWED_AT',
+  'impossible brewed_at date is rejected with a stable error'
+);
+-- 164.
+select ok(
+  not exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000040'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000040'
+    ),
+  'impossible brewed_at writes neither brew log nor receipt'
+);
+
+-- 165. Database-out-of-range RFC 3339 offsets normalize after casting.
+select throws_ok(
+  $$select public.apply_sync_batch(1, '[{
+    "mutationId":"10000000-0000-0000-0000-000000000041",
+    "deviceId":"20000000-0000-0000-0000-000000000001",
+    "entityType":"brewLog",
+    "entityId":"31000000-0000-0000-0000-000000000041",
+    "operation":"upsert",
+    "payload":{"brewed_at":"2026-08-08T12:34:56+16:00"}
+  }]'::jsonb)$$,
+  'P0001',
+  'INVALID_PAYLOAD[1]: INVALID_BREWED_AT',
+  'invalid brewed_at timezone offset is rejected with a stable error'
+);
+-- 166.
+select ok(
+  not exists (
+    select 1 from public.brew_logs
+    where id = '31000000-0000-0000-0000-000000000041'
+  )
+    and not exists (
+      select 1 from public.sync_mutation_receipts
+      where mutation_id = '10000000-0000-0000-0000-000000000041'
+    ),
+  'invalid brewed_at timezone writes neither brew log nor receipt'
 );
 
 select * from finish();

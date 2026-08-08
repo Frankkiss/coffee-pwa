@@ -316,6 +316,7 @@ as $$
 declare
   v_now timestamptz := pg_catalog.clock_timestamp();
   v_bean_id uuid;
+  v_brewed_at timestamptz;
   v_row_count bigint;
 begin
   if private.has_unknown_fields(
@@ -351,9 +352,27 @@ begin
   end if;
 
   if not (p_payload ? 'brewed_at')
-    or pg_catalog.jsonb_typeof(p_payload -> 'brewed_at') <> 'string' then
+    or pg_catalog.jsonb_typeof(p_payload -> 'brewed_at') <> 'string'
+    or (p_payload ->> 'brewed_at') !~
+      '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$'
+  then
     raise exception using errcode = 'P0001', message = 'INVALID_BREWED_AT';
   end if;
+
+  begin
+    v_brewed_at := (p_payload ->> 'brewed_at')::timestamptz;
+
+    if not pg_catalog.isfinite(v_brewed_at) then
+      raise exception using errcode = 'P0001', message = 'INVALID_BREWED_AT';
+    end if;
+  exception
+    when sqlstate 'P0001' then
+      raise;
+    when invalid_datetime_format
+      or datetime_field_overflow
+      or invalid_time_zone_displacement_value then
+      raise exception using errcode = 'P0001', message = 'INVALID_BREWED_AT';
+  end;
 
   if (p_payload ? 'bean_id')
     and (p_payload -> 'bean_id') <> 'null'::jsonb
@@ -483,7 +502,7 @@ begin
       p_entity_id,
       p_user_id,
       v_bean_id,
-      (p_payload ->> 'brewed_at')::timestamptz,
+      v_brewed_at,
       p_payload ->> 'method',
       p_payload ->> 'dripper',
       p_payload ->> 'filter_paper',
@@ -1183,24 +1202,21 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_user_id uuid := auth.uid();
-  v_epoch bigint;
+  v_result jsonb;
 begin
   if v_user_id is null then
     raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
   end if;
 
-  select coalesce(
-    (
-      select sync_epoch
-      from public.user_sync_state
-      where user_id = v_user_id
+  select pg_catalog.jsonb_build_object(
+    'syncEpoch', coalesce(
+      (
+        select sync_epoch
+        from public.user_sync_state
+        where user_id = v_user_id
+      ),
+      1
     ),
-    1
-  )
-  into v_epoch;
-
-  return pg_catalog.jsonb_build_object(
-    'syncEpoch', v_epoch,
     'serverTime', pg_catalog.clock_timestamp(),
     'beans', coalesce(
       (
@@ -1250,7 +1266,10 @@ begin
       ),
       '[]'::jsonb
     )
-  );
+  )
+  into v_result;
+
+  return v_result;
 end;
 $$;
 
