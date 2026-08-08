@@ -939,7 +939,7 @@ export type SyncStorage = {
   recordRetryableFailure(userId: string, mutationIds: string[], code: string, message: string): Promise<void>
   markMutationAttention(userId: string, mutationIds: string[], code: string, message: string): Promise<void>
   markMutationPending(userId: string, mutationId: string): Promise<void>
-  discardMutation(userId: string, mutationId: string): Promise<void>
+  discardMutationAndReplaceSnapshot(userId: string, mutationId: string, snapshot: SyncSnapshot): Promise<void>
   quarantineOlderEpoch(userId: string, currentEpoch: number, code: string, message: string): Promise<void>
   replaceServerSnapshot(userId: string, snapshot: SyncSnapshot): Promise<void>
   readSyncEpoch(userId: string): Promise<number>
@@ -990,6 +990,7 @@ git commit -m "fix: strengthen sync type boundaries"
 ### Task 6: Create IndexedDB v3 and atomic local writes
 
 **Files:**
+- Modify: `app/src/features/sync/syncTypes.ts`
 - Create: `app/src/features/sync/syncDatabase.ts`
 - Create: `app/src/features/sync/syncDatabase.test.ts`
 - Create: `app/src/features/sync/localRepository.ts`
@@ -1079,8 +1080,8 @@ Test that `saveLocalEntity` writes both the entity and Outbox row, and that a fo
 
 `localRepository.ts` must export `saveLocalEntity`, `softDeleteLocalEntity`, `listLocalEntities`, `replaceServerSnapshot`, `listOutbox`,
 `acknowledgeMutations`, `markMutationsSyncing`, `recordRetryableFailure`, `markMutationAttention`, `markMutationPending`,
-`discardMutation`, and `quarantineOlderEpoch`. Every Outbox write method explicitly receives `userId` and verifies both the stored envelope and
-key belong to that user before changing it. `saveLocalEntity` must use one readwrite transaction over the entity store and `outbox`:
+`discardMutationAndReplaceSnapshot`, and `quarantineOlderEpoch`. Every Outbox write method explicitly receives `userId` and verifies both the
+stored envelope and key belong to that user before changing it. `saveLocalEntity` must use one readwrite transaction over the entity store and `outbox`:
 
 ```ts
 const transaction = database.transaction([storeName, syncStoreNames.outbox], 'readwrite')
@@ -1096,8 +1097,31 @@ Resolve only from `transaction.oncomplete`; reject on both `onerror` and `onabor
 
 `markMutationsSyncing(userId, ids)` performs one Outbox transaction that increments `attemptCount` and changes every selected current-user row
 to `syncing` before the network call. `recordRetryableFailure(userId, ids, code, message)` atomically returns those rows to `pending` and records
-both error fields. Tests must prove a different `userId` cannot acknowledge, retry, discard, quarantine, or change status for another user's
+both error fields. Tests must prove a different `userId` cannot acknowledge, retry, atomically discard/restore, quarantine, or change status for another user's
 mutation, and that a forced transaction failure leaves every selected row unchanged.
+
+Treat local IndexedDB rows as untrusted. Outbox reads classify each row as missing, foreign, valid, or corrupt-owned. Any envelope/value/key/
+canonical-time inconsistency that points to the current user throws `LocalSyncDataCorruptionError` with code `LOCAL_SYNC_DATA_CORRUPT` and
+aborts list, snapshot, or batch/status work. A valid foreign row remains invisible; a wholly unowned corrupt orphan does not block unrelated
+users, but a target-id lookup that directly hits it must reject without mutation. Tests cover envelope owner, value owner, key/mutationId,
+queuedAt, batch rollback, snapshot rollback, and non-leakage of foreign data.
+
+Replace `discardMutation` with
+`discardMutationAndReplaceSnapshot(userId, mutationId, snapshot)`. SyncManager must fetch and fully validate the server snapshot first. The
+storage method then uses one transaction across all five entity stores, Outbox, and syncMeta to validate/delete the exact owned mutation,
+recompute protected keys from the remaining valid Outbox, apply the snapshot, and update metadata. Missing, foreign, corrupt-owned, stale
+snapshot, or injected failure rejects and rolls back everything. Tests prove the discarded overlay becomes the server row/tombstone, other
+local intents remain protected, and other users are unchanged.
+
+Both `replaceServerSnapshot` and `writeSyncMeta` read current-user syncMeta inside their write transaction before any entity delete/put. Reject
+lower epochs, or an older `serverTime`/`lastSyncedAt` within the same epoch, with `STALE_LOCAL_SNAPSHOT`; allow equal/newer same-epoch writes and
+higher epochs. Validate canonical finite timezone-qualified RFC 3339 timestamps. Outbox ordering compares parsed milliseconds then mutationId,
+not raw strings. Tests cover equivalent offset ordering, locale-string rejection, stale snapshot/meta rollback, and higher-epoch advancement.
+
+`openSyncDatabase` deduplicates an underlying blocked upgrade request: callers may receive `IndexedDB open blocked` immediately, but repeated
+calls must not start more upgrade opens until the original request reaches real success/error and clears module state. The late success closes.
+Task 9 owns complete external `SyncSnapshot` business-schema validation; only a validated snapshot may enter these storage methods. Task 6 still
+validates snapshot ownership, canonical metadata, monotonicity, and every local envelope it consumes.
 
 - [ ] **Step 6: Run storage tests**
 
@@ -1373,6 +1397,13 @@ A malformed snapshot never calls `replaceServerSnapshot`; `INVALID_SYNC_RESPONSE
 `needs_attention` without overwriting the last valid cache. If apply validation already succeeded before snapshot validation failed, only those
 validated confirmations may be acknowledged. Add manager tests for both stale-user callback suppression and malformed-response cache preservation.
 
+`discardMutation` first awaits `api.getSnapshot()` and therefore receives only the same fully validated `SyncSnapshot` used by normal pulls.
+After re-checking the active generation it calls
+`storage.discardMutationAndReplaceSnapshot(userId, mutationId, snapshot)` exactly once. It must never call a legacy delete-only method.
+`LOCAL_SYNC_DATA_CORRUPT` and `STALE_LOCAL_SNAPSHOT` stop the cycle and publish `needs_attention` without acknowledging, deleting, or replacing
+other local data. Normal snapshot installation can still use `replaceServerSnapshot` after RPC validation; the local repository remains the
+second trust boundary for IndexedDB envelope corruption and monotonic metadata.
+
 - [ ] **Step 7: Run focused sync tests**
 
 ```powershell
@@ -1506,7 +1537,9 @@ Move the authenticated view switch into the focused `AuthenticatedApp` component
 `HomeOverview` and `OnlineStatus` must consume `SyncState`. Keep network state as secondary text for AI/source availability, but never render “云同步在线” solely from `navigator.onLine`.
 
 `SyncStatusBanner` lists attention items with the server error message and buttons wired to `retryMutation` and `discardMutation`. Discard must
-reload the current server snapshot before removing the local overlay. Pending items remain non-destructive and show their count.
+reload and validate the current server snapshot, then use the single atomic storage operation that deletes the selected mutation, reapplies the
+snapshot with remaining overlays protected, and updates meta. The UI must not report success before that transaction completes. Pending items
+remain non-destructive and show their count.
 
 - [ ] **Step 5: Add sign-out protection**
 
@@ -1712,9 +1745,11 @@ Set-Location app
 npm test
 npm run lint
 npm run build
+# Run the real Chromium IndexedDB smoke suite and record the browser version.
 ```
 
-Expected: SQL tests, Vitest, lint, and build all pass.
+Expected: SQL tests, Vitest, lint, build, and the real Chromium IndexedDB smoke suite all pass. The smoke suite must cover v2-to-v3 upgrade,
+blocked open deduplication/late close, entity-plus-Outbox abort, and snapshot-plus-meta abort. fake-indexeddb passing alone is not a release gate.
 
 - [ ] **Step 2: Record verification evidence**
 
