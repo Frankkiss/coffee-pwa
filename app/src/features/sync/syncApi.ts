@@ -35,7 +35,7 @@ export class SyncApiError extends Error {
   }
 }
 
-type RpcResult = { data: unknown; error: unknown }
+type RpcResult = { data: unknown; error: unknown; status?: number }
 
 export function createSyncApi(supabase: SupabaseClient) {
   const rpc = supabase.rpc.bind(supabase) as unknown as (
@@ -58,13 +58,17 @@ export function createSyncApi(supabase: SupabaseClient) {
         p_sync_epoch: syncEpoch,
         p_operations: wireOperations,
       })
-      if (response.error !== null) throw fromSupabaseError(response.error)
+      if (response.error !== null) {
+        throw fromSupabaseError(response.error, response.status)
+      }
       return validateApplyResult(response.data, wireOperations)
     },
 
     async getSnapshot(): Promise<SyncSnapshot> {
       const response = await rpc('get_sync_snapshot')
-      if (response.error !== null) throw fromSupabaseError(response.error)
+      if (response.error !== null) {
+        throw fromSupabaseError(response.error, response.status)
+      }
       return validateSnapshot(response.data)
     },
   }
@@ -74,13 +78,18 @@ export function toSyncRpcOperation(mutation: SyncMutation): SyncRpcOperation {
   if (!isUuid(mutation.mutationId) || !isUuid(mutation.deviceId) || !isUuid(mutation.entityId)) {
     throw invalidOperation('Invalid operation identifier')
   }
+  if (!isEntityType(mutation.entityType) || !isOperation(mutation.operation)) {
+    throw invalidOperation('Invalid entity type or operation')
+  }
+  const entityType = mutation.entityType
+  const operation = mutation.operation
   const base = {
     mutationId: mutation.mutationId,
     deviceId: mutation.deviceId,
     entityId: mutation.entityId,
   }
-  if (mutation.operation === 'delete') {
-    if ((mutation as { entityType: string }).entityType === 'userSettings') {
+  if (operation === 'delete') {
+    if (entityType === 'userSettings') {
       throw invalidOperation('User settings cannot be deleted')
     }
     if (!isPlainRecord(mutation.payload) || Object.keys(mutation.payload).length !== 0) {
@@ -88,13 +97,13 @@ export function toSyncRpcOperation(mutation: SyncMutation): SyncRpcOperation {
     }
     return {
       ...base,
-      entityType: mutation.entityType,
+      entityType,
       operation: 'delete',
       payload: createDeletePayload(),
     }
   }
 
-  switch (mutation.entityType) {
+  switch (entityType) {
     case 'bean':
       return { ...base, entityType: 'bean', operation: 'upsert', payload: rebuildBeanPayload(mutation.payload) }
     case 'brewLog':
@@ -299,7 +308,7 @@ function validateSettingsRow(value: unknown): UserSettingsRow {
 function validateRecommendationRow(value: unknown): SavedRecommendationRow {
   const keys = ['id', 'user_id', 'bean_id', 'input_context', 'recommendation', 'model_name', 'accepted', 'created_at', 'updated_at', 'deleted_at', 'schema_version'] as const
   const row = exactRecord(value, keys, 'recommendation row', invalidResponse)
-  if (!isUuid(row.id) || !isUuid(row.user_id) || !nullableUuid(row.bean_id) || !isJsonObject(row.input_context) || !isJsonObject(row.recommendation) || !nullableString(row.model_name) || !(row.accepted === null || typeof row.accepted === 'boolean') || !isRfc3339(row.created_at) || !isRfc3339(row.updated_at) || !nullableRfc3339(row.deleted_at) || !isPositiveInteger(row.schema_version)) throw invalidResponse()
+  if (!isUuid(row.id) || !isUuid(row.user_id) || !nullableUuid(row.bean_id) || !isJsonObject(row.input_context) || !isJsonObject(row.recommendation) || !nullableString(row.model_name) || !(row.accepted === null || typeof row.accepted === 'boolean') || !isRfc3339(row.created_at) || !isRfc3339(row.updated_at) || !nullableRfc3339(row.deleted_at) || row.schema_version !== 1) throw invalidResponse()
   return structuredClone(row) as SavedRecommendationRow
 }
 
@@ -309,20 +318,20 @@ function assertOwnedServerFields(row: Record<string, unknown>, deletable: boolea
 
 function assertBeanMutable(row: Record<string, unknown>, failure = invalidOperation): void {
   const components = row.blend_components
-  if (typeof row.name !== 'string' || !nullableString(row.roaster) || !nullableString(row.origin) || !nullableString(row.farm_or_station) || !nullableString(row.process) || !nullableString(row.variety) || !nullableFinite(row.altitude_meters) || !nullableDate(row.roast_date) || !nullableString(row.roast_level) || !stringArray(row.flavor_tags) || !nullableString(row.flavor_notes) || !nullableFinite(row.net_weight_grams) || !nullableFinite(row.price) || !nullableDate(row.purchase_date) || !nullableString(row.source_url) || !nullableString(row.image_url) || (row.bean_type !== 'single_origin' && row.bean_type !== 'blend') || !Array.isArray(components) || !components.every(isBlendComponent) || !nullableString(row.blend_notes) || !nullableString(row.notes) || !isPositiveInteger(row.schema_version)) throw failure()
+  if (typeof row.name !== 'string' || !nullableString(row.roaster) || !nullableString(row.origin) || !nullableString(row.farm_or_station) || !nullableString(row.process) || !nullableString(row.variety) || !nullableFinite(row.altitude_meters) || !nullableDate(row.roast_date) || !nullableString(row.roast_level) || !stringArray(row.flavor_tags) || !nullableString(row.flavor_notes) || !nullableFinite(row.net_weight_grams) || !nullableFinite(row.price) || !nullableDate(row.purchase_date) || !nullableString(row.source_url) || !nullableString(row.image_url) || (row.bean_type !== 'single_origin' && row.bean_type !== 'blend') || !Array.isArray(components) || !components.every(isBlendComponent) || !nullableString(row.blend_notes) || !nullableString(row.notes) || row.schema_version !== 1) throw failure()
 }
 
 function assertBrewMutable(row: Record<string, unknown>, failure = invalidOperation): void {
-  if (!nullableUuid(row.bean_id) || !isRfc3339(row.brewed_at) || !nullableString(row.method) || !nullableString(row.dripper) || !nullableString(row.filter_paper) || !nullableString(row.grinder) || !nullableString(row.grind_setting) || !nullableFinite(row.coffee_grams) || !nullableFinite(row.water_grams) || !nullableString(row.ratio) || !nullableFinite(row.water_temperature_c) || !nullableFinite(row.total_time_seconds) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isJsonValue) || !nullableFinite(row.rating) || !nullableFinite(row.acidity) || !nullableFinite(row.sweetness) || !nullableFinite(row.bitterness) || !nullableFinite(row.astringency) || !nullableFinite(row.body) || !nullableFinite(row.aftertaste) || !stringArray(row.flavor_tags) || typeof row.is_pinned_recipe !== 'boolean' || !nullableString(row.notes) || !isPositiveInteger(row.schema_version)) throw failure()
+  if (!nullableUuid(row.bean_id) || !isRfc3339(row.brewed_at) || !nullableString(row.method) || !nullableString(row.dripper) || !nullableString(row.filter_paper) || !nullableString(row.grinder) || !nullableString(row.grind_setting) || !nullableFinite(row.coffee_grams) || !nullableFinite(row.water_grams) || !nullableString(row.ratio) || !nullableFinite(row.water_temperature_c) || !nullableFinite(row.total_time_seconds) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isJsonValue) || !nullableFinite(row.rating) || !nullableFinite(row.acidity) || !nullableFinite(row.sweetness) || !nullableFinite(row.bitterness) || !nullableFinite(row.astringency) || !nullableFinite(row.body) || !nullableFinite(row.aftertaste) || !stringArray(row.flavor_tags) || typeof row.is_pinned_recipe !== 'boolean' || !nullableString(row.notes) || row.schema_version !== 1) throw failure()
 }
 
 function assertTemplateMutable(row: Record<string, unknown>, failure = invalidOperation): void {
   const categories = ['daily-pourover', 'immersion-hybrid', 'bean-specific', 'cold-brew', 'moka-pot', 'champion-reference']
-  if (typeof row.name !== 'string' || !categories.includes(String(row.category)) || !['easy', 'medium', 'advanced'].includes(String(row.difficulty)) || typeof row.brewer !== 'string' || typeof row.filter !== 'string' || !isFiniteNumber(row.dose_grams) || !isFiniteNumber(row.water_grams) || typeof row.ratio !== 'string' || !isFiniteNumber(row.water_temperature_min) || !isFiniteNumber(row.water_temperature_max) || typeof row.grind_size !== 'string' || !isFiniteNumber(row.target_time_min) || !isFiniteNumber(row.target_time_max) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isTemplateStep) || !stringArray(row.suitable_for) || !stringArray(row.avoid_for) || typeof row.flavor_goal !== 'string' || !stringArray(row.adjustment_rules) || typeof row.source_notes !== 'string' || !stringArray(row.source_urls) || typeof row.is_champion_reference !== 'boolean' || !nullableUuid(row.copied_from_template_id) || !isPositiveInteger(row.schema_version)) throw failure()
+  if (typeof row.name !== 'string' || !categories.includes(String(row.category)) || !['easy', 'medium', 'advanced'].includes(String(row.difficulty)) || typeof row.brewer !== 'string' || typeof row.filter !== 'string' || !isFiniteNumber(row.dose_grams) || !isFiniteNumber(row.water_grams) || typeof row.ratio !== 'string' || !isFiniteNumber(row.water_temperature_min) || !isFiniteNumber(row.water_temperature_max) || typeof row.grind_size !== 'string' || !isFiniteNumber(row.target_time_min) || !isFiniteNumber(row.target_time_max) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isTemplateStep) || !stringArray(row.suitable_for) || !stringArray(row.avoid_for) || typeof row.flavor_goal !== 'string' || !stringArray(row.adjustment_rules) || typeof row.source_notes !== 'string' || !stringArray(row.source_urls) || typeof row.is_champion_reference !== 'boolean' || !nullableUuid(row.copied_from_template_id) || row.schema_version !== 1) throw failure()
 }
 
 function assertSettingsMutable(row: Record<string, unknown>, failure = invalidOperation): void {
-  if (!isJsonObject(row.preferred_units) || !isJsonObject(row.default_gear) || !isJsonObject(row.taste_preferences) || !isPositiveInteger(row.backup_reminder_days) || !isPositiveInteger(row.schema_version)) throw failure()
+  if (!isJsonObject(row.preferred_units) || !isJsonObject(row.default_gear) || !isJsonObject(row.taste_preferences) || !isPositiveInteger(row.backup_reminder_days) || row.schema_version !== 1) throw failure()
 }
 
 function isBlendComponent(value: unknown) {
@@ -409,7 +418,7 @@ function isOperation(value: unknown): value is SyncOperation { return value === 
 function invalidOperation(message = 'Invalid sync operation'): SyncApiError { return new SyncApiError('INVALID_SYNC_OPERATION', message, false) }
 function invalidResponse(message = 'Invalid sync RPC response'): SyncApiError { return new SyncApiError('INVALID_SYNC_RESPONSE', message, false) }
 
-function fromSupabaseError(error: unknown): SyncApiError {
+function fromSupabaseError(error: unknown, responseStatus?: number): SyncApiError {
   const row = typeof error === 'object' && error !== null ? error as Record<string, unknown> : {}
   const rawCode = typeof row.code === 'string' && row.code ? row.code : 'SYNC_RPC_FAILED'
   const message = typeof row.message === 'string' && row.message ? row.message : 'Supabase sync RPC failed'
@@ -417,7 +426,11 @@ function fromSupabaseError(error: unknown): SyncApiError {
   const code = rawCode === 'P0001' && logicalMessageCode
     ? logicalMessageCode
     : rawCode
-  const status = typeof row.status === 'number' ? row.status : Number(rawCode)
+  const status = typeof responseStatus === 'number'
+    ? responseStatus
+    : typeof row.status === 'number'
+      ? row.status
+      : Number(rawCode)
   const retryable = status === 408 || status === 429 || (status >= 500 && status <= 599) || /timeout|network|fetch|connection/i.test(message)
   return new SyncApiError(code, message, retryable)
 }

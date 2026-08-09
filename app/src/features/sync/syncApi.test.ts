@@ -123,18 +123,32 @@ describe('sync API boundary', () => {
       { ...beanPayload(), updated_at: time },
       { ...beanPayload(), deleted_at: null },
       { ...beanPayload(), surprise: true },
+      { ...beanPayload(), schema_version: 2 },
       { ...beanPayload(), price: Number.NaN },
       { ...beanPayload(), flavor_tags: [undefined] },
     ]) {
       expect(() => toSyncRpcOperation(mutation({ payload } as Partial<SyncMutation>))).toThrowError(SyncApiError)
     }
     expect(() => toSyncRpcOperation(mutation({ operation: 'delete', payload: { hidden: true } } as unknown as Partial<SyncMutation>))).toThrowError(SyncApiError)
+    expect(() => toSyncRpcOperation({ ...mutation(), operation: 'merge' } as unknown as SyncMutation)).toThrowError(SyncApiError)
+    expect(() => toSyncRpcOperation({ ...mutation(), entityType: 'unknown', operation: 'delete', payload: {} } as unknown as SyncMutation)).toThrowError(SyncApiError)
   })
 
   it('maps Supabase errors to stable retryability', async () => {
     const { client } = clientWith([{ data: null, error: { code: '503', message: 'service unavailable' } }])
     await expect(createSyncApi(client).getSnapshot()).rejects.toMatchObject({
       name: 'SyncApiError', code: '503', message: 'service unavailable', retryable: true,
+    })
+  })
+
+  it('uses the RPC HTTP status when PostgREST error codes are not numeric', async () => {
+    const { client } = clientWith([{
+      data: null,
+      error: { code: 'PGRST500', message: 'Internal server error' },
+      status: 503,
+    }])
+    await expect(createSyncApi(client).getSnapshot()).rejects.toMatchObject({
+      code: 'PGRST500', retryable: true,
     })
   })
 
@@ -166,6 +180,11 @@ describe('sync API boundary', () => {
     ['bad template steps', { ...snapshot(), brewTemplates: [{ ...snapshot().brewTemplates[0], pour_steps: [{ ...snapshot().brewTemplates[0].pour_steps[0], order: NaN }] }] }],
     ['bad settings nullability', { ...snapshot(), userSettings: { ...snapshot().userSettings, preferred_units: null } }],
     ['bad recommendation boolean', { ...snapshot(), aiRecommendations: [{ ...snapshot().aiRecommendations[0], accepted: 'yes' }] }],
+    ['unsupported bean schema', { ...snapshot(), beans: [{ ...snapshot().beans[0], schema_version: 2 }] }],
+    ['unsupported brew schema', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], schema_version: 2 }] }],
+    ['unsupported template schema', { ...snapshot(), brewTemplates: [{ ...snapshot().brewTemplates[0], schema_version: 2 }] }],
+    ['unsupported settings schema', { ...snapshot(), userSettings: { ...snapshot().userSettings, schema_version: 2 } }],
+    ['unsupported recommendation schema', { ...snapshot(), aiRecommendations: [{ ...snapshot().aiRecommendations[0], schema_version: 2 }] }],
   ])('rejects malformed snapshot: %s', async (_name, data) => {
     const { client } = clientWith([{ data, error: null }])
     await expect(createSyncApi(client).getSnapshot()).rejects.toMatchObject({ code: 'INVALID_SYNC_RESPONSE', retryable: false })
