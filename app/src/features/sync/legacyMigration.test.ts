@@ -213,11 +213,7 @@ describe('legacy offline migration', () => {
     expect(await listLocalEntities('beans', userOne)).toEqual([
       expect.objectContaining({ name: 'snapshot already updated' }),
     ])
-    expect(await listOutbox(userOne)).toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({ name: 'snapshot already updated' }),
-      }),
-    ])
+    expect(await listOutbox(userOne)).toEqual([])
   })
 
   it('prefers a pending update when snapshot and mutation timestamps are equal', async () => {
@@ -247,6 +243,129 @@ describe('legacy offline migration', () => {
           name: 'equal-time pending edit survives',
         }),
       }),
+    ])
+  })
+
+  it('keeps a newer active snapshot unchanged by an older delete', async () => {
+    const bean = legacyBean(userOne, cloudBeanId, 'active snapshot wins')
+    await seedVersionTwoDatabase([
+      [
+        'beans',
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000002Z'),
+      ],
+    ], [
+      legacyMutation(
+        'older-delete',
+        userOne,
+        'bean',
+        'delete',
+        cloudBeanId,
+        undefined,
+        '2026-08-08T10:00:00.000001Z',
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({
+        name: 'active snapshot wins',
+        deleted_at: null,
+      }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('keeps a newer tombstone unchanged by an older update', async () => {
+    const deletedAt = '2026-08-08T10:00:00.000002Z'
+    const bean = {
+      ...legacyBean(userOne, cloudBeanId, 'newer tombstone'),
+      updated_at: deletedAt,
+      deleted_at: deletedAt,
+    }
+    await seedVersionTwoDatabase([
+      [
+        'beans',
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000003Z'),
+      ],
+    ], [
+      legacyMutation(
+        'older-update',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { name: 'must not revive' },
+        '2026-08-08T10:00:00.000001Z',
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({
+        name: 'newer tombstone',
+        deleted_at: '2026-08-08T10:00:00.000Z',
+      }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('applies an equal-time delete over an active snapshot', async () => {
+    const bean = legacyBean(userOne, cloudBeanId, 'delete at equal time')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean], fixedTime)],
+    ], [
+      legacyMutation(
+        'equal-delete',
+        userOne,
+        'bean',
+        'delete',
+        cloudBeanId,
+        undefined,
+        fixedTime,
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({ deleted_at: fixedTime }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({ operation: 'delete', entityId: cloudBeanId }),
+    ])
+  })
+
+  it('applies an equal-time update over a tombstoned snapshot', async () => {
+    const bean = {
+      ...legacyBean(userOne, cloudBeanId, 'tombstone at equal time'),
+      deleted_at: fixedTime,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean], fixedTime)],
+    ], [
+      legacyMutation(
+        'equal-update-revive',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { name: 'equal update revives' },
+        fixedTime,
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({
+        name: 'equal update revives',
+        deleted_at: null,
+      }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({ operation: 'upsert' }),
     ])
   })
 
