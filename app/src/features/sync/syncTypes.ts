@@ -146,6 +146,11 @@ export type SyncStorage = {
     userId: string,
     mutationIds: string[],
   ): Promise<void>
+  acknowledgeMutationsAndReplaceSnapshot(
+    userId: string,
+    mutationIds: string[],
+    snapshot: SyncSnapshot,
+  ): Promise<void>
   markMutationsSyncing(userId: string, mutationIds: string[]): Promise<void>
   recordRetryableFailure(
     userId: string,

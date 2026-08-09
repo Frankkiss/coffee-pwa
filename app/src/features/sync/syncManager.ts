@@ -1,5 +1,6 @@
 import { toSyncRpcOperation, SyncApiError } from './syncApi'
 import { selectSendableMutationBatch } from './outboxModel'
+import type { SyncLockGuard } from './syncLock'
 import type {
   ApplySyncResult,
   SyncMutation,
@@ -16,7 +17,7 @@ type SyncApi = {
 
 type SyncLock = (
   userId: string,
-  action: () => Promise<void>,
+  action: (guard: SyncLockGuard) => Promise<void>,
 ) => Promise<void>
 
 export type SyncManagerDependencies = {
@@ -74,6 +75,15 @@ export function createSyncManager(deps: SyncManagerDependencies) {
   const listeners = new Set<(state: SyncState) => void>()
 
   const isCurrent = (token: number) => token === generation
+  const canContinue = async (token: number, guard: SyncLockGuard) => {
+    if (!isCurrent(token) || guard.signal.aborted) return false
+    try {
+      await guard.assertHeld()
+    } catch {
+      return false
+    }
+    return isCurrent(token) && !guard.signal.aborted
+  }
   const publish = (token: number, next: SyncState) => {
     if (!isCurrent(token)) return
     state = next
@@ -123,11 +133,12 @@ export function createSyncManager(deps: SyncManagerDependencies) {
     }
 
     try {
-      await deps.lock(deps.userId, async () => {
-        if (!isCurrent(token)) return
-        await cycleInsideLock(token)
+      await deps.lock(deps.userId, async (guard) => {
+        if (!(await canContinue(token, guard))) return
+        await cycleInsideLock(token, guard)
       })
-    } catch {
+    } catch (error) {
+      if (errorCode(error) === 'SYNC_LOCK_LOST') return
       if (isCurrent(token)) {
         publish(token, {
           kind: 'retrying',
@@ -138,7 +149,7 @@ export function createSyncManager(deps: SyncManagerDependencies) {
     }
   }
 
-  async function cycleInsideLock(token: number) {
+  async function cycleInsideLock(token: number, guard: SyncLockGuard) {
     let outbox: SyncMutation[] = []
     let markedIds: string[] = []
     let confirmedIds: string[] = []
@@ -146,61 +157,75 @@ export function createSyncManager(deps: SyncManagerDependencies) {
     let phase: 'read' | 'apply' | 'snapshot-fetch' | 'snapshot-replace' | 'ack' = 'read'
 
     try {
+      if (!(await canContinue(token, guard))) return
       outbox = await deps.storage.listOutbox(deps.userId)
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       const interrupted = outbox.filter((item) => item.status === 'syncing')
       for (const item of interrupted) {
+        if (!(await canContinue(token, guard))) return
         await deps.storage.markMutationPending(deps.userId, item.mutationId)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
       }
       if (interrupted.length > 0) {
+        if (!(await canContinue(token, guard))) return
         outbox = await deps.storage.listOutbox(deps.userId)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
       }
 
+      if (!(await canContinue(token, guard))) return
       publish(token, { kind: 'syncing', pendingCount: outbox.length })
       const selected = selectSendableMutationBatch(outbox)
       let snapshot: SyncSnapshot
       if (selected.length > 0) {
+        if (!(await canContinue(token, guard))) return
         const epoch = await deps.storage.readSyncEpoch(deps.userId)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         markedIds = selected.flatMap((item) => item.coveredMutationIds)
+        if (!(await canContinue(token, guard))) return
         await deps.storage.markMutationsSyncing(deps.userId, markedIds)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         const wire = selected.map((item) => toSyncRpcOperation(item.mutation))
         phase = 'apply'
+        if (!(await canContinue(token, guard))) return
         const result = await deps.api.applyBatch(epoch, wire)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         confirmedIds = confirmedCoveredIds(result, selected, wire)
         applyValidated = true
         phase = 'snapshot-fetch'
         try {
+          if (!(await canContinue(token, guard))) return
           snapshot = await deps.api.getSnapshot()
         } catch (error) {
-          if (!isCurrent(token)) return
-          await acknowledgeConfirmed(token, confirmedIds)
-          if (!isCurrent(token)) return
+          if (!(await canContinue(token, guard))) return
+          await acknowledgeConfirmed(token, guard, confirmedIds)
+          if (!(await canContinue(token, guard))) return
           publishFailure(token, withoutIds(outbox, confirmedIds), error)
           return
         }
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         phase = 'snapshot-replace'
-        await deps.storage.replaceServerSnapshot(deps.userId, snapshot)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
+        await deps.storage.acknowledgeMutationsAndReplaceSnapshot(
+          deps.userId,
+          confirmedIds,
+          snapshot,
+        )
+        if (!(await canContinue(token, guard))) return
         phase = 'ack'
-        await acknowledgeConfirmed(token, confirmedIds)
-        if (!isCurrent(token)) return
       } else {
         phase = 'snapshot-fetch'
+        if (!(await canContinue(token, guard))) return
         snapshot = await deps.api.getSnapshot()
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         phase = 'snapshot-replace'
+        if (!(await canContinue(token, guard))) return
         await deps.storage.replaceServerSnapshot(deps.userId, snapshot)
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
       }
 
       const remaining = withoutIds(outbox, confirmedIds)
       const attention = remaining.filter((item) => item.status === 'needs_attention').length
+      if (!(await canContinue(token, guard))) return
       if (attention > 0) publishAttention(token, remaining)
       else if (remaining.length > 0) {
         publish(token, { kind: 'retrying', pendingCount: remaining.length, message: '等待同步' })
@@ -208,13 +233,13 @@ export function createSyncManager(deps: SyncManagerDependencies) {
         publish(token, { kind: 'synced', lastSyncedAt: snapshot.serverTime })
       }
     } catch (error) {
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       if (isLocalSafetyError(error)) {
         publishAttention(token, outbox, true)
         return
       }
       if (phase === 'apply' && errorCode(error) === 'STALE_SYNC_EPOCH') {
-        await recoverStaleEpoch(token, outbox, error)
+        await recoverStaleEpoch(token, guard, outbox, error)
         return
       }
       if (phase === 'apply' && markedIds.length > 0) {
@@ -223,13 +248,14 @@ export function createSyncManager(deps: SyncManagerDependencies) {
           return
         }
         if (isRetryable(error)) {
+          if (!(await canContinue(token, guard))) return
           await deps.storage.recordRetryableFailure(
             deps.userId,
             markedIds,
             errorCode(error),
             errorMessage(error),
           )
-          if (!isCurrent(token)) return
+          if (!(await canContinue(token, guard))) return
           publish(token, {
             kind: 'retrying',
             pendingCount: outbox.length,
@@ -237,13 +263,14 @@ export function createSyncManager(deps: SyncManagerDependencies) {
           })
           return
         }
+        if (!(await canContinue(token, guard))) return
         await deps.storage.markMutationAttention(
           deps.userId,
           markedIds,
           errorCode(error),
           errorMessage(error),
         )
-        if (!isCurrent(token)) return
+        if (!(await canContinue(token, guard))) return
         publishAttention(token, markIdsAttention(outbox, markedIds))
         return
       }
@@ -257,31 +284,39 @@ export function createSyncManager(deps: SyncManagerDependencies) {
     }
   }
 
-  async function acknowledgeConfirmed(token: number, ids: string[]) {
-    if (ids.length === 0 || !isCurrent(token)) return
+  async function acknowledgeConfirmed(
+    token: number,
+    guard: SyncLockGuard,
+    ids: string[],
+  ) {
+    if (ids.length === 0 || !(await canContinue(token, guard))) return
     await deps.storage.acknowledgeMutations(deps.userId, ids)
   }
 
   async function recoverStaleEpoch(
     token: number,
+    guard: SyncLockGuard,
     outbox: SyncMutation[],
     cause: unknown,
   ) {
     try {
+      if (!(await canContinue(token, guard))) return
       const fresh = await deps.api.getSnapshot()
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       await deps.storage.quarantineOlderEpoch(
         deps.userId,
         fresh.syncEpoch,
         'STALE_SYNC_EPOCH',
         errorMessage(cause),
       )
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       await deps.storage.replaceServerSnapshot(deps.userId, fresh)
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       publishAttention(token, outbox, true)
     } catch (error) {
-      if (isCurrent(token)) publishFailure(token, outbox, error)
+      if (await canContinue(token, guard)) {
+        publishFailure(token, outbox, error)
+      }
     }
   }
 
@@ -360,17 +395,18 @@ export function createSyncManager(deps: SyncManagerDependencies) {
     const token = generation
     let shouldRun = false
     let result: RetryMutationResult = { status: 'retried' }
-    await deps.lock(deps.userId, async () => {
-      if (!isCurrent(token)) return
+    await deps.lock(deps.userId, async (guard) => {
+      if (!(await canContinue(token, guard))) return
       const fresh = await deps.api.getSnapshot()
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       const current = await deps.storage.listOutbox(deps.userId)
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       const target = current.find((item) => item.mutationId === mutationId)
       if (!target) throw mutationNotFound()
       if (target.lastErrorCode !== legacyCode) {
+        if (!(await canContinue(token, guard))) return
         await deps.storage.markMutationPending(deps.userId, mutationId)
-        if (isCurrent(token)) shouldRun = true
+        if (await canContinue(token, guard)) shouldRun = true
         return
       }
       if (target.status !== 'needs_attention') {
@@ -393,13 +429,14 @@ export function createSyncManager(deps: SyncManagerDependencies) {
         }
         return
       }
+      if (!(await canContinue(token, guard))) return
       await deps.storage.releaseLegacyCreateChain(
         deps.userId,
         mutationId,
         relatedMutationIds,
         fresh.syncEpoch,
       )
-      if (isCurrent(token)) shouldRun = true
+      if (await canContinue(token, guard)) shouldRun = true
     })
     if (shouldRun && isCurrent(token)) await run()
     return result
@@ -407,15 +444,16 @@ export function createSyncManager(deps: SyncManagerDependencies) {
 
   async function discardMutation(mutationId: string): Promise<void> {
     const token = generation
-    await deps.lock(deps.userId, async () => {
-      if (!isCurrent(token)) return
+    await deps.lock(deps.userId, async (guard) => {
+      if (!(await canContinue(token, guard))) return
       const fresh = await deps.api.getSnapshot()
-      if (!isCurrent(token)) return
+      if (!(await canContinue(token, guard))) return
       await deps.storage.discardMutationAndReplaceSnapshot(
         deps.userId,
         mutationId,
         fresh,
       )
+      await canContinue(token, guard)
     })
   }
 

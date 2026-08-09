@@ -107,6 +107,17 @@ describe('sync API boundary', () => {
     expect(result.results[0].mutationId).toBe(ids.mutation)
   })
 
+  it('rejects duplicate request mutation IDs before calling RPC', async () => {
+    const { client, rpc } = clientWith([])
+    const duplicate = mutation({ entityId: '88888888-8888-4888-8888-888888888888' })
+    await expect(createSyncApi(client).applyBatch(1, [mutation(), duplicate]))
+      .rejects.toMatchObject({
+        code: 'DUPLICATE_SYNC_MUTATION_ID',
+        retryable: false,
+      })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it('rebuilds upserts, emits a fresh empty delete object, and rejects malicious payloads', () => {
     const source = mutation()
     const wire = toSyncRpcOperation(source)

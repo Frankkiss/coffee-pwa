@@ -46,6 +46,7 @@ export type LocalRepositoryTestOperation =
   | 'saveLocalEntity'
   | 'softDeleteLocalEntity'
   | 'acknowledgeMutations'
+  | 'acknowledgeMutationsAndReplaceSnapshot'
   | 'markMutationsSyncing'
   | 'recordRetryableFailure'
   | 'markMutationAttention'
@@ -128,6 +129,15 @@ export class LocalSyncMutationNotFoundError extends Error {
   }
 }
 
+export class LocalSyncMutationStateError extends Error {
+  readonly code = 'LOCAL_SYNC_MUTATION_STATE_CHANGED'
+
+  constructor(message = 'Owned local sync mutation state changed') {
+    super(message)
+    this.name = 'LocalSyncMutationStateError'
+  }
+}
+
 export class LegacyCreateChainChangedError extends Error {
   readonly code = 'LEGACY_CREATE_CHAIN_CHANGED'
 
@@ -199,6 +209,16 @@ export function createLocalRepository(
     listOutbox,
     acknowledgeMutations: (userId: string, mutationIds: string[]) =>
       acknowledgeMutationsWithOptions(userId, mutationIds, testOptions),
+    acknowledgeMutationsAndReplaceSnapshot: (
+      userId: string,
+      mutationIds: string[],
+      snapshot: SyncSnapshot,
+    ) => acknowledgeMutationsAndReplaceSnapshotWithOptions(
+      userId,
+      mutationIds,
+      snapshot,
+      testOptions,
+    ),
     markMutationsSyncing: (userId: string, mutationIds: string[]) =>
       markMutationsSyncingWithOptions(userId, mutationIds, testOptions),
     recordRetryableFailure: (
@@ -358,6 +378,20 @@ export async function listOutbox(userId: string): Promise<SyncMutation[]> {
 
 export function acknowledgeMutations(userId: string, mutationIds: string[]) {
   return acknowledgeMutationsWithOptions(userId, mutationIds, defaultOptions)
+}
+
+/** Atomically installs a validated snapshot and removes confirmed syncing rows. */
+export function acknowledgeMutationsAndReplaceSnapshot(
+  userId: string,
+  mutationIds: string[],
+  snapshot: SyncSnapshot,
+) {
+  return acknowledgeMutationsAndReplaceSnapshotWithOptions(
+    userId,
+    mutationIds,
+    snapshot,
+    defaultOptions,
+  )
 }
 
 export function markMutationsSyncing(userId: string, mutationIds: string[]) {
@@ -934,6 +968,24 @@ async function replaceServerSnapshotWithOptions(
   return runSnapshotTransaction(userId, snapshot, options)
 }
 
+async function acknowledgeMutationsAndReplaceSnapshotWithOptions(
+  userId: string,
+  mutationIds: string[],
+  snapshot: SyncSnapshot,
+  options: LocalRepositoryTestOptions,
+) {
+  const uniqueIds = [...new Set(mutationIds)]
+  if (uniqueIds.length === 0 || uniqueIds.length !== mutationIds.length) {
+    throw new LocalSyncMutationStateError(
+      'Confirmed mutation IDs must be non-empty and unique',
+    )
+  }
+  return runSnapshotTransaction(userId, snapshot, options, {
+    kind: 'acknowledge',
+    mutationIds: uniqueIds,
+  })
+}
+
 async function discardMutationAndReplaceSnapshotWithOptions(
   userId: string,
   mutationId: string,
@@ -943,12 +995,21 @@ async function discardMutationAndReplaceSnapshotWithOptions(
   return runSnapshotTransaction(userId, snapshot, options, mutationId)
 }
 
+type SnapshotMutationRemoval = {
+  kind: 'discard' | 'acknowledge'
+  mutationIds: string[]
+}
+
 async function runSnapshotTransaction(
   userId: string,
   snapshot: SyncSnapshot,
   options: LocalRepositoryTestOptions,
-  discardedMutationId?: string,
+  removal?: SnapshotMutationRemoval | string,
 ) {
+  const normalizedRemoval: SnapshotMutationRemoval | undefined =
+    typeof removal === 'string'
+      ? { kind: 'discard', mutationIds: [removal] }
+      : removal
   assertSnapshotOwnership(userId, snapshot)
   await withDatabase((database) => {
     const transactionStores = [
@@ -975,19 +1036,21 @@ async function runSnapshotTransaction(
           currentMetaRow,
           userId,
           snapshot,
-          discardedMutationId,
+          normalizedRemoval,
         )
         applySnapshotTransaction(
           transaction,
           rowsByStore,
           userId,
           snapshot,
-          discardedMutationId,
+          normalizedRemoval,
         )
         options.beforeCommit?.(
-          discardedMutationId === undefined
+          normalizedRemoval === undefined
             ? 'replaceServerSnapshot'
-            : 'discardMutationAndReplaceSnapshot',
+            : normalizedRemoval.kind === 'discard'
+              ? 'discardMutationAndReplaceSnapshot'
+              : 'acknowledgeMutationsAndReplaceSnapshot',
         )
       }
 
@@ -1023,7 +1086,7 @@ function validateLocalSnapshotInputs(
   currentMetaRow: unknown,
   userId: string,
   snapshot: SyncSnapshot,
-  discardedMutationId?: string,
+  removal?: SnapshotMutationRemoval,
 ) {
   const currentMeta = readSyncMetaEnvelope(currentMetaRow, userId)
   assertMonotonicSyncMeta(currentMeta?.value ?? null, {
@@ -1035,22 +1098,26 @@ function validateLocalSnapshotInputs(
   for (const row of outboxRows) {
     readOutboxEnvelope(row, userId)
   }
-  if (discardedMutationId !== undefined) {
-    const targetRow = outboxRows.find(
-      (row) => isRecord(row) && row.key === discardedMutationId,
-    )
-    const target = classifyOutboxEnvelope(
-      targetRow,
-      userId,
-      discardedMutationId,
-    )
-    if (target.kind === 'corrupt-owned') {
-      throw new LocalSyncDataCorruptionError(
-        'Discard target local Outbox envelope is corrupt',
+  if (removal !== undefined) {
+    for (const mutationId of removal.mutationIds) {
+      const targetRow = outboxRows.find(
+        (row) => isRecord(row) && row.key === mutationId,
       )
-    }
-    if (target.kind !== 'valid') {
-      throw new LocalSyncMutationNotFoundError()
+      const target = classifyOutboxEnvelope(targetRow, userId, mutationId)
+      if (target.kind === 'corrupt-owned') {
+        throw new LocalSyncDataCorruptionError(
+          'Snapshot removal target local Outbox envelope is corrupt',
+        )
+      }
+      if (target.kind !== 'valid') {
+        throw new LocalSyncMutationNotFoundError()
+      }
+      if (
+        removal.kind === 'acknowledge' &&
+        target.envelope.value.status !== 'syncing'
+      ) {
+        throw new LocalSyncMutationStateError()
+      }
     }
   }
 
@@ -1081,8 +1148,9 @@ function applySnapshotTransaction(
   rowsByStore: Map<string, unknown[]>,
   userId: string,
   snapshot: SyncSnapshot,
-  discardedMutationId?: string,
+  removal?: SnapshotMutationRemoval,
 ) {
+  const removedMutationIds = new Set(removal?.mutationIds ?? [])
   const protectedKeys = new Map<LocalEntityStoreName, Set<string>>()
   for (const storeName of entityStoreNames) {
     protectedKeys.set(storeName, new Set())
@@ -1092,7 +1160,7 @@ function applySnapshotTransaction(
     const envelope = readOutboxEnvelope(row, userId)
     if (
       envelope !== null &&
-      envelope.key !== discardedMutationId
+      !removedMutationIds.has(envelope.key)
     ) {
       const storeName = storeByEntityType[envelope.value.entityType]
       protectedKeys
@@ -1101,10 +1169,8 @@ function applySnapshotTransaction(
     }
   }
 
-  if (discardedMutationId !== undefined) {
-    transaction
-      .objectStore(syncStoreNames.outbox)
-      .delete(discardedMutationId)
+  for (const mutationId of removedMutationIds) {
+    transaction.objectStore(syncStoreNames.outbox).delete(mutationId)
   }
 
   const snapshotRows: {

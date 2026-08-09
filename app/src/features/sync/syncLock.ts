@@ -10,6 +10,20 @@ type SyncLockOptions = {
   cancelSchedule: (id: number) => void
 }
 
+export type SyncLockGuard = {
+  signal: AbortSignal
+  assertHeld(): Promise<void>
+}
+
+export class SyncLockLostError extends Error {
+  readonly code = 'SYNC_LOCK_LOST'
+
+  constructor(message = 'Sync lock is no longer held') {
+    super(message)
+    this.name = 'SyncLockLostError'
+  }
+}
+
 type LockLease = {
   key: string
   ownerId: string
@@ -26,14 +40,31 @@ const defaultOptions: SyncLockOptions = {
 export function createSyncLock(options: SyncLockOptions = defaultOptions) {
   return async function withConfiguredSyncLock<Result>(
     userId: string,
-    action: () => Promise<Result>,
+    action: (guard: SyncLockGuard) => Promise<Result>,
   ): Promise<Result> {
     const webLocks = readWebLocks()
     if (webLocks) {
       return webLocks.request(
         `coffee-sync:${userId}`,
         { mode: 'exclusive' },
-        action,
+        async () => {
+          const controller = new AbortController()
+          let held = true
+          const guard: SyncLockGuard = {
+            signal: controller.signal,
+            async assertHeld() {
+              if (!held || controller.signal.aborted) {
+                throw new SyncLockLostError()
+              }
+            },
+          }
+          try {
+            return await action(guard)
+          } finally {
+            held = false
+            controller.abort()
+          }
+        },
       )
     }
 
@@ -41,25 +72,74 @@ export function createSyncLock(options: SyncLockOptions = defaultOptions) {
     await waitForLease(userId, ownerId, options)
     let active = true
     let renewalTimer: number | null = null
+    const controller = new AbortController()
+    const loseLease = () => {
+      if (!controller.signal.aborted) controller.abort()
+    }
+    const guard: SyncLockGuard = {
+      signal: controller.signal,
+      async assertHeld() {
+        if (controller.signal.aborted) throw new SyncLockLostError()
+        let held: boolean
+        try {
+          held = await assertLeaseHeld(
+            userId,
+            ownerId,
+            options.now(),
+          )
+        } catch (error) {
+          loseLease()
+          throw new SyncLockLostError(
+            error instanceof Error ? error.message : undefined,
+          )
+        }
+        if (!held || controller.signal.aborted) {
+          loseLease()
+          throw new SyncLockLostError()
+        }
+      },
+    }
 
     const scheduleRenewal = () => {
       renewalTimer = options.schedule(() => {
-        void (async () => {
-          if (!active) return
-          const retained = await renewLease(userId, ownerId, options.now())
-          if (active && retained) scheduleRenewal()
-        })()
+        if (!active) return
+        void renewLease(userId, ownerId, options.now()).then(
+          (retained) => {
+            if (!active) return
+            if (!retained) {
+              loseLease()
+              return
+            }
+            scheduleRenewal()
+          },
+          () => loseLease(),
+        )
       }, renewalIntervalMs)
     }
     scheduleRenewal()
 
+    let outcome:
+      | { status: 'fulfilled'; value: Result }
+      | { status: 'rejected'; reason: unknown }
     try {
-      return await action()
-    } finally {
-      active = false
-      if (renewalTimer !== null) options.cancelSchedule(renewalTimer)
-      await releaseLease(userId, ownerId)
+      outcome = { status: 'fulfilled', value: await action(guard) }
+    } catch (reason) {
+      outcome = { status: 'rejected', reason }
     }
+
+    active = false
+    if (renewalTimer !== null) options.cancelSchedule(renewalTimer)
+    let releaseError: unknown
+    try {
+      await releaseLease(userId, ownerId)
+    } catch (error) {
+      if (!controller.signal.aborted) releaseError = error
+    }
+    loseLease()
+
+    if (outcome.status === 'rejected') throw outcome.reason
+    if (releaseError !== undefined) throw releaseError
+    return outcome.value
   }
 }
 
@@ -122,13 +202,34 @@ async function renewLease(userId: string, ownerId: string, now: number) {
     request.onsuccess = () => {
       try {
         const existing = parseLease(request.result, key)
-        if (existing?.ownerId !== ownerId) {
+        if (existing?.ownerId !== ownerId || existing.expiresAt <= now) {
           finish(false)
           return
         }
         store.put({ key, ownerId, expiresAt: now + leaseDurationMs } satisfies LockLease)
         finish(true)
       } catch (error) { fail(error) }
+    }
+  })
+}
+
+async function assertLeaseHeld(
+  userId: string,
+  ownerId: string,
+  now: number,
+) {
+  const key = `lock:${userId}`
+  return withLeaseTransaction<boolean>('readonly', (store, finish, fail) => {
+    const request = store.get(key)
+    request.onsuccess = () => {
+      try {
+        const existing = parseLease(request.result, key)
+        finish(
+          existing?.ownerId === ownerId && existing.expiresAt > now,
+        )
+      } catch (error) {
+        fail(error)
+      }
     }
   })
 }

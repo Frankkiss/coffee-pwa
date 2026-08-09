@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SyncApiError } from './syncApi'
 import { createSyncManager, type SyncManagerDependencies } from './syncManager'
+import type { SyncLockGuard } from './syncLock'
 import type { SyncMutation, SyncSnapshot, SyncStorage } from './syncTypes'
 
 const ids = {
@@ -66,6 +67,9 @@ function harness(initial: SyncMutation[] = []) {
     acknowledgeMutations: vi.fn(async (_user, mutationIds) => {
       outbox = outbox.filter((item) => !mutationIds.includes(item.mutationId))
     }),
+    acknowledgeMutationsAndReplaceSnapshot: vi.fn(async (_user, mutationIds) => {
+      outbox = outbox.filter((item) => !mutationIds.includes(item.mutationId))
+    }),
     markMutationsSyncing: vi.fn(async (_user, mutationIds) => {
       outbox = outbox.map((item) => mutationIds.includes(item.mutationId) ? { ...item, status: 'syncing' } : item)
     }),
@@ -98,7 +102,20 @@ function harness(initial: SyncMutation[] = []) {
     })),
     getSnapshot: vi.fn(async () => snapshot()),
   }
-  const lock = vi.fn(async (_userId: string, action: () => Promise<void>) => action())
+  let lockHeld = true
+  const lockController = new AbortController()
+  const guard: SyncLockGuard = {
+    signal: lockController.signal,
+    assertHeld: vi.fn(async () => {
+      if (!lockHeld) {
+        throw Object.assign(new Error('lost'), { code: 'SYNC_LOCK_LOST' })
+      }
+    }),
+  }
+  const lock = vi.fn(async (
+    _userId: string,
+    action: (guard: SyncLockGuard) => Promise<void>,
+  ) => action(guard))
   const timers: Array<{ id: number; callback: () => void; cancelled: boolean }> = []
   const cleanOnline = vi.fn()
   const cleanVisibility = vi.fn()
@@ -128,6 +145,11 @@ function harness(initial: SyncMutation[] = []) {
   return { deps, api, storage, lock, timers, callbacks, cleanOnline,
     cleanVisibility, cleanWakeups, setOnline(value: boolean) { online = value },
     setVisible(value: boolean) { visible = value }, getOutbox: () => outbox,
+    guard,
+    setLockHeld(value: boolean) {
+      lockHeld = value
+      if (!value) lockController.abort()
+    },
     setOutbox(value: SyncMutation[]) { outbox = value },
   }
 }
@@ -147,9 +169,14 @@ describe('SyncManager cycles', () => {
       mutationId: ids.second, deviceId: ids.device, entityType: 'bean',
       entityId: ids.bean, operation: 'upsert', payload: payload('latest'),
     }])
-    expect(h.storage.acknowledgeMutations).toHaveBeenCalledWith(ids.user, [ids.first, ids.second])
+    expect(h.storage.acknowledgeMutationsAndReplaceSnapshot).toHaveBeenCalledWith(
+      ids.user,
+      [ids.first, ids.second],
+      snapshot(),
+    )
+    expect(h.storage.acknowledgeMutations).not.toHaveBeenCalled()
     expect(h.api.getSnapshot).toHaveBeenCalledOnce()
-    expect(h.storage.replaceServerSnapshot).toHaveBeenCalledWith(ids.user, snapshot())
+    expect(h.storage.replaceServerSnapshot).not.toHaveBeenCalled()
     expect(manager.getState()).toEqual({ kind: 'synced', lastSyncedAt: secondTime })
   })
 
@@ -254,6 +281,32 @@ describe('SyncManager cycles', () => {
     expect(h.storage.replaceServerSnapshot).not.toHaveBeenCalled()
   })
 
+  it('stops all post-RPC writes and publications after the lease is lost', async () => {
+    const h = harness([mutation()])
+    const applying = deferred<Awaited<ReturnType<typeof h.api.applyBatch>>>()
+    h.api.applyBatch.mockReturnValueOnce(applying.promise)
+    const manager = createSyncManager(h.deps)
+    const published: unknown[] = []
+    manager.subscribe((next) => published.push(next))
+    const running = manager.run()
+    await vi.waitFor(() => expect(h.api.applyBatch).toHaveBeenCalledOnce())
+    const publicationsBeforeLoss = published.length
+    h.setLockHeld(false)
+    applying.resolve({
+      syncEpoch: 1,
+      serverTime: secondTime,
+      results: [receipt(mutation())],
+    })
+    await running
+
+    expect(h.api.getSnapshot).not.toHaveBeenCalled()
+    expect(h.storage.acknowledgeMutations).not.toHaveBeenCalled()
+    expect(h.storage.replaceServerSnapshot).not.toHaveBeenCalled()
+    expect(h.storage.markMutationAttention).not.toHaveBeenCalled()
+    expect(h.storage.recordRetryableFailure).not.toHaveBeenCalled()
+    expect(published).toHaveLength(publicationsBeforeLoss)
+  })
+
   it('starts a new generation without waiting for an obsolete in-flight run', async () => {
     const h = harness()
     const obsolete = deferred<SyncSnapshot>()
@@ -272,7 +325,7 @@ describe('SyncManager cycles', () => {
     const h = harness([mutation()])
     const error = Object.assign(new Error(code), { code })
     if (code === 'LOCAL_SYNC_DATA_CORRUPT') h.storage.listOutbox = vi.fn(async () => { throw error })
-    else h.storage.replaceServerSnapshot = vi.fn(async () => { throw error })
+    else h.storage.acknowledgeMutationsAndReplaceSnapshot = vi.fn(async () => { throw error })
     const manager = createSyncManager(h.deps)
     await manager.run()
     expect(h.storage.acknowledgeMutations).not.toHaveBeenCalled()

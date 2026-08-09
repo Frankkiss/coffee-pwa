@@ -54,6 +54,16 @@ export function createSyncApi(supabase: SupabaseClient) {
       const wireOperations = operations.map((operation) =>
         toSyncRpcOperation(operation as SyncMutation),
       )
+      const requestMutationIds = wireOperations.map(
+        (operation) => operation.mutationId,
+      )
+      if (new Set(requestMutationIds).size !== requestMutationIds.length) {
+        throw new SyncApiError(
+          'DUPLICATE_SYNC_MUTATION_ID',
+          'Sync batch contains duplicate mutation IDs',
+          false,
+        )
+      }
       const response = await rpc('apply_sync_batch', {
         p_sync_epoch: syncEpoch,
         p_operations: wireOperations,
@@ -244,13 +254,13 @@ function rebuildSettingsPayload(value: unknown): UserSettingsUpsertPayload {
 function validateApplyResult(value: unknown, operations: SyncRpcOperation[]): ApplySyncResult {
   const row = exactRecord(value, ['syncEpoch', 'serverTime', 'results'], 'apply response', invalidResponse)
   if (!isPositiveInteger(row.syncEpoch) || !isRfc3339(row.serverTime) || !Array.isArray(row.results)) throw invalidResponse()
-  const expected = new Map(operations.map((operation) => [operation.mutationId, operation]))
+  if (row.results.length !== operations.length) throw invalidResponse()
   const seen = new Set<string>()
-  const results = row.results.map((value) => {
+  const results = row.results.map((value, index) => {
     const receipt = exactRecord(value, ['mutationId', 'deviceId', 'entityType', 'entityId', 'operation', 'committedAt', 'status'], 'receipt', invalidResponse)
     if (!isUuid(receipt.mutationId) || !isUuid(receipt.deviceId) || !isUuid(receipt.entityId) || !isEntityType(receipt.entityType) || !isOperation(receipt.operation) || !isRfc3339(receipt.committedAt) || (receipt.status !== 'applied' && receipt.status !== 'duplicate')) throw invalidResponse()
-    const requested = expected.get(receipt.mutationId)
-    if (!requested || seen.has(receipt.mutationId) || requested.deviceId !== receipt.deviceId || requested.entityType !== receipt.entityType || requested.entityId !== receipt.entityId || requested.operation !== receipt.operation) throw invalidResponse()
+    const requested = operations[index]
+    if (seen.has(receipt.mutationId) || requested.mutationId !== receipt.mutationId || requested.deviceId !== receipt.deviceId || requested.entityType !== receipt.entityType || requested.entityId !== receipt.entityId || requested.operation !== receipt.operation) throw invalidResponse()
     seen.add(receipt.mutationId)
     return {
       mutationId: receipt.mutationId, deviceId: receipt.deviceId,
@@ -259,7 +269,6 @@ function validateApplyResult(value: unknown, operations: SyncRpcOperation[]): Ap
       status: receipt.status as 'applied' | 'duplicate',
     }
   })
-  if (seen.size !== expected.size) throw invalidResponse()
   return { syncEpoch: row.syncEpoch, serverTime: row.serverTime, results }
 }
 

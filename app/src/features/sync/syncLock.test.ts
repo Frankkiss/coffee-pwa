@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
 import { openSyncDatabase, syncDatabaseName, syncStoreNames } from './syncDatabase'
-import { createSyncLock } from './syncLock'
+import { createSyncLock, type SyncLockGuard } from './syncLock'
 
 type Scheduled = { id: number; callback: () => void; delay: number; cancelled: boolean }
 
@@ -51,6 +51,17 @@ async function writeLease(userId: string, ownerId: string, expiresAt: number) {
   db.close()
 }
 
+async function writeRawLease(value: unknown) {
+  const db = await openSyncDatabase()
+  const tx = db.transaction(syncStoreNames.syncMeta, 'readwrite')
+  tx.objectStore(syncStoreNames.syncMeta).put(value)
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+}
+
 async function readLease(userId: string) {
   const db = await openSyncDatabase()
   const tx = db.transaction(syncStoreNames.syncMeta, 'readonly')
@@ -82,7 +93,11 @@ describe('cross-tab sync lock', () => {
     vi.stubGlobal('navigator', { locks: { request } })
     const lock = createSyncLock({ ownerId: () => 'owner', now: () => 0,
       schedule: () => 1, cancelSchedule: () => undefined })
-    await expect(lock('user-1', async () => 'done')).resolves.toBe('done')
+    await expect(lock('user-1', async (guard) => {
+      expect(guard.signal.aborted).toBe(false)
+      await expect(guard.assertHeld()).resolves.toBeUndefined()
+      return 'done'
+    })).resolves.toBe('done')
     expect(request).toHaveBeenCalledWith('coffee-sync:user-1', { mode: 'exclusive' }, expect.any(Function))
   })
 
@@ -93,20 +108,31 @@ describe('cross-tab sync lock', () => {
     const first = createSyncLock({ ownerId: () => 'owner-1', now: () => now, ...firstSchedule })
     const second = createSyncLock({ ownerId: () => 'owner-2', now: () => now, ...secondSchedule })
     let releaseFirst!: () => void
-    const firstDone = first('user-1', () => new Promise<void>((resolve) => { releaseFirst = resolve }))
+    let firstGuard!: SyncLockGuard
+    const firstDone = first('user-1', (guard) => new Promise<void>((resolve) => {
+      firstGuard = guard
+      releaseFirst = resolve
+    }))
     await until(() => releaseFirst !== undefined)
     let secondEntered = false
-    const secondDone = second('user-1', async () => { secondEntered = true })
+    let releaseSecond!: () => void
+    const secondDone = second('user-1', () => new Promise<void>((resolve) => {
+      secondEntered = true
+      releaseSecond = resolve
+    }))
     await until(() => secondSchedule.entries.length > 0)
     expect(secondEntered).toBe(false)
     expect(secondSchedule.entries[0].delay).toBe(30_000)
 
     now = 31_001
     secondSchedule.runNext()
-    await secondDone
+    await until(() => secondEntered)
     expect(secondEntered).toBe(true)
+    await expect(firstGuard.assertHeld()).rejects.toMatchObject({ code: 'SYNC_LOCK_LOST' })
     releaseFirst()
     await firstDone
+    releaseSecond()
+    await secondDone
   })
 
   it('renews every ten seconds and an old owner never deletes a new lease', async () => {
@@ -114,7 +140,11 @@ describe('cross-tab sync lock', () => {
     const timers = scheduler()
     const lock = createSyncLock({ ownerId: () => 'owner-1', now: () => now, ...timers })
     let release!: () => void
-    const running = lock('user-1', () => new Promise<void>((resolve) => { release = resolve }))
+    let guard!: SyncLockGuard
+    const running = lock('user-1', (value) => new Promise<void>((resolve) => {
+      guard = value
+      release = resolve
+    }))
     await flushIdb()
     expect((await readLease('user-1') as { expiresAt: number }).expiresAt).toBe(35_000)
     expect(timers.entries[0].delay).toBe(10_000)
@@ -124,6 +154,9 @@ describe('cross-tab sync lock', () => {
     expect((await readLease('user-1') as { expiresAt: number }).expiresAt).toBe(45_000)
 
     await writeLease('user-1', 'owner-2', 80_000)
+    timers.runNext()
+    await until(() => guard.signal.aborted)
+    await expect(guard.assertHeld()).rejects.toMatchObject({ code: 'SYNC_LOCK_LOST' })
     release()
     await running
     expect(await readLease('user-1')).toEqual({ key: 'lock:user-1', ownerId: 'owner-2', expiresAt: 80_000 })
@@ -134,5 +167,31 @@ describe('cross-tab sync lock', () => {
     const lock = createSyncLock({ ownerId: () => 'owner-1', now: () => 0, ...timers })
     await expect(lock('user-1', async () => { throw new Error('boom') })).rejects.toThrow('boom')
     expect(await readLease('user-1')).toBeUndefined()
+  })
+
+  it('aborts the guard and catches a renewal storage failure without an unhandled rejection', async () => {
+    let now = 1_000
+    const timers = scheduler()
+    const lock = createSyncLock({ ownerId: () => 'owner-1', now: () => now, ...timers })
+    let release!: () => void
+    let guard!: SyncLockGuard
+    const running = lock('user-1', (value) => new Promise<void>((resolve) => {
+      guard = value
+      release = resolve
+    }))
+    await until(() => guard !== undefined)
+    await writeRawLease({
+      key: 'lock:user-1', ownerId: 42, expiresAt: 'broken',
+    })
+    now = 11_000
+    timers.runNext()
+    await until(() => guard.signal.aborted)
+    await expect(guard.assertHeld()).rejects.toMatchObject({ code: 'SYNC_LOCK_LOST' })
+
+    release()
+    await expect(running).resolves.toBeUndefined()
+    expect(await readLease('user-1')).toEqual({
+      key: 'lock:user-1', ownerId: 42, expiresAt: 'broken',
+    })
   })
 })

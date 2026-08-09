@@ -19,6 +19,7 @@ import {
 } from './syncDatabase'
 import {
   acknowledgeMutations,
+  acknowledgeMutationsAndReplaceSnapshot,
   createLocalRepository,
   discardMutationAndReplaceSnapshot,
   listLocalEntities,
@@ -760,6 +761,67 @@ describe('localRepository server snapshots and sync metadata', () => {
       syncEpoch: snapshot.syncEpoch,
       lastSyncedAt: snapshot.serverTime,
     })
+  })
+
+  it('atomically installs the normalized server row and acknowledges all confirmed source mutations', async () => {
+    const local = createBean(userOne, 'bean-confirmed', 'optimistic local')
+    const confirmed = createBeanUpsertMutation(local, 'mutation-confirmed', {
+      status: 'syncing',
+      attemptCount: 1,
+    })
+    await putEntityRows('beans', [local])
+    await putOutbox(confirmed)
+    const normalized = {
+      ...local,
+      name: 'server normalized',
+      updated_at: '2026-08-08T10:05:00.000Z',
+    }
+    const snapshot = createSnapshot(userOne, {
+      serverTime: '2026-08-08T10:05:00.000Z',
+      beans: [normalized],
+    })
+
+    await acknowledgeMutationsAndReplaceSnapshot(
+      userOne,
+      [confirmed.mutationId],
+      snapshot,
+    )
+
+    expect(await listOutbox(userOne)).toEqual([])
+    expect(await listLocalEntities('beans', userOne)).toEqual([normalized])
+    expect(await readSyncMetaRow(userOne)).toEqual({
+      syncEpoch: snapshot.syncEpoch,
+      lastSyncedAt: snapshot.serverTime,
+    })
+  })
+
+  it('rolls back both snapshot installation and confirmed acknowledgements on transaction failure', async () => {
+    const local = createBean(userOne, 'bean-confirmed', 'optimistic local')
+    const confirmed = createBeanUpsertMutation(local, 'mutation-confirmed', {
+      status: 'syncing',
+      attemptCount: 1,
+    })
+    await putEntityRows('beans', [local])
+    await putOutbox(confirmed)
+    const repository = createLocalRepository({
+      beforeCommit(operation) {
+        if (operation === 'acknowledgeMutationsAndReplaceSnapshot') {
+          throw new Error('forced atomic acknowledge failure')
+        }
+      },
+    })
+
+    await expect(repository.acknowledgeMutationsAndReplaceSnapshot(
+      userOne,
+      [confirmed.mutationId],
+      createSnapshot(userOne, {
+        beans: [{ ...local, name: 'must roll back' }],
+      }),
+    )).rejects.toThrow('forced atomic acknowledge failure')
+
+    expect(await listOutbox(userOne)).toEqual([confirmed])
+    expect(await listLocalEntities('beans', userOne)).toEqual([local])
+    expect(await readSyncEpoch(userOne)).toBe(1)
   })
 
   it('atomically discards one mutation, restores its server tombstone, and preserves other intent', async () => {
