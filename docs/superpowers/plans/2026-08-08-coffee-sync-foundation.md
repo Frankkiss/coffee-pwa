@@ -4,7 +4,7 @@
 
 **Goal:** Replace page-owned offline queues with a user-scoped IndexedDB repository and one idempotent Supabase synchronization path without losing existing cached or pending data.
 
-**Architecture:** Existing Supabase remains authoritative. React pages write to local repositories that atomically update an entity row and a compacted Outbox entry; one `SyncManager` uploads permanent-UUID mutations through authenticated RPCs, pulls a complete server snapshot, and overlays any remaining local intent. A user-level `sync_epoch` prevents pre-rollback mutations from replaying after a future full restore.
+**Architecture:** Existing Supabase remains authoritative. React pages write to local repositories that atomically update an entity row and append an Outbox entry; send-time selection alone performs conservative in-memory compaction while preserving every covered source ID. One `SyncManager` uploads permanent-UUID mutations through authenticated RPCs, pulls a complete server snapshot, and overlays any remaining local intent. A user-level `sync_epoch` prevents pre-rollback mutations from replaying after a future full restore.
 
 **Tech Stack:** React 19, TypeScript 6, Vite 8, Vitest 4, IndexedDB, fake-indexeddb, Supabase JS 2, Supabase Postgres/RLS/RPC, pgTAP-compatible SQL tests.
 
@@ -1271,20 +1271,46 @@ a valid bean create chain. If proof is missing, fail the transaction with stable
 so an intermediate completion cannot bypass this new safety gate. Tests cover orphaned local bean rows, orphaned local brew rows/references,
 and the normal proven-create path.
 
+Treat every proven legacy local create as ambiguous rather than sendable: a lost server response may mean the create already committed. Preserve
+the reconstructed entity and every source mutation one-for-one, but set the same-local-entity create/update/delete chain to `needs_attention`
+with `lastErrorCode: LEGACY_CREATE_REQUIRES_CONFIRMATION`. Quarantine brew mutations that reference a local bean and the related local brew chain
+as well; if any mutation or reconstructed row for a brew entity references a quarantined local bean, quarantine that brew entity's complete
+mutation chain. Assert none appears in `selectSendableMutationBatch`. Set `lastErrorMessage` to
+`Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.` Task 8 never retries or guesses whether the
+cloud create exists.
+
+```ts
+expect(migratedLocalChain).toEqual([
+  expect.objectContaining({ status: 'needs_attention', lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION' }),
+  expect.objectContaining({ status: 'needs_attention', lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION' }),
+  expect.objectContaining({ status: 'needs_attention', lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION' }),
+])
+expect(selectSendableMutationBatch(migratedLocalChain)).toEqual([])
+```
+
 Require every complete legacy bean/brew snapshot row to carry explicit `schema_version: 1`. Real v2 bean/brew insert and update pending payload
 types did not carry this field, so allow it to be absent there; when a non-delete pending payload explicitly carries `schema_version`, require it
 to equal `1`. Reject `2`, `999`, and every other explicit future version with `LEGACY_MIGRATION_RECOVERY_REQUIRED` without down-conversion or
 dropping unknown fields. Reject current-schema snapshot rows or non-delete pending payloads that contain unknown entity fields for the same
 reason. Delete payloads remain exempt. Preserve recovery export access and all stores on failure.
+Allow only `origin`, `process`, `variety`, `percentage`, `role`, and `notes` keys in each bean `blend_components` item; nested unknown fields in
+either snapshot rows or pending payloads fail the whole transaction with the same recovery-required guarantee.
 
-Advance the current migration algorithm to version `7` and add a non-sensitive `sourceFingerprint` over the complete semantic content of each
+```ts
+await expect(migrateLegacyOfflineData(userId, deviceId, 1)).rejects.toMatchObject({
+  code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+})
+expect(await readTargetRows()).toEqual(targetRowsBeforeMigration)
+```
+
+Advance the current migration algorithm to version `8` and add a non-sensitive `sourceFingerprint` over the complete semantic content of each
 current-user outer snapshot envelope and pending envelope. The fingerprint includes every raw inner snapshot row and each complete raw pending
 record selected by its outer `userId`; it must not ownership-filter malformed or cross-user inner content. Use stable key serialization and
 stable row ordering with a sufficiently strong deterministic digest; metadata stores only the digest, never user payload. A current-version
 completion must reread the legacy sources in the same IndexedDB transaction and return idempotently only when the digest still matches.
 Appended/deleted rows, same-ID payload rewrites, or appended malformed/cross-user inner rows throw stable
 `LEGACY_MIGRATION_SOURCE_CHANGED`, point to `exportLegacyRecoveryData`, and leave v2, v3, and metadata untouched. Never rerun or overwrite
-automatically. Old v6 completions remain `LEGACY_MIGRATION_UPGRADE_REQUIRED`. Tests cover append, rewrite, delete, malformed inner append,
+automatically. Old v7 completions remain `LEGACY_MIGRATION_UPGRADE_REQUIRED`. Tests cover append, rewrite, delete, malformed inner append,
 unchanged idempotency, missing snapshot schema versions, real unversioned v2 insert/update pending payloads, and explicit future schema versions.
 
 - [ ] **Step 2: Verify failure**
@@ -1299,7 +1325,7 @@ Expected: FAIL because the migrator does not exist.
 
 `migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
 
-1. Accept stored completion metadata only when it has exact `migrationVersion: 7`, a valid `sourceFingerprint`, validates completely, and
+1. Accept stored completion metadata only when it has exact `migrationVersion: 8`, a valid `sourceFingerprint`, validates completely, and
    satisfies `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
    `LEGACY_MIGRATION_UPGRADE_REQUIRED` without modifying any store; do not auto-clear or rerun.
 2. Even when completion metadata exists, read legacy snapshots and pending rows for only the outer `userId` in the same transaction. Include
@@ -1319,11 +1345,13 @@ Expected: FAIL because the migrator does not exist.
    row in canonical `createdAt` plus legacy ID order. Upserts carry the final complete migrated entity payload. Do not compact during migration:
    Task 7 `selectSendableMutationBatch` performs conservative send-time compaction, returns the complete `coveredMutationIds`, and allows the
    source rows to be acknowledged only after a successful server receipt. No pending row may be discarded because the snapshot is newer;
-   snapshot `updatedAt` is not a cloud receipt. Send-time selection must preserve the required `upsert` then `delete` pair for a local create
-   followed by delete.
+   snapshot `updatedAt` is not a cloud receipt. For ordinary pending rows, send-time selection must preserve any required `upsert` then `delete`
+   pair and full coverage. For every proven local create, mark its same-entity create/update/delete chain and every complete brew-entity chain
+   that references its local bean as `needs_attention` with `LEGACY_CREATE_REQUIRES_CONFIRMATION`; these rows remain one-for-one in Outbox and
+   are never returned by send-time selection. A later Task 9 confirmation creates/releases the required current-epoch sequence.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
-9. Persist and return `{ status: 'completed', migrationVersion: 7, sourceFingerprint, idMap, sourcePreserved: true }`; first-release migrations only
+9. Persist and return `{ status: 'completed', migrationVersion: 8, sourceFingerprint, idMap, sourcePreserved: true }`; first-release migrations only
    write the current version.
 
 Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is
@@ -1466,6 +1494,11 @@ a 60-second foreground interval, and `subscribeToSyncWakeups`. `run` must pull e
 confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before upload it calls
 `markMutationsSyncing(userId, ids)`, maps each mutation with `toSyncRpcOperation`, and on retryable failure calls
 `recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass `userId` to storage.
+
+`retryMutation` must special-case `LEGACY_CREATE_REQUIRES_CONFIRMATION`: first fetch and validate the current server snapshot, compare the
+quarantined entity/create chain with cloud candidates, and require an explicit user confirmation before generating or releasing a mutation at
+the current `sync_epoch`. It must never merely flip the migrated attention row to `pending`, reuse its old epoch, or infer nonexistence from the
+legacy local ID. This confirmation flow belongs to Task 9, not Task 8.
 
 Capture a generation token for each start/user session and re-check it after every awaited API/storage operation; callbacks from a stopped or
 replaced user session must return without any later storage write or state publication. A malformed apply response leaves mutations unacknowledged.
@@ -1616,6 +1649,10 @@ Move the authenticated view switch into the focused `AuthenticatedApp` component
 reload and validate the current server snapshot, then use the single atomic storage operation that deletes the selected mutation, reapplies the
 snapshot with remaining overlays protected, and updates meta. The UI must not report success before that transaction completes. Pending items
 remain non-destructive and show their count.
+
+For `LEGACY_CREATE_REQUIRES_CONFIRMATION`, the banner must explain that an earlier create may already exist in the cloud, show the cloud-snapshot
+comparison supplied by Task 9, and require an explicit retry confirmation. Only that confirmation may create or release a current-epoch
+mutation; the generic retry button must not silently make the quarantined legacy row sendable.
 
 - [ ] **Step 5: Add sign-out protection**
 

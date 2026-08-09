@@ -222,7 +222,9 @@ DeepSeek API Key 不能放在前端代码、浏览器本地存储或公开配置
 snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确认或丢弃 `pendingMutations`。迁移阶段必须把当前用户
 的每一条合法 pending 写入一对一转换进 v3 Outbox，不在落盘前做破坏性压缩。发送阶段才由 Task 7 的
 `selectSendableMutationBatch` 保守压缩，并通过 `coveredMutationIds` 保留所有源 mutation 的确认范围；只有服务器 RPC
-返回成功回执后才允许 acknowledge。迁移不得因为 cache 写入时间较新而吞掉尚未同步的 create、update 或 delete。
+返回成功回执后才允许 acknowledge。迁移结果必须始终保留一条 legacy pending 对应一条 v3 Outbox row；任何压缩都只能发生在
+发送选择的内存结果中，不能改写迁移落盘记录或丢失 coverage。迁移不得因为 cache 写入时间较新而吞掉尚未同步的 create、
+update 或 delete。
 
 迁移完成记录必须带有精确的 current algorithm `migrationVersion`，并满足
 `counts.sourceMutations === counts.migratedMutations`。缺失版本、旧版本或不满足该不变量的 completed 记录都不能当作
@@ -235,16 +237,25 @@ current migration algorithm 还必须证明 snapshot 中每个 `local-bean-*` �
 无法判断本地 ID 是否已经上传过，禁止合成 upsert 以免在云端重复创建。迁移应提升 algorithm version，并稳定抛出
 `LEGACY_MIGRATION_RECOVERY_REQUIRED`，提示 `exportLegacyRecoveryData`，同时保持 v2、v3 与 migration meta 全部原样。
 
+即使存在合法 local create 链，也无法证明旧客户端是否已经把 create 提交到服务器后丢失响应。迁移必须保留可见实体和
+一对一 Outbox，但把同一 local entity 的 create/update/delete 全链标为 `needs_attention`；任何时点引用 local bean 的 brew
+entity mutation 全链也必须隔离。隔离项使用稳定 `lastErrorCode: LEGACY_CREATE_REQUIRES_CONFIRMATION` 与说明
+`Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.`，绝不能进入自动 sendable batch。
+Task 9 的用户重试流程负责拉取并比较云快照，只有用户确认后才生成或放行使用 current sync epoch 的 mutation；Task 8
+不实现自动确认、自动重试或可能重复创建的猜测。
+
 legacy bean/brew snapshot 完整 row 必须显式携带 `schema_version: 1`。真实 v2 bean/brew insert 与 update pending payload
 原本不含该字段，因此允许缺失；一旦显式携带则只能严格等于 `1`。未来版本 `2`、`999` 等都不能降级成 v1，也不能
 静默丢弃未知字段。snapshot row 或 non-delete pending payload 出现当前实体 schema 未知的字段时也必须拒绝。此类输入必须以
 `LEGACY_MIGRATION_RECOVERY_REQUIRED` 中止并保留全部源数据；delete payload 例外。
+bean `blend_components` 的每个 component 字段集合只允许 `origin`、`process`、`variety`、`percentage`、`role`、`notes`；
+snapshot 或 pending payload 中出现任何嵌套未知字段都必须走同一 recovery-required 全事务回滚路径。
 
 current algorithm 的完成记录还必须保存当前用户外层 legacy snapshot/pending envelope 的完整原始语义内容的稳定非敏感
 `sourceFingerprint`；不得先按内层 row/payload 归属过滤。摘要使用稳定 key 序列化与排序，仅在 meta 中保存 digest，不保存
 用户 payload。completed 检查必须在同一 IndexedDB 事务内重读源：摘要相同才可幂等返回；新增、删除记录或同 ID payload 改写均以
 `LEGACY_MIGRATION_SOURCE_CHANGED` 安全拒绝，提示恢复导出并保持 v2、v3 与 meta 原样。禁止自动重跑或覆盖可能已有的新 v3
-编辑；兼容真实 v2 pending payload 的算法变更将 current `migrationVersion` 提升到 `7`，旧 v6 completion 继续走
+编辑；隔离 ambiguous legacy create 的算法变更将 current `migrationVersion` 提升到 `8`，旧 v7 completion 继续走
 upgrade-required。
 
 ### 轻量备份
