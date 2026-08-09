@@ -64,7 +64,10 @@ describe('legacy offline migration', () => {
     const result = await migrateLegacyOfflineData(userOne, deviceId, 7)
 
     expect(result.status).toBe('completed')
-    expect(result).toEqual(expect.objectContaining({ migrationVersion: 4 }))
+    expect(result).toEqual(expect.objectContaining({
+      migrationVersion: 5,
+      sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
+    }))
     expect(result.sourcePreserved).toBe(true)
     expect(result.idMap[localBeanId]).toMatch(uuidPattern)
     expect(result.idMap[localBrewId]).toMatch(uuidPattern)
@@ -454,9 +457,162 @@ describe('legacy offline migration', () => {
   })
 
   it.each([
+    [
+      'bean snapshot',
+      2,
+      () => ({
+        snapshots: [[
+          'beans',
+          legacySnapshot(userOne, [{
+            ...legacyBean(userOne, cloudBeanId, 'future bean snapshot'),
+            schema_version: 2,
+            future_field: 'must survive',
+          }]),
+        ]] as LegacySnapshotEntry[],
+        pending: [],
+      }),
+    ],
+    [
+      'brew snapshot',
+      999,
+      () => ({
+        snapshots: [[
+          'brewLogs',
+          legacySnapshot(userOne, [{
+            ...legacyBrew(
+              userOne,
+              '00000000-0000-4000-8000-0000000000c4',
+              cloudBeanId,
+            ),
+            schema_version: 999,
+            future_field: 'must survive',
+          }]),
+        ]] as LegacySnapshotEntry[],
+        pending: [],
+      }),
+    ],
+    [
+      'bean pending create',
+      2,
+      () => ({
+        snapshots: [] as LegacySnapshotEntry[],
+        pending: [legacyMutation(
+          'future-bean-create',
+          userOne,
+          'bean',
+          'create',
+          'local-bean-future-schema',
+          {
+            ...beanCreatePayload(userOne, 'future bean pending'),
+            schema_version: 2,
+            future_field: 'must survive',
+          },
+        )],
+      }),
+    ],
+    [
+      'brew pending create',
+      999,
+      () => ({
+        snapshots: [] as LegacySnapshotEntry[],
+        pending: [legacyMutation(
+          'future-brew-create',
+          userOne,
+          'brewLog',
+          'create',
+          'local-brew-future-schema',
+          {
+            ...brewCreatePayload(userOne, cloudBeanId),
+            schema_version: 999,
+            future_field: 'must survive',
+          },
+        )],
+      }),
+    ],
+  ])('requires recovery for unsupported schema_version in a %s', async (_case, schemaVersion, buildInput) => {
+    const input = buildInput()
+    await seedVersionTwoDatabase(input.snapshots, input.pending)
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    const recoveryJson = JSON.stringify(await exportLegacyRecoveryData(userOne))
+    expect(recoveryJson).toContain(`"schema_version":${schemaVersion}`)
+    expect(recoveryJson).toContain(`"future_field":"must survive"`)
+  })
+
+  it.each([
+    ['append', 'appended-fingerprint-mutation'],
+    ['rewrite', 'fingerprint-base-mutation'],
+    ['delete', 'fingerprint-base-mutation'],
+  ])('rejects a completed migration after a legacy source %s', async (change, changedId) => {
+    const baseMutation = legacyMutation(
+      'fingerprint-base-mutation',
+      userOne,
+      'bean',
+      'update',
+      cloudBeanId,
+      { notes: 'original fingerprint payload' },
+    )
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'fingerprint baseline'),
+      ])],
+    ], [baseMutation])
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    if (change === 'append') {
+      await putLegacyPendingMutation(legacyMutation(
+        changedId,
+        userOne,
+        'bean',
+        'delete',
+        '00000000-0000-4000-8000-0000000000c5',
+        undefined,
+        '2026-08-08T10:00:01.000Z',
+      ))
+    } else if (change === 'rewrite') {
+      await putLegacyPendingMutation({
+        ...baseMutation,
+        payload: { notes: 'rewritten fingerprint payload' },
+      })
+    } else {
+      await deleteLegacyPendingMutation(changedId)
+    }
+    const sourcesBeforeRetry = await readLegacySources()
+    const targetsBeforeRetry = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 999),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_SOURCE_CHANGED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+    expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+    const recovery = await exportLegacyRecoveryData(userOne)
+    if (change === 'append') {
+      expect(recovery.pendingMutations).toHaveLength(2)
+    } else if (change === 'rewrite') {
+      expect(JSON.stringify(recovery)).toContain('rewritten fingerprint payload')
+    } else {
+      expect(recovery.pendingMutations).toEqual([])
+    }
+  })
+
+  it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 3, 3],
-    ['the current version but compacted mutation counts', 4, 2],
+    ['an older version and coincidentally equal mutation counts', 4, 3],
+    ['the current version but compacted mutation counts', 5, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
@@ -1069,6 +1225,30 @@ async function putEnvelope(storeName: string, envelope: unknown) {
     await transactionComplete(database.transaction(storeName, 'readwrite'), (transaction) => {
       transaction.objectStore(storeName).put(envelope)
     })
+  } finally {
+    database.close()
+  }
+}
+
+async function putLegacyPendingMutation(mutation: unknown) {
+  await mutateLegacyPendingStore((store) => store.put(mutation))
+}
+
+async function deleteLegacyPendingMutation(mutationId: string) {
+  await mutateLegacyPendingStore((store) => store.delete(mutationId))
+}
+
+async function mutateLegacyPendingStore(
+  mutate: (store: IDBObjectStore) => IDBRequest,
+) {
+  const database = await openSyncDatabase()
+  try {
+    await transactionComplete(
+      database.transaction('pendingMutations', 'readwrite'),
+      (transaction) => {
+        mutate(transaction.objectStore('pendingMutations'))
+      },
+    )
   } finally {
     database.close()
   }

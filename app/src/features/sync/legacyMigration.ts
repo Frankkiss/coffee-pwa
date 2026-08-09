@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 4 as const
+export const legacyMigrationVersion = 5 as const
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number
@@ -36,6 +36,7 @@ export type LegacyMigrationResult = {
   deviceId: string
   syncEpoch: number
   completedAt: string
+  sourceFingerprint: string
   idMap: Record<string, string>
   sourcePreserved: true
   counts: LegacyMigrationCounts
@@ -102,13 +103,15 @@ export class LegacyMigrationError extends Error {
     | 'LEGACY_MIGRATION_FAILED'
     | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
     | 'LEGACY_MIGRATION_RECOVERY_REQUIRED'
+    | 'LEGACY_MIGRATION_SOURCE_CHANGED'
 
   constructor(
     message: string,
     code:
       | 'LEGACY_MIGRATION_FAILED'
       | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
-      | 'LEGACY_MIGRATION_RECOVERY_REQUIRED' = 'LEGACY_MIGRATION_FAILED',
+      | 'LEGACY_MIGRATION_RECOVERY_REQUIRED'
+      | 'LEGACY_MIGRATION_SOURCE_CHANGED' = 'LEGACY_MIGRATION_FAILED',
   ) {
     super(message)
     this.name = 'LegacyMigrationError'
@@ -257,12 +260,10 @@ function runMigrationTransaction(
     metaRequest.onsuccess = () => {
       try {
         const completed = readCompletedMigration(metaRequest.result, userId, metaKey)
-        if (completed !== null) {
-          result = completed
-          return
+        if (completed === null) {
+          assertUuid(deviceId, 'device id')
+          assertPositiveInteger(syncEpoch, 'sync epoch')
         }
-        assertUuid(deviceId, 'device id')
-        assertPositiveInteger(syncEpoch, 'sync epoch')
         scheduleMigrationReads(
           transaction,
           userId,
@@ -270,6 +271,7 @@ function runMigrationTransaction(
           syncEpoch,
           metaKey,
           testOptions,
+          completed,
           (completedResult) => {
             result = completedResult
           },
@@ -289,6 +291,7 @@ function scheduleMigrationReads(
   syncEpoch: number,
   metaKey: string,
   testOptions: LegacyMigrationTestOptions,
+  storedCompleted: LegacyMigrationResult | null,
   setResult: (result: LegacyMigrationResult) => void,
   abort: TransactionAbort,
 ) {
@@ -312,6 +315,19 @@ function scheduleMigrationReads(
     remaining -= 1
     if (remaining !== 0) return
     try {
+      const sourceFingerprint = createLegacySourceFingerprint(
+        userId,
+        requests.beanSnapshot.result,
+        requests.brewSnapshot.result,
+        requests.pending.result,
+      )
+      if (storedCompleted !== null) {
+        if (storedCompleted.sourceFingerprint !== sourceFingerprint) {
+          throwLegacyMigrationSourceChanged()
+        }
+        setResult(storedCompleted)
+        return
+      }
       const completed = prepareMigration(
         userId,
         deviceId,
@@ -322,6 +338,7 @@ function scheduleMigrationReads(
         requests.targetBeans.result,
         requests.targetBrews.result,
         requests.targetOutbox.result,
+        sourceFingerprint,
       )
       writeMigration(
         transaction,
@@ -354,6 +371,7 @@ function prepareMigration(
   rawTargetBeans: unknown,
   rawTargetBrews: unknown,
   rawTargetOutbox: unknown,
+  sourceFingerprint: string,
 ) {
   const targetBeans = assertUnknownArray(rawTargetBeans, 'target bean rows')
   const targetBrews = assertUnknownArray(rawTargetBrews, 'target brew rows')
@@ -465,6 +483,7 @@ function prepareMigration(
     deviceId,
     syncEpoch,
     completedAt: new Date().toISOString(),
+    sourceFingerprint,
     idMap,
     sourcePreserved: true,
     counts: {
@@ -650,6 +669,7 @@ function createBeanEntity(
 ): MigratedEntity & { type: 'bean' } {
   const record = assertJsonRecord(raw, 'legacy bean row')
   assertOwnedRow(record, userId, 'bean')
+  assertLegacySchemaVersion(record.schema_version, 'bean schema version')
   const originalId = assertString(record.id, 'bean id')
   const id = rewriteEntityId(originalId, 'bean', idMap, 'bean id')
   const name = assertNonEmptyString(record.name, 'bean name')
@@ -665,8 +685,6 @@ function createBeanEntity(
       : record.bean_type === 'single_origin' || record.bean_type === 'blend'
         ? record.bean_type
         : fail('Invalid bean type')
-  assertLegacySchemaVersion(record.schema_version, 'bean schema version')
-
   return {
     type: 'bean',
     originalId,
@@ -710,13 +728,12 @@ function createBrewEntity(
 ): MigratedEntity & { type: 'brewLog' } {
   const record = assertJsonRecord(raw, 'legacy brew row')
   assertOwnedRow(record, userId, 'brew')
+  assertLegacySchemaVersion(record.schema_version, 'brew schema version')
   const originalId = assertString(record.id, 'brew id')
   const id = rewriteEntityId(originalId, 'brewLog', idMap, 'brew id')
   const createdAt = canonicalTime(record.created_at, 'brew created_at')
   const updatedAt = canonicalTime(record.updated_at, 'brew updated_at')
   assertTimeOrder(createdAt, updatedAt, 'brew timestamps')
-  assertLegacySchemaVersion(record.schema_version, 'brew schema version')
-
   return {
     type: 'brewLog',
     originalId,
@@ -789,6 +806,12 @@ function parseLegacyMutation(
   if (parsedPayload?.user_id !== undefined && parsedPayload.user_id !== userId) {
     throw new LegacyMigrationError('Legacy mutation payload ownership does not match user')
   }
+  if (action !== 'delete') {
+    assertLegacySchemaVersion(
+      parsedPayload?.schema_version,
+      `legacy ${entity} mutation schema version`,
+    )
+  }
   if (parsedPayload?.id !== undefined) {
     const payloadId = assertString(parsedPayload.id, 'legacy payload id')
     if (payloadId !== entityId) {
@@ -846,6 +869,83 @@ function isRecoveryMutationOwnedBy(value: unknown, userId: string) {
     Object.hasOwn(value.payload, 'user_id') &&
     value.payload.user_id !== userId
   )
+}
+
+function createLegacySourceFingerprint(
+  userId: string,
+  rawBeanSnapshot: unknown,
+  rawBrewSnapshot: unknown,
+  rawPending: unknown,
+) {
+  const filterSnapshot = (raw: unknown) => {
+    if (!isRecord(raw) || raw.userId !== userId) return null
+    const rows = Array.isArray(raw.rows)
+      ? raw.rows
+          .filter((row) => isRecord(row) && row.user_id === userId)
+          .sort((left, right) => {
+            const leftValue = stableSerialize(left)
+            const rightValue = stableSerialize(right)
+            return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
+          })
+      : raw.rows
+    return {
+      ...raw,
+      rows,
+    }
+  }
+  const pending = assertUnknownArray(
+    rawPending,
+    'legacy mutation rows for fingerprint',
+  )
+    .filter((row) => isRecoveryMutationOwnedBy(row, userId))
+    .map(stableSerialize)
+    .sort()
+  const manifest = stableSerialize({
+    snapshots: [
+      ['beans', filterSnapshot(rawBeanSnapshot)],
+      ['brewLogs', filterSnapshot(rawBrewSnapshot)],
+    ],
+    pending,
+  })
+  const bytes = new TextEncoder().encode(manifest)
+  const first = fnv1a64(bytes, 0xcbf29ce484222325n)
+  const second = fnv1a64(bytes, 0x84222325cbf29ce4n)
+  return `fnv1a128:${first}${second}`
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'string') return `string:${JSON.stringify(value)}`
+  if (typeof value === 'boolean') return value ? 'boolean:true' : 'boolean:false'
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return 'number:NaN'
+    if (value === Number.POSITIVE_INFINITY) return 'number:+Infinity'
+    if (value === Number.NEGATIVE_INFINITY) return 'number:-Infinity'
+    if (Object.is(value, -0)) return 'number:-0'
+    return `number:${value}`
+  }
+  if (typeof value === 'bigint') return `bigint:${value}`
+  if (Array.isArray(value)) {
+    return `array:[${value.map(stableSerialize).join(',')}]`
+  }
+  if (isRecord(value)) {
+    return `object:{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
+      .join(',')}}`
+  }
+  return `${typeof value}:${String(value)}`
+}
+
+function fnv1a64(bytes: Uint8Array, offset: bigint) {
+  const mask = 0xffffffffffffffffn
+  const prime = 0x100000001b3n
+  let hash = offset
+  for (const byte of bytes) {
+    hash = ((hash ^ BigInt(byte)) * prime) & mask
+  }
+  return hash.toString(16).padStart(16, '0')
 }
 
 function collectLocalIds(
@@ -934,7 +1034,9 @@ function assertSnapshotLocalCreateProof(
       isRecognizedLocalId(id) &&
       !provenCreates.has(entityLookupKey(entity, id))
     ) {
-      throwLegacyMigrationRecoveryRequired(id)
+      throwLegacyMigrationRecoveryRequired(
+        `local entity ${id} has no proven create chain`,
+      )
     }
   }
 
@@ -951,9 +1053,9 @@ function assertSnapshotLocalCreateProof(
   }
 }
 
-function throwLegacyMigrationRecoveryRequired(localId: string): never {
+function throwLegacyMigrationRecoveryRequired(reason: string): never {
   throw new LegacyMigrationError(
-    `Legacy local entity ${localId} has no proven create chain; preserve local data and call exportLegacyRecoveryData(userId)`,
+    `Legacy migration recovery required: ${reason}; preserve local data and call exportLegacyRecoveryData(userId)`,
     'LEGACY_MIGRATION_RECOVERY_REQUIRED',
   )
 }
@@ -1031,6 +1133,8 @@ function readCompletedMigration(
     typeof value.syncEpoch !== 'number' ||
     !Number.isInteger(value.syncEpoch) ||
     value.syncEpoch <= 0 ||
+    typeof value.sourceFingerprint !== 'string' ||
+    !/^fnv1a128:[0-9a-f]{32}$/.test(value.sourceFingerprint) ||
     value.sourcePreserved !== true ||
     !isRecord(value.idMap) ||
     !isRecord(value.counts)
@@ -1065,6 +1169,13 @@ function throwLegacyMigrationUpgradeRequired(): never {
   throw new LegacyMigrationError(
     'Legacy migration upgrade required; preserve local data and call exportLegacyRecoveryData(userId)',
     'LEGACY_MIGRATION_UPGRADE_REQUIRED',
+  )
+}
+
+function throwLegacyMigrationSourceChanged(): never {
+  throw new LegacyMigrationError(
+    'Legacy migration source changed after completion; preserve local data and call exportLegacyRecoveryData(userId)',
+    'LEGACY_MIGRATION_SOURCE_CHANGED',
   )
 }
 
@@ -1184,11 +1295,8 @@ function assertOwnedRow(
 }
 
 function assertLegacySchemaVersion(value: unknown, label: string) {
-  if (
-    value !== undefined &&
-    (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
-  ) {
-    throw new LegacyMigrationError(`Invalid ${label}`)
+  if (value !== undefined && value !== 1) {
+    throwLegacyMigrationRecoveryRequired(`${label} must equal 1`)
   }
 }
 
