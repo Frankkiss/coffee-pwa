@@ -1258,6 +1258,12 @@ the queue write happens first and the cache write follows: create then cached ro
 cached row. All three pending writes must still be represented one-for-one in the migrated Outbox. Also cover multiple pending writes whose
 send-time conservative compaction reports every source mutation through `coveredMutationIds`.
 
+Version completion metadata with the current migration algorithm version and enforce
+`counts.sourceMutations === counts.migratedMutations`. A completed record with a missing/older version or a violated count invariant must fail
+with stable code `LEGACY_MIGRATION_UPGRADE_REQUIRED`, leave all v2/v3 stores and the original metadata unchanged, and direct recovery through
+`exportLegacyRecoveryData`. Never clear and rerun automatically: an intermediate build was not released, but the client still cannot safely
+distinguish migration-produced rows from later v3 edits. Test both compacted old counts and an old record whose counts happen to be equal.
+
 - [ ] **Step 2: Verify failure**
 
 ```powershell
@@ -1270,7 +1276,9 @@ Expected: FAIL because the migrator does not exist.
 
 `migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
 
-1. Return the stored successful result if `migrationMeta` already says completed.
+1. Return the stored successful result only when `migrationMeta` has the exact current `migrationVersion`, validates completely, and satisfies
+   `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
+   `LEGACY_MIGRATION_UPGRADE_REQUIRED` without modifying any store; do not auto-clear or rerun.
 2. Read legacy snapshots and pending rows for only `userId`; validate snapshot `updatedAt` for audit only.
 3. Build one stable ID map for every `local-bean-*` and `local-brew-*` ID.
 4. Rewrite entity IDs, mutation entity IDs, payload IDs, and `brewLog.bean_id`.
@@ -1285,7 +1293,8 @@ Expected: FAIL because the migrator does not exist.
    followed by delete.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
-9. Return `{ status: 'completed', idMap, sourcePreserved: true }`.
+9. Persist and return `{ status: 'completed', migrationVersion: CURRENT_VERSION, idMap, sourcePreserved: true }`; first-release migrations only
+   write the current version.
 
 Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is
 copied into the v3 Outbox.

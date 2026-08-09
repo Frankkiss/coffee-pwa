@@ -224,6 +224,12 @@ snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确�
 `selectSendableMutationBatch` 保守压缩，并通过 `coveredMutationIds` 保留所有源 mutation 的确认范围；只有服务器 RPC
 返回成功回执后才允许 acknowledge。迁移不得因为 cache 写入时间较新而吞掉尚未同步的 create、update 或 delete。
 
+迁移完成记录必须带有精确的 current algorithm `migrationVersion`，并满足
+`counts.sourceMutations === counts.migratedMutations`。缺失版本、旧版本或不满足该不变量的 completed 记录都不能当作
+当前迁移已完成，也不能自动清空 v3 后重跑：中间版本可能已经产生新的 v3 编辑，客户端无法可靠区分。此时必须以稳定的
+`LEGACY_MIGRATION_UPGRADE_REQUIRED` 错误安全拒绝，保持 v2/v3 与原 meta 原样，并引导用户导出 legacy recovery data。
+首次正式发布只写 current version 的完成记录。
+
 ### 轻量备份
 
 默认备份为版本化轻量 JSON 文件，包含全部用户可见文字数据：豆子、冲煮记录、自定义模板、AI 推荐、
