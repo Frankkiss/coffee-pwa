@@ -76,6 +76,7 @@ export type LocalRepository = SyncStorage & {
     userId: string,
     entity: EntityByStore[Store],
     mutation: DeleteMutationForStore<Store>,
+    deletedAt?: string,
   ): Promise<EntityByStore[Store]>
   listLocalEntities<Store extends LocalEntityStoreName>(
     storeName: Store,
@@ -197,12 +198,14 @@ export function createLocalRepository(
       userId: string,
       entity: EntityByStore[Store],
       mutation: DeleteMutationForStore<Store>,
+      deletedAt?: string,
     ) => softDeleteLocalEntityWithOptions(
       storeName,
       userId,
       entity,
       mutation,
       testOptions,
+      deletedAt,
     ),
     listLocalEntities,
     replaceServerSnapshot: (userId: string, snapshot: SyncSnapshot) =>
@@ -312,6 +315,7 @@ export function softDeleteLocalEntity<
   userId: string,
   entity: EntityByStore[Store],
   mutation: DeleteMutationForStore<Store>,
+  deletedAt?: string,
 ) {
   return softDeleteLocalEntityWithOptions(
     storeName,
@@ -319,6 +323,7 @@ export function softDeleteLocalEntity<
     entity,
     mutation,
     defaultOptions,
+    deletedAt,
   )
 }
 
@@ -551,11 +556,16 @@ async function softDeleteLocalEntityWithOptions<
   entity: EntityByStore[Store],
   mutation: DeleteMutationForStore<Store>,
   options: LocalRepositoryTestOptions,
+  requestedDeletedAt?: string,
 ): Promise<EntityByStore[Store]> {
   assertDeletableStoreName(storeName)
   assertOwnedEntity(storeName, userId, entity)
   assertNewMutation(storeName, userId, entity, mutation, 'delete')
-  const deletedAt = (options.now ?? (() => new Date()))().toISOString()
+  const deletedAt =
+    requestedDeletedAt ?? (options.now ?? (() => new Date()))().toISOString()
+  if (!isIsoTime(deletedAt)) {
+    throw new Error('Delete timestamp must be an ISO timestamp with timezone')
+  }
   const tombstone = {
     ...entity,
     deleted_at: deletedAt,
