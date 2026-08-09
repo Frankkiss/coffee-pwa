@@ -19,7 +19,68 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 6 as const
+export const legacyMigrationVersion = 7 as const
+
+const legacyBeanFields = new Set([
+  'id',
+  'user_id',
+  'name',
+  'roaster',
+  'origin',
+  'farm_or_station',
+  'process',
+  'variety',
+  'altitude_meters',
+  'roast_date',
+  'roast_level',
+  'flavor_tags',
+  'flavor_notes',
+  'net_weight_grams',
+  'price',
+  'purchase_date',
+  'source_url',
+  'image_url',
+  'bean_type',
+  'blend_components',
+  'blend_notes',
+  'notes',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'schema_version',
+])
+
+const legacyBrewFields = new Set([
+  'id',
+  'user_id',
+  'bean_id',
+  'brewed_at',
+  'method',
+  'dripper',
+  'filter_paper',
+  'grinder',
+  'grind_setting',
+  'coffee_grams',
+  'water_grams',
+  'ratio',
+  'water_temperature_c',
+  'total_time_seconds',
+  'pour_steps',
+  'rating',
+  'acidity',
+  'sweetness',
+  'bitterness',
+  'astringency',
+  'body',
+  'aftertaste',
+  'flavor_tags',
+  'is_pinned_recipe',
+  'notes',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'schema_version',
+])
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number
@@ -668,6 +729,7 @@ function createBeanEntity(
   source: 'snapshot' | 'pending',
 ): MigratedEntity & { type: 'bean' } {
   const record = assertJsonRecord(raw, 'legacy bean row')
+  assertKnownLegacyFields(record, legacyBeanFields, 'bean row')
   assertOwnedRow(record, userId, 'bean')
   assertLegacySchemaVersion(record.schema_version, 'bean schema version')
   const originalId = assertString(record.id, 'bean id')
@@ -727,6 +789,7 @@ function createBrewEntity(
   source: 'snapshot' | 'pending',
 ): MigratedEntity & { type: 'brewLog' } {
   const record = assertJsonRecord(raw, 'legacy brew row')
+  assertKnownLegacyFields(record, legacyBrewFields, 'brew row')
   assertOwnedRow(record, userId, 'brew')
   assertLegacySchemaVersion(record.schema_version, 'brew schema version')
   const originalId = assertString(record.id, 'brew id')
@@ -803,12 +866,19 @@ function parseLegacyMutation(
     throw new LegacyMigrationError('Legacy upsert payload must be a JSON object')
   }
   const parsedPayload = isPlainRecord(payload) ? payload : undefined
+  if (action !== 'delete' && parsedPayload !== undefined) {
+    assertKnownLegacyFields(
+      parsedPayload,
+      entity === 'bean' ? legacyBeanFields : legacyBrewFields,
+      `${entity} mutation payload`,
+    )
+  }
   if (parsedPayload?.user_id !== undefined && parsedPayload.user_id !== userId) {
     throw new LegacyMigrationError('Legacy mutation payload ownership does not match user')
   }
-  if (action !== 'delete') {
+  if (action !== 'delete' && parsedPayload?.schema_version !== undefined) {
     assertLegacySchemaVersion(
-      parsedPayload?.schema_version,
+      parsedPayload.schema_version,
       `legacy ${entity} mutation schema version`,
     )
   }
@@ -1295,6 +1365,21 @@ function assertOwnedRow(
 function assertLegacySchemaVersion(value: unknown, label: string) {
   if (value !== 1) {
     throwLegacyMigrationRecoveryRequired(`${label} must equal 1`)
+  }
+}
+
+function assertKnownLegacyFields(
+  record: Record<string, unknown>,
+  knownFields: ReadonlySet<string>,
+  label: string,
+) {
+  const unknownFields = Object.keys(record)
+    .filter((key) => !knownFields.has(key))
+    .sort()
+  if (unknownFields.length > 0) {
+    throwLegacyMigrationRecoveryRequired(
+      `legacy ${label} contains unknown fields: ${unknownFields.join(', ')}`,
+    )
   }
 }
 

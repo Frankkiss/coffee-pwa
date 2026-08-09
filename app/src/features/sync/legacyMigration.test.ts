@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
+import type { BeanInsertPayload, BeanUpdatePayload } from '../beans/beanTypes'
+import type { BrewLogInsertPayload, BrewLogUpdatePayload } from '../brews/brewTypes'
 import {
   entityKey,
   openSyncDatabase,
@@ -65,7 +67,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 6,
+      migrationVersion: 7,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -576,44 +578,6 @@ describe('legacy offline migration', () => {
         }
       },
     ],
-    [
-      'bean non-delete pending payload',
-      () => {
-        const mutation = legacyMutation(
-          'missing-pending-version',
-          userOne,
-          'bean',
-          'update',
-          cloudBeanId,
-          { notes: 'must not be guessed' },
-        )
-        delete (mutation.payload as Record<string, unknown>).schema_version
-        return {
-          snapshots: [['beans', legacySnapshot(userOne, [
-            legacyBean(userOne, cloudBeanId, 'pending baseline'),
-          ])]] as LegacySnapshotEntry[],
-          pending: [mutation],
-        }
-      },
-    ],
-    [
-      'brew non-delete pending payload',
-      () => {
-        const mutation = legacyMutation(
-          'missing-brew-pending-version',
-          userOne,
-          'brewLog',
-          'create',
-          'local-brew-missing-schema',
-          brewCreatePayload(userOne, cloudBeanId),
-        )
-        delete (mutation.payload as Record<string, unknown>).schema_version
-        return {
-          snapshots: [] as LegacySnapshotEntry[],
-          pending: [mutation],
-        }
-      },
-    ],
   ])('requires recovery when schema_version is missing from a %s', async (_case, buildInput) => {
     const input = buildInput()
     await seedVersionTwoDatabase(input.snapshots, input.pending)
@@ -632,6 +596,110 @@ describe('legacy offline migration', () => {
     expect(await exportLegacyRecoveryData(userOne)).toEqual(expect.objectContaining({
       userId: userOne,
     }))
+  })
+
+  it('migrates real v2 bean and brew insert/update payloads without schema_version', async () => {
+    const localBean = 'local-bean-real-v2-insert'
+    const localBrew = 'local-brew-real-v2-insert'
+    const cloudBrew = '00000000-0000-4000-8000-0000000000c8'
+    const beanInsert: BeanInsertPayload = beanCreatePayload(userOne, 'real bean insert')
+    const { user_id: beanInsertOwner, ...beanUpdate } = beanCreatePayload(
+      userOne,
+      'real bean update',
+    )
+    const typedBeanUpdate: BeanUpdatePayload = beanUpdate
+    const brewInsert: BrewLogInsertPayload = brewCreatePayload(userOne, localBean)
+    const { user_id: brewInsertOwner, ...brewUpdate } = brewCreatePayload(
+      userOne,
+      cloudBeanId,
+    )
+    const typedBrewUpdate: BrewLogUpdatePayload = brewUpdate
+    expect(beanInsertOwner).toBe(userOne)
+    expect(brewInsertOwner).toBe(userOne)
+    const pending = [
+      rawLegacyMutation('real-bean-insert', 'bean', 'create', localBean, beanInsert),
+      rawLegacyMutation('real-bean-update', 'bean', 'update', cloudBeanId, typedBeanUpdate),
+      rawLegacyMutation('real-brew-insert', 'brewLog', 'create', localBrew, brewInsert),
+      rawLegacyMutation('real-brew-update', 'brewLog', 'update', cloudBrew, typedBrewUpdate),
+    ]
+    expect(
+      pending.every((mutation) => !Object.hasOwn(mutation.payload, 'schema_version')),
+    ).toBe(true)
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'bean update baseline'),
+      ])],
+      ['brewLogs', legacySnapshot(userOne, [
+        legacyBrew(userOne, cloudBrew, cloudBeanId),
+      ])],
+    ], pending)
+    const sourcesBeforeMigration = await readLegacySources()
+
+    const result = await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(result.counts).toEqual(expect.objectContaining({
+      sourceMutations: 4,
+      migratedMutations: 4,
+    }))
+    expect(await listLocalEntities('beans', userOne)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'real bean insert', schema_version: 1 }),
+      expect.objectContaining({ id: cloudBeanId, name: 'real bean update', schema_version: 1 }),
+    ]))
+    expect(await listLocalEntities('brewLogs', userOne)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: result.idMap[localBrew], schema_version: 1 }),
+      expect.objectContaining({ id: cloudBrew, schema_version: 1 }),
+    ]))
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({ operation: 'upsert', payload: expect.objectContaining({ schema_version: 1 }) }),
+      expect.objectContaining({ operation: 'upsert', payload: expect.objectContaining({ schema_version: 1 }) }),
+      expect.objectContaining({ operation: 'upsert', payload: expect.objectContaining({ schema_version: 1 }) }),
+      expect.objectContaining({ operation: 'upsert', payload: expect.objectContaining({ schema_version: 1 }) }),
+    ])
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+  })
+
+  it.each([
+    [
+      'snapshot row',
+      [['beans', legacySnapshot(userOne, [{
+        ...legacyBean(userOne, cloudBeanId, 'unknown snapshot field'),
+        future_field: 'must remain recoverable',
+      }])]] as LegacySnapshotEntry[],
+      [],
+    ],
+    [
+      'unversioned pending payload',
+      [['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'unknown pending baseline'),
+      ])]] as LegacySnapshotEntry[],
+      [rawLegacyMutation(
+        'unknown-pending-field',
+        'bean',
+        'update',
+        cloudBeanId,
+        {
+          ...beanCreatePayload(userOne, 'unknown pending field'),
+          future_field: 'must remain recoverable',
+        } as BeanInsertPayload,
+      )],
+    ],
+  ])('requires recovery instead of dropping an unknown field from a %s', async (_case, snapshots, pending) => {
+    await seedVersionTwoDatabase(snapshots, pending)
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    expect(JSON.stringify(await exportLegacyRecoveryData(userOne))).toContain(
+      'must remain recoverable',
+    )
   })
 
   it.each([
@@ -764,8 +832,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 5, 3],
-    ['the current version but compacted mutation counts', 6, 2],
+    ['an older version and coincidentally equal mutation counts', 6, 3],
+    ['the current version but compacted mutation counts', 7, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
@@ -1286,15 +1354,32 @@ function legacyBrew(userId: string, id: string, beanId: string | null) {
   }
 }
 
-function beanCreatePayload(userId: string, name: string) {
-  const payload = { ...currentBean(userId, localBeanId, name) } as Record<string, unknown>
-  for (const key of ['id', 'created_at', 'updated_at', 'deleted_at', 'image_url', 'schema_version']) {
-    delete payload[key]
+function beanCreatePayload(userId: string, name: string): BeanInsertPayload {
+  return {
+    user_id: userId,
+    name,
+    roaster: null,
+    origin: null,
+    farm_or_station: null,
+    process: null,
+    variety: null,
+    altitude_meters: null,
+    roast_date: null,
+    roast_level: null,
+    flavor_tags: [],
+    flavor_notes: null,
+    net_weight_grams: null,
+    price: null,
+    purchase_date: null,
+    source_url: null,
+    bean_type: 'single_origin',
+    blend_components: [],
+    blend_notes: null,
+    notes: null,
   }
-  return payload
 }
 
-function brewCreatePayload(userId: string, beanId: string) {
+function brewCreatePayload(userId: string, beanId: string): BrewLogInsertPayload {
   return {
     user_id: userId,
     bean_id: beanId,
@@ -1319,6 +1404,26 @@ function brewCreatePayload(userId: string, beanId: string) {
     flavor_tags: [],
     is_pinned_recipe: false,
     notes: null,
+  }
+}
+
+function rawLegacyMutation(
+  id: string,
+  entity: 'bean' | 'brewLog',
+  action: 'create' | 'update',
+  entityId: string,
+  payload: BeanInsertPayload | BeanUpdatePayload | BrewLogInsertPayload | BrewLogUpdatePayload,
+) {
+  return {
+    id,
+    userId: userOne,
+    entity,
+    action,
+    entityId,
+    payload,
+    createdAt: fixedTime,
+    attempts: 0,
+    lastError: null,
   }
 }
 
