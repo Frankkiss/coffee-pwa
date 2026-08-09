@@ -21,6 +21,8 @@ const localBeanId = 'local-bean-legacy-one'
 const localBrewId = 'local-brew-legacy-one'
 const cloudBeanId = '00000000-0000-4000-8000-0000000000b2'
 const fixedTime = '2026-08-08T10:00:00.000Z'
+const legacyCreateAttentionMessage =
+  'Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.'
 
 describe('legacy offline migration', () => {
   beforeEach(async () => {
@@ -67,7 +69,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 7,
+      migrationVersion: 8,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -107,7 +109,24 @@ describe('legacy offline migration', () => {
     expect(outbox.every((mutation) => mutation.userId === userOne)).toBe(true)
     expect(outbox.every((mutation) => mutation.deviceId === deviceId)).toBe(true)
     expect(outbox.every((mutation) => mutation.baseSyncEpoch === 7)).toBe(true)
-    expect(outbox.every((mutation) => mutation.status === 'pending' && mutation.attemptCount === 0)).toBe(true)
+    expect(outbox.every((mutation) => mutation.attemptCount === 0)).toBe(true)
+    const attentionOutbox = outbox.filter(
+      (mutation) => mutation.status === 'needs_attention',
+    )
+    expect(attentionOutbox).toHaveLength(4)
+    expect(attentionOutbox.every(
+      (mutation) =>
+        mutation.lastErrorCode === 'LEGACY_CREATE_REQUIRES_CONFIRMATION' &&
+        mutation.lastErrorMessage === legacyCreateAttentionMessage,
+    )).toBe(true)
+    expect(outbox.filter((mutation) => mutation.status === 'pending')).toEqual([
+      expect.objectContaining({ entityId: cloudBeanId, operation: 'delete' }),
+    ])
+    expect(selectSendableMutationBatch(outbox)).toEqual([
+      expect.objectContaining({
+        mutation: expect.objectContaining({ entityId: cloudBeanId, operation: 'delete' }),
+      }),
+    ])
 
     const beanOperations = outbox
       .filter((mutation) => mutation.entityId === result.idMap[localBeanId])
@@ -162,6 +181,14 @@ describe('legacy offline migration', () => {
         bean_id: result.idMap[pendingBeanId],
       }),
     ])
+    const outbox = await listOutbox(userOne)
+    expect(outbox).toHaveLength(2)
+    expect(outbox.every(
+      (mutation) =>
+        mutation.status === 'needs_attention' &&
+        mutation.lastErrorCode === 'LEGACY_CREATE_REQUIRES_CONFIRMATION',
+    )).toBe(true)
+    expect(selectSendableMutationBatch(outbox)).toEqual([])
   })
 
   it('merges a pending update captured after an older snapshot', async () => {
@@ -324,8 +351,63 @@ describe('legacy offline migration', () => {
       expect.objectContaining({
         operation: 'upsert',
         entityId: result.idMap[localBeanId],
+        status: 'needs_attention',
+        lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION',
+        lastErrorMessage: legacyCreateAttentionMessage,
       }),
     ])
+    expect(selectSendableMutationBatch(await listOutbox(userOne))).toEqual([])
+  })
+
+  it('quarantines the full brew chain when its reconstructed row references a local bean', async () => {
+    const cloudBrewId = '00000000-0000-4000-8000-0000000000c9'
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, localBeanId, 'ambiguous local bean'),
+      ])],
+      ['brewLogs', legacySnapshot(userOne, [
+        legacyBrew(userOne, cloudBrewId, localBeanId),
+      ])],
+    ], [
+      legacyMutation(
+        'ambiguous-bean-create',
+        userOne,
+        'bean',
+        'create',
+        localBeanId,
+        beanCreatePayload(userOne, 'ambiguous local bean'),
+      ),
+      legacyMutation(
+        'related-brew-update-a',
+        userOne,
+        'brewLog',
+        'update',
+        cloudBrewId,
+        { notes: 'related edit' },
+        '2026-08-08T10:00:01.000Z',
+      ),
+      legacyMutation(
+        'related-brew-update-b',
+        userOne,
+        'brewLog',
+        'update',
+        cloudBrewId,
+        { rating: 4 },
+        '2026-08-08T10:00:02.000Z',
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    const outbox = await listOutbox(userOne)
+    expect(outbox).toHaveLength(3)
+    expect(outbox.every(
+      (mutation) =>
+        mutation.status === 'needs_attention' &&
+        mutation.lastErrorCode === 'LEGACY_CREATE_REQUIRES_CONFIRMATION' &&
+        mutation.lastErrorMessage === legacyCreateAttentionMessage,
+    )).toBe(true)
+    expect(selectSendableMutationBatch(outbox)).toEqual([])
   })
 
   it('preserves every pending write for conservative send-time compaction', async () => {
@@ -703,6 +785,58 @@ describe('legacy offline migration', () => {
   })
 
   it.each([
+    [
+      'snapshot blend component',
+      [['beans', legacySnapshot(userOne, [{
+        ...legacyBean(userOne, cloudBeanId, 'nested snapshot field'),
+        bean_type: 'blend',
+        blend_components: [{
+          ...blendComponent(),
+          future_nested_field: 'must remain recoverable',
+        }],
+      }])]] as LegacySnapshotEntry[],
+      [],
+    ],
+    [
+      'pending blend component',
+      [['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'nested pending baseline'),
+      ])]] as LegacySnapshotEntry[],
+      [legacyMutation(
+        'nested-pending-field',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        {
+          bean_type: 'blend',
+          blend_components: [{
+            ...blendComponent(),
+            future_nested_field: 'must remain recoverable',
+          }],
+        },
+      )],
+    ],
+  ])('requires recovery for an unknown field in a %s', async (_case, snapshots, pending) => {
+    await seedVersionTwoDatabase(snapshots, pending)
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    expect(JSON.stringify(await exportLegacyRecoveryData(userOne))).toContain(
+      'future_nested_field',
+    )
+  })
+
+  it.each([
     ['append', 'appended-fingerprint-mutation'],
     ['rewrite', 'fingerprint-base-mutation'],
     ['delete', 'fingerprint-base-mutation'],
@@ -832,8 +966,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 6, 3],
-    ['the current version but compacted mutation counts', 7, 2],
+    ['an older version and coincidentally equal mutation counts', 7, 3],
+    ['the current version but compacted mutation counts', 8, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
@@ -1404,6 +1538,17 @@ function brewCreatePayload(userId: string, beanId: string): BrewLogInsertPayload
     flavor_tags: [],
     is_pinned_recipe: false,
     notes: null,
+  }
+}
+
+function blendComponent() {
+  return {
+    origin: 'Ethiopia',
+    process: 'washed',
+    variety: 'Heirloom',
+    percentage: 100,
+    role: 'base',
+    notes: '',
   }
 }
 

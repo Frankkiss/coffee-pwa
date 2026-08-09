@@ -19,7 +19,10 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 7 as const
+export const legacyMigrationVersion = 8 as const
+const legacyCreateAttentionCode = 'LEGACY_CREATE_REQUIRES_CONFIRMATION'
+const legacyCreateAttentionMessage =
+  'Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.'
 
 const legacyBeanFields = new Set([
   'id',
@@ -80,6 +83,15 @@ const legacyBrewFields = new Set([
   'updated_at',
   'deleted_at',
   'schema_version',
+])
+
+const legacyBlendComponentFields = new Set([
+  'origin',
+  'process',
+  'variety',
+  'percentage',
+  'role',
+  'notes',
 ])
 
 export type LegacyMigrationCounts = {
@@ -479,6 +491,10 @@ function prepareMigration(
     idMap,
   )
   assertMigratedReferences(entities, idMap)
+  const attentionEntityKeys = collectAmbiguousLegacyEntityKeys(
+    snapshots,
+    pending,
+  )
   const existingOutboxKeys = new Set(
     targetOutbox.flatMap((row) =>
       isRecord(row) && typeof row.key === 'string'
@@ -501,6 +517,9 @@ function prepareMigration(
       'mutation entity id',
     )
     const mutationId = createUniqueMutationId(existingOutboxKeys, generatedMutationIds)
+    const needsAttention = attentionEntityKeys.has(
+      entityLookupKey(mutation.entity, mutation.entityId),
+    )
     const base = {
       mutationId,
       deviceId,
@@ -510,9 +529,9 @@ function prepareMigration(
       baseSyncEpoch: syncEpoch,
       queuedAt: createOrderedQueuedAt(mutation.createdAt, index),
       attemptCount: 0,
-      status: 'pending' as const,
-      lastErrorCode: null,
-      lastErrorMessage: null,
+      status: needsAttention ? 'needs_attention' as const : 'pending' as const,
+      lastErrorCode: needsAttention ? legacyCreateAttentionCode : null,
+      lastErrorMessage: needsAttention ? legacyCreateAttentionMessage : null,
     }
     if (mutation.action === 'delete') {
       return {
@@ -1156,6 +1175,46 @@ function assertMigratedReferences(
   }
 }
 
+function collectAmbiguousLegacyEntityKeys(
+  snapshots: LegacySnapshot[],
+  pending: ParsedLegacyMutation[],
+) {
+  const attentionEntityKeys = new Set<string>()
+  for (const mutation of pending) {
+    if (
+      mutation.action === 'create' &&
+      ((mutation.entity === 'bean' && isLocalBeanId(mutation.entityId)) ||
+        (mutation.entity === 'brewLog' && isLocalBrewId(mutation.entityId)))
+    ) {
+      attentionEntityKeys.add(
+        entityLookupKey(mutation.entity, mutation.entityId),
+      )
+    }
+    if (
+      mutation.entity === 'brewLog' &&
+      isRecord(mutation.payload) &&
+      typeof mutation.payload.bean_id === 'string' &&
+      isLocalBeanId(mutation.payload.bean_id)
+    ) {
+      attentionEntityKeys.add(entityLookupKey('brewLog', mutation.entityId))
+    }
+  }
+  for (const snapshot of snapshots) {
+    if (snapshot.key !== 'brewLogs') continue
+    for (const row of snapshot.rows) {
+      if (
+        isRecord(row) &&
+        typeof row.id === 'string' &&
+        typeof row.bean_id === 'string' &&
+        isLocalBeanId(row.bean_id)
+      ) {
+        attentionEntityKeys.add(entityLookupKey('brewLog', row.id))
+      }
+    }
+  }
+  return attentionEntityKeys
+}
+
 function createUpsertPayload(entity: MigratedEntity) {
   const payload = { ...entity.row } as Record<string, unknown>
   for (const key of ['id', 'user_id', 'created_at', 'updated_at', 'deleted_at']) {
@@ -1388,6 +1447,11 @@ function optionalBlendComponents(value: unknown): ServerBeanRow['blend_component
   if (!Array.isArray(value)) throw new LegacyMigrationError('Invalid bean blend_components')
   return value.map((item) => {
     const component = assertJsonRecord(item, 'bean blend component')
+    assertKnownLegacyFields(
+      component,
+      legacyBlendComponentFields,
+      'bean blend component',
+    )
     return {
       origin: optionalString(component.origin, 'blend origin'),
       process: optionalString(component.process, 'blend process'),
