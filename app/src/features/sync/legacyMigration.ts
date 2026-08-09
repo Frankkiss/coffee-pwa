@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 8 as const
+export const legacyMigrationVersion = 9 as const
 const legacyCreateAttentionCode = 'LEGACY_CREATE_REQUIRES_CONFIRMATION'
 const legacyCreateAttentionMessage =
   'Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.'
@@ -891,6 +891,9 @@ function parseLegacyMutation(
       entity === 'bean' ? legacyBeanFields : legacyBrewFields,
       `${entity} mutation payload`,
     )
+    if (entity === 'bean') {
+      assertKnownBlendComponentFields(parsedPayload.blend_components)
+    }
   }
   if (parsedPayload?.user_id !== undefined && parsedPayload.user_id !== userId) {
     throw new LegacyMigrationError('Legacy mutation payload ownership does not match user')
@@ -1001,28 +1004,150 @@ function createLegacySourceFingerprint(
 }
 
 function stableSerialize(value: unknown): string {
-  if (value === null) return 'null'
-  if (value === undefined) return 'undefined'
-  if (typeof value === 'string') return `string:${JSON.stringify(value)}`
-  if (typeof value === 'boolean') return value ? 'boolean:true' : 'boolean:false'
-  if (typeof value === 'number') {
-    if (Number.isNaN(value)) return 'number:NaN'
-    if (value === Number.POSITIVE_INFINITY) return 'number:+Infinity'
-    if (value === Number.NEGATIVE_INFINITY) return 'number:-Infinity'
-    if (Object.is(value, -0)) return 'number:-0'
-    return `number:${value}`
-  }
-  if (typeof value === 'bigint') return `bigint:${value}`
-  if (Array.isArray(value)) {
-    return `array:[${value.map(stableSerialize).join(',')}]`
-  }
-  if (isRecord(value)) {
-    return `object:{${Object.keys(value)
+  const references = new Map<object, number>()
+  const serialize = (current: unknown): string => {
+    if (current === null) return fingerprintFrame('null')
+    if (current === undefined) return fingerprintFrame('undefined')
+    if (typeof current === 'string') {
+      return fingerprintFrame('string', current)
+    }
+    if (typeof current === 'boolean') {
+      return fingerprintFrame('boolean', current ? 'true' : 'false')
+    }
+    if (typeof current === 'number') {
+      const encoded = Number.isNaN(current)
+        ? 'NaN'
+        : current === Number.POSITIVE_INFINITY
+          ? '+Infinity'
+          : current === Number.NEGATIVE_INFINITY
+            ? '-Infinity'
+            : Object.is(current, -0)
+              ? '-0'
+              : String(current)
+      return fingerprintFrame('number', encoded)
+    }
+    if (typeof current === 'bigint') {
+      return fingerprintFrame('bigint', String(current))
+    }
+    if (
+      typeof current === 'symbol' ||
+      typeof current === 'function'
+    ) {
+      return fingerprintFrame(typeof current, String(current))
+    }
+
+    const object = current as object
+    const existingReference = references.get(object)
+    if (existingReference !== undefined) {
+      return fingerprintFrame('reference', String(existingReference))
+    }
+    const reference = references.size
+    references.set(object, reference)
+    const referencePart = String(reference)
+
+    if (Array.isArray(current)) {
+      const items: string[] = []
+      for (let index = 0; index < current.length; index += 1) {
+        items.push(
+          Object.hasOwn(current, index)
+            ? fingerprintFrame('item', serialize(current[index]))
+            : fingerprintFrame('hole'),
+        )
+      }
+      return fingerprintFrame(
+        'array',
+        referencePart,
+        String(current.length),
+        ...items,
+      )
+    }
+    if (current instanceof Date) {
+      return fingerprintFrame('date', referencePart, serialize(current.getTime()))
+    }
+    if (current instanceof Map) {
+      const entries = [...current.entries()].map(([key, entryValue]) =>
+        fingerprintFrame('entry', serialize(key), serialize(entryValue)),
+      )
+      return fingerprintFrame('map', referencePart, ...entries)
+    }
+    if (current instanceof Set) {
+      return fingerprintFrame(
+        'set',
+        referencePart,
+        ...[...current.values()].map(serialize),
+      )
+    }
+    if (current instanceof ArrayBuffer) {
+      return fingerprintFrame(
+        'array-buffer',
+        referencePart,
+        bytesToHex(new Uint8Array(current)),
+      )
+    }
+    if (ArrayBuffer.isView(current)) {
+      const length = 'length' in current
+        ? String((current as { length: number }).length)
+        : ''
+      return fingerprintFrame(
+        'array-buffer-view',
+        referencePart,
+        current.constructor.name,
+        String(current.byteOffset),
+        String(current.byteLength),
+        length,
+        serialize(current.buffer),
+      )
+    }
+    if (current instanceof RegExp) {
+      return fingerprintFrame(
+        'regexp',
+        referencePart,
+        current.source,
+        current.flags,
+      )
+    }
+    if (current instanceof Error) {
+      return fingerprintFrame(
+        'error',
+        referencePart,
+        current.name,
+        current.message,
+        current.stack ?? '',
+        serialize(current.cause),
+      )
+    }
+    if (typeof Blob !== 'undefined' && current instanceof Blob) {
+      return fingerprintFrame(
+        'blob',
+        referencePart,
+        current.type,
+        String(current.size),
+      )
+    }
+
+    const record = current as Record<string, unknown>
+    const entries = Object.keys(record)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
-      .join(',')}}`
+      .map((key) => fingerprintFrame('property', key, serialize(record[key])))
+    return fingerprintFrame(
+      Object.getPrototypeOf(current) === null ? 'null-object' : 'object',
+      referencePart,
+      ...entries,
+    )
   }
-  return `${typeof value}:${String(value)}`
+  return serialize(value)
+}
+
+function fingerprintFrame(tag: string, ...parts: string[]) {
+  return `${tag.length}:${tag}${parts.length}:${parts
+    .map((part) => `${part.length}:${part}`)
+    .join('')}`
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return [...bytes]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 function fnv1a64(bytes: Uint8Array, offset: bigint) {
@@ -1447,11 +1572,7 @@ function optionalBlendComponents(value: unknown): ServerBeanRow['blend_component
   if (!Array.isArray(value)) throw new LegacyMigrationError('Invalid bean blend_components')
   return value.map((item) => {
     const component = assertJsonRecord(item, 'bean blend component')
-    assertKnownLegacyFields(
-      component,
-      legacyBlendComponentFields,
-      'bean blend component',
-    )
+    assertKnownBlendComponentFields([component])
     return {
       origin: optionalString(component.origin, 'blend origin'),
       process: optionalString(component.process, 'blend process'),
@@ -1461,6 +1582,18 @@ function optionalBlendComponents(value: unknown): ServerBeanRow['blend_component
       notes: optionalString(component.notes, 'blend notes'),
     }
   })
+}
+
+function assertKnownBlendComponentFields(value: unknown) {
+  if (!Array.isArray(value)) return
+  for (const item of value) {
+    if (!isRecord(item)) continue
+    assertKnownLegacyFields(
+      item,
+      legacyBlendComponentFields,
+      'bean blend component',
+    )
+  }
 }
 
 function optionalString(value: unknown, label: string) {

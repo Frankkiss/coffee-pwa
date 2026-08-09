@@ -69,7 +69,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 8,
+      migrationVersion: 9,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -817,6 +817,26 @@ describe('legacy offline migration', () => {
         },
       )],
     ],
+    [
+      'unversioned pending blend component without a baseline',
+      [] as LegacySnapshotEntry[],
+      [{
+        id: 'nested-pending-without-baseline',
+        userId: userOne,
+        entity: 'bean',
+        action: 'update',
+        entityId: cloudBeanId,
+        payload: {
+          blend_components: [{
+            ...blendComponent(),
+            future_nested_field: 'must remain recoverable',
+          }],
+        },
+        createdAt: fixedTime,
+        attempts: 0,
+        lastError: null,
+      }],
+    ],
   ])('requires recovery for an unknown field in a %s', async (_case, snapshots, pending) => {
     await seedVersionTwoDatabase(snapshots, pending)
     const sourcesBeforeMigration = await readLegacySources()
@@ -834,6 +854,77 @@ describe('legacy offline migration', () => {
     expect(JSON.stringify(await exportLegacyRecoveryData(userOne))).toContain(
       'future_nested_field',
     )
+  })
+
+  it.each([
+    ['Date', () => new Date('2026-08-08T10:00:00.000Z')],
+    ['Map', () => new Map([['key', 'value']])],
+    ['Set', () => new Set(['value'])],
+    ['ArrayBuffer', () => Uint8Array.from([1, 2, 3]).buffer],
+    ['typed array', () => new Uint8Array(0)],
+    ['undefined', () => undefined],
+    ['NaN', () => Number.NaN],
+    ['negative zero', () => -0],
+    ['circular object', () => {
+      const value: Record<string, unknown> = {}
+      value.self = value
+      return value
+    }],
+  ])('detects a completed source rewrite from an ordinary object to %s', async (_case, createPayload) => {
+    const baseMutation = {
+      id: 'structured-clone-fingerprint',
+      userId: userOne,
+      entity: 'bean',
+      action: 'update',
+      entityId: cloudBeanId,
+      payload: {},
+      createdAt: fixedTime,
+      attempts: 0,
+      lastError: null,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'structured clone baseline'),
+      ])],
+    ], [baseMutation])
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+    await putLegacyPendingMutation({
+      ...baseMutation,
+      payload: createPayload(),
+    })
+    const sourcesBeforeRetry = await readLegacySources()
+    const targetsBeforeRetry = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 999),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_SOURCE_CHANGED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+    expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+  })
+
+  it('fingerprints circular structured-clone source content deterministically', async () => {
+    const circularAudit: Record<string, unknown> = { label: 'stable cycle' }
+    circularAudit.self = circularAudit
+    const snapshot = {
+      ...legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'circular fingerprint baseline'),
+      ]),
+      audit: circularAudit,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', snapshot],
+    ], [])
+
+    const first = await migrateLegacyOfflineData(userOne, deviceId, 1)
+    const targetsAfterFirst = await readTargetRows()
+    const repeated = await migrateLegacyOfflineData(userOne, deviceId, 999)
+
+    expect(repeated).toEqual(first)
+    expect(await readTargetRows()).toEqual(targetsAfterFirst)
   })
 
   it.each([
@@ -966,8 +1057,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 7, 3],
-    ['the current version but compacted mutation counts', 8, 2],
+    ['an older version and coincidentally equal mutation counts', 8, 3],
+    ['the current version but compacted mutation counts', 9, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
