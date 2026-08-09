@@ -230,6 +230,11 @@ snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确�
 `LEGACY_MIGRATION_UPGRADE_REQUIRED` 错误安全拒绝，保持 v2/v3 与原 meta 原样，并引导用户导出 legacy recovery data。
 首次正式发布只写 current version 的完成记录。
 
+current migration algorithm 还必须证明 snapshot 中每个 `local-bean-*` 与 `local-brew-*` 实体身份都有同类型、同 ID 的
+合法 legacy pending `create`；brew snapshot 中的本地 `bean_id` 引用也必须有对应 bean create 链。缺少该证据时，客户端
+无法判断本地 ID 是否已经上传过，禁止合成 upsert 以免在云端重复创建。迁移应提升 algorithm version，并稳定抛出
+`LEGACY_MIGRATION_RECOVERY_REQUIRED`，提示 `exportLegacyRecoveryData`，同时保持 v2、v3 与 migration meta 全部原样。
+
 ### 轻量备份
 
 默认备份为版本化轻量 JSON 文件，包含全部用户可见文字数据：豆子、冲煮记录、自定义模板、AI 推荐、

@@ -1264,6 +1264,13 @@ with stable code `LEGACY_MIGRATION_UPGRADE_REQUIRED`, leave all v2/v3 stores and
 `exportLegacyRecoveryData`. Never clear and rerun automatically: an intermediate build was not released, but the client still cannot safely
 distinguish migration-produced rows from later v3 edits. Test both compacted old counts and an old record whose counts happen to be equal.
 
+Reject ambiguous snapshot-local IDs instead of synthesizing cloud writes. Every `local-bean-*` or `local-brew-*` row ID found in a current-user
+snapshot must have a valid pending `create` for the same entity type and ID; every local bean reference in a brew snapshot must likewise have
+a valid bean create chain. If proof is missing, fail the transaction with stable code `LEGACY_MIGRATION_RECOVERY_REQUIRED`, point to
+`exportLegacyRecoveryData`, and leave v2, v3, and migration metadata byte-for-byte unchanged. Advance the current migration algorithm version
+so an intermediate completion cannot bypass this new safety gate. Tests cover orphaned local bean rows, orphaned local brew rows/references,
+and the normal proven-create path.
+
 - [ ] **Step 2: Verify failure**
 
 ```powershell
@@ -1280,7 +1287,10 @@ Expected: FAIL because the migrator does not exist.
    `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
    `LEGACY_MIGRATION_UPGRADE_REQUIRED` without modifying any store; do not auto-clear or rerun.
 2. Read legacy snapshots and pending rows for only `userId`; validate snapshot `updatedAt` for audit only.
-3. Build one stable ID map for every `local-bean-*` and `local-brew-*` ID.
+3. Parse and validate pending rows, then require every local entity ID and local bean reference found in snapshots to have a valid pending
+   `create` for the matching entity type and ID. Missing proof throws `LEGACY_MIGRATION_RECOVERY_REQUIRED` without writes; never synthesize an
+   upsert for an orphaned local snapshot row. After this safety gate passes, build one stable ID map for every legacy `local-bean-*` and
+   `local-brew-*` ID.
 4. Rewrite entity IDs, mutation entity IDs, payload IDs, and `brewLog.bean_id`.
 5. Starting from the complete snapshot row baseline, apply every valid pending mutation in canonical `createdAt` plus ID order: merge partial
    updates, reconstruct or merge creates, and apply delete tombstone/removal semantics. A complete create may rebuild a missing row; an update
