@@ -174,7 +174,57 @@ export function createSyncManager(deps: SyncManagerDependencies) {
 
       if (!(await canContinue(token, guard))) return
       publish(token, { kind: 'syncing', pendingCount: outbox.length })
-      const selected = selectSendableMutationBatch(outbox)
+      let selected = selectSendableMutationBatch(outbox)
+      let wire: SyncRpcOperation[] = []
+      if (selected.length > 0) {
+        const validWireByMutationId = new Map<string, SyncRpcOperation>()
+        const invalidSelections: Array<{
+          coveredMutationIds: string[]
+          error: SyncApiError
+        }> = []
+        for (const item of selected) {
+          try {
+            validWireByMutationId.set(
+              item.mutation.mutationId,
+              toSyncRpcOperation(item.mutation),
+            )
+          } catch (error) {
+            if (
+              error instanceof SyncApiError &&
+              error.code === 'INVALID_SYNC_OPERATION'
+            ) {
+              invalidSelections.push({
+                coveredMutationIds: item.coveredMutationIds,
+                error,
+              })
+              continue
+            }
+            throw error
+          }
+        }
+
+        for (const invalid of invalidSelections) {
+          if (!(await canContinue(token, guard))) return
+          await deps.storage.markMutationAttention(
+            deps.userId,
+            invalid.coveredMutationIds,
+            invalid.error.code,
+            invalid.error.message,
+          )
+          if (!(await canContinue(token, guard))) return
+          outbox = markIdsAttention(outbox, invalid.coveredMutationIds)
+        }
+        if (invalidSelections.length > 0) {
+          selected = selectSendableMutationBatch(outbox)
+        }
+        wire = selected.map((item) => {
+          const operation = validWireByMutationId.get(item.mutation.mutationId)
+          if (!operation) {
+            throw new Error('Reselected sync operation was not validated')
+          }
+          return operation
+        })
+      }
       let snapshot: SyncSnapshot
       if (selected.length > 0) {
         if (!(await canContinue(token, guard))) return
@@ -184,7 +234,6 @@ export function createSyncManager(deps: SyncManagerDependencies) {
         if (!(await canContinue(token, guard))) return
         await deps.storage.markMutationsSyncing(deps.userId, markedIds)
         if (!(await canContinue(token, guard))) return
-        const wire = selected.map((item) => toSyncRpcOperation(item.mutation))
         phase = 'apply'
         if (!(await canContinue(token, guard))) return
         const result = await deps.api.applyBatch(epoch, wire)

@@ -9,6 +9,7 @@ import {
   openSyncDatabase,
   syncStoreNames,
 } from './syncDatabase'
+import { validateSyncMutationForWire } from './syncApi'
 
 type EntityByStore = {
   beans: ServerBeanRow
@@ -1586,19 +1587,27 @@ function isSyncMutation(value: unknown): value is SyncMutation {
   if (value.entityType === 'userSettings' && value.operation === 'delete') {
     return false
   }
-  if (value.operation === 'delete') {
-    return isEmptyRecord(value.payload)
-  }
+  const locallyValid = value.operation === 'delete'
+    ? isEmptyRecord(value.payload)
+    : (() => {
+      switch (value.entityType) {
+        case 'bean':
+          return isBeanUpsertPayload(value.payload)
+        case 'brewLog':
+          return isBrewLogUpsertPayload(value.payload)
+        case 'brewTemplate':
+          return isBrewTemplateUpsertPayload(value.payload)
+        case 'userSettings':
+          return isUserSettingsUpsertPayload(value.payload)
+      }
+    })()
+  if (!locallyValid) return false
 
-  switch (value.entityType) {
-    case 'bean':
-      return isBeanUpsertPayload(value.payload)
-    case 'brewLog':
-      return isBrewLogUpsertPayload(value.payload)
-    case 'brewTemplate':
-      return isBrewTemplateUpsertPayload(value.payload)
-    case 'userSettings':
-      return isUserSettingsUpsertPayload(value.payload)
+  try {
+    validateSyncMutationForWire(value)
+    return true
+  } catch {
+    return false
   }
 }
 

@@ -35,6 +35,7 @@ import {
   releaseLegacyCreateChain,
   replaceServerSnapshot,
   saveLocalEntity,
+  softDeleteLocalEntity,
   StaleLocalSnapshotError,
   writeSyncMeta,
 } from './localRepository'
@@ -42,6 +43,24 @@ import {
 const userOne = '00000000-0000-4000-8000-000000000001'
 const userTwo = '00000000-0000-4000-8000-000000000002'
 const fixedNow = '2026-08-08T10:00:00.000Z'
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function testUuid(value: string, namespace: 'device' | 'entity' | 'mutation') {
+  if (uuidPattern.test(value)) return value
+  const source = `${value}|${namespace}`
+  const prefix = [...source]
+    .slice(0, 12)
+    .map((character) => character.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(24, '0')
+  let hash = 0x811c9dc5
+  for (const character of source) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  const hex = `${prefix}${(hash >>> 0).toString(16).padStart(8, '0')}`
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
 
 type BeanMutation = Extract<SyncMutation, { entityType: 'bean' }>
 type BeanUpsertMutation = Extract<BeanMutation, { operation: 'upsert' }>
@@ -76,7 +95,7 @@ describe('localRepository atomic entity writes', () => {
     await expect(
       saveLocalEntity('beans', userOne, bean, {
         ...mutation,
-        entityId: 'different-bean',
+        entityId: testUuid('different-bean', 'entity'),
       }),
     ).rejects.toThrow('entity id')
     await expect(
@@ -93,6 +112,44 @@ describe('localRepository atomic entity writes', () => {
     ).rejects.toThrow('payload')
 
     expect(await listLocalEntities('beans', userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('rejects non-UUID identifiers before saving an entity and Outbox row', async () => {
+    const validBean = createBean(userOne, 'invalid-id-fixture', 'invalid id')
+    const bean = { ...validBean, id: 'not-a-uuid' }
+    const mutation = {
+      ...createBeanUpsertMutation(validBean, 'invalid-mutation-fixture'),
+      mutationId: 'also-not-a-uuid',
+      entityId: bean.id,
+    }
+
+    await expect(
+      saveLocalEntity('beans', userOne, bean, mutation),
+    ).rejects.toThrow('Invalid sync mutation')
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('rejects a zero backup reminder before saving settings and Outbox', async () => {
+    const settings = createSettings(userOne, 0)
+    const mutation = {
+      ...createRawUpsertMutation(
+        userOne,
+        userOne,
+        'userSettings',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        omitFields(settings, ['user_id', 'created_at', 'updated_at']),
+      ),
+      deviceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    } as Extract<SyncMutation, { entityType: 'userSettings' }>
+
+    await expect(
+      saveLocalEntity('userSettings', userOne, settings, mutation),
+    ).rejects.toThrow('Invalid sync mutation')
+
+    expect(await listLocalEntities('userSettings', userOne)).toEqual([])
     expect(await listOutbox(userOne)).toEqual([])
   })
 
@@ -156,6 +213,27 @@ describe('localRepository atomic entity writes', () => {
     expect(await listLocalEntities('beans', userOne)).toEqual([tombstone])
     expect(await listOutbox(userOne)).toEqual([mutation])
     expect(mutation.payload).toEqual({})
+  })
+
+  it('rejects invalid wire identifiers before writing a tombstone', async () => {
+    const bean = createBean(
+      userOne,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      'active',
+    )
+    const mutation = createBeanDeleteMutation(
+      userOne,
+      bean.id,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      { deviceId: 'not-a-device-uuid' },
+    )
+
+    await expect(
+      softDeleteLocalEntity('beans', userOne, bean, mutation),
+    ).rejects.toThrow('Invalid sync mutation')
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([])
   })
 
   it('rolls back both tombstone and delete mutation on forced failure', async () => {
@@ -383,6 +461,20 @@ describe('localRepository Outbox isolation and state transitions', () => {
         payload: omitFields(mutation.payload, ['schema_version']),
       },
     })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+  })
+
+  it('classifies an owned Outbox row with non-UUID wire identifiers as corrupt', async () => {
+    const mutation = createBeanDeleteMutation(
+      userOne,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      { deviceId: 'not-a-uuid' },
+    )
+    await putOutbox(mutation)
 
     await expect(listOutbox(userOne)).rejects.toMatchObject({
       code: 'LOCAL_SYNC_DATA_CORRUPT',
@@ -746,12 +838,10 @@ describe('localRepository server snapshots and sync metadata', () => {
 
     await replaceServerSnapshot(userOne, snapshot)
 
-    expect(await listLocalEntities('beans', userOne)).toEqual([
-      serverNew,
-      protectedAttention,
-      protectedPending,
-      serverTombstone,
-    ])
+    expect(await listLocalEntities('beans', userOne)).toEqual(
+      [serverNew, protectedAttention, protectedPending, serverTombstone]
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    )
     expect(await listLocalEntities('beans', userTwo)).toEqual([otherUserBean])
     expect(await listLocalEntities('aiRecommendations', userOne)).toEqual(
       snapshot.aiRecommendations,
@@ -1288,25 +1378,30 @@ describe('localRepository legacy create confirmation', () => {
     Object.assign(brewCreate, attention)
     const brewDelete = {
       ...brewCreate,
-      mutationId: 'brew-delete',
+      mutationId: testUuid('brew-delete', 'mutation'),
       operation: 'delete' as const,
       payload: createDeletePayload(),
     } as SyncMutation
     const unrelated = createBeanDeleteMutation(userOne, 'other-bean', 'unrelated', attention)
     for (const item of [beanCreate, beanDelete, brewCreate, brewDelete, unrelated]) await putOutbox(item)
 
-    await releaseLegacyCreateChain(userOne, 'brew-delete', [
-      'bean-create', 'bean-delete', 'brew-create', 'brew-delete',
-    ], 9)
+    const related = [beanCreate, beanDelete, brewCreate, brewDelete]
+      .map((item) => item.mutationId)
+    await releaseLegacyCreateChain(
+      userOne,
+      brewDelete.mutationId,
+      related,
+      9,
+    )
 
     const rows = await listOutbox(userOne)
-    for (const id of ['bean-create', 'bean-delete', 'brew-create', 'brew-delete']) {
+    for (const id of related) {
       expect(rows.find((row) => row.mutationId === id)).toMatchObject({
         status: 'pending', baseSyncEpoch: 9,
         lastErrorCode: null, lastErrorMessage: null,
       })
     }
-    expect(rows.find((row) => row.mutationId === 'unrelated')).toMatchObject(attention)
+    expect(rows.find((row) => row.mutationId === unrelated.mutationId)).toMatchObject(attention)
   })
 
   it('rejects concurrent chain or status changes without modifying any row', async () => {
@@ -1326,22 +1421,22 @@ describe('localRepository legacy create confirmation', () => {
 
     await expect(releaseLegacyCreateChain(
       userOne,
-      'bean-create',
-      ['bean-create', 'bean-delete'],
+      first.mutationId,
+      [first.mutationId, changed.mutationId],
       4,
     )).rejects.toMatchObject({ code: 'LEGACY_CREATE_CHAIN_CHANGED' })
     expect(await listOutbox(userOne)).toEqual([first, changed])
 
     await markMutationAttention(
       userOne,
-      ['bean-delete'],
+      [changed.mutationId],
       'LEGACY_CREATE_REQUIRES_CONFIRMATION',
       'confirm',
     )
     await expect(releaseLegacyCreateChain(
       userOne,
-      'bean-create',
-      ['bean-create'],
+      first.mutationId,
+      [first.mutationId],
       4,
     )).rejects.toMatchObject({ code: 'LEGACY_CREATE_CHAIN_CHANGED' })
     expect((await listOutbox(userOne)).every((row) => row.baseSyncEpoch === 1)).toBe(true)
@@ -1355,7 +1450,7 @@ function createBean(
   updatedAt = '2026-08-08T09:00:00.000Z',
 ): ServerBeanRow {
   return {
-    id,
+    id: testUuid(id, 'entity'),
     user_id: userId,
     name,
     roaster: null,
@@ -1416,8 +1511,8 @@ function createBeanUpsertMutation(
   overrides: Partial<BeanUpsertMutation> = {},
 ): BeanUpsertMutation {
   return {
-    mutationId,
-    deviceId: 'device-1',
+    mutationId: testUuid(mutationId, 'mutation'),
+    deviceId: testUuid('device-1', 'device'),
     entityId: bean.id,
     entityType: 'bean',
     operation: 'upsert',
@@ -1440,9 +1535,9 @@ function createBeanDeleteMutation(
   overrides: Partial<BeanDeleteMutation> = {},
 ): BeanDeleteMutation {
   return {
-    mutationId,
-    deviceId: 'device-1',
-    entityId,
+    mutationId: testUuid(mutationId, 'mutation'),
+    deviceId: testUuid('device-1', 'device'),
+    entityId: testUuid(entityId, 'entity'),
     entityType: 'bean',
     operation: 'delete',
     payload: createDeletePayload(),
@@ -1518,9 +1613,9 @@ function createRawUpsertMutation(
   payload: Record<string, unknown>,
 ): SyncMutation {
   return {
-    mutationId,
-    deviceId: 'device-1',
-    entityId,
+    mutationId: testUuid(mutationId, 'mutation'),
+    deviceId: testUuid('device-1', 'device'),
+    entityId: testUuid(entityId, 'entity'),
     entityType,
     operation: 'upsert',
     payload,
@@ -1547,7 +1642,7 @@ function omitFields<Row extends object>(
 
 function createBrewLog(userId: string, id: string): BrewLog {
   return {
-    id,
+    id: testUuid(id, 'entity'),
     user_id: userId,
     bean_id: null,
     brewed_at: fixedNow,
@@ -1584,7 +1679,7 @@ function createBrewTemplate(
   id: string,
 ): UserBrewTemplateRow {
   return {
-    id,
+    id: testUuid(id, 'entity'),
     user_id: userId,
     name: id,
     category: 'daily-pourover',
@@ -1633,7 +1728,7 @@ function createRecommendation(
   id: string,
 ): SavedRecommendationRow {
   return {
-    id,
+    id: testUuid(id, 'entity'),
     user_id: userId,
     bean_id: null,
     input_context: {},

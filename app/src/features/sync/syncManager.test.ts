@@ -12,6 +12,9 @@ const ids = {
   second: '55555555-5555-4555-8555-555555555555',
   brew: '66666666-6666-4666-8666-666666666666',
   brewMutation: '77777777-7777-4777-8777-777777777777',
+  invalidBean: '88888888-8888-4888-8888-888888888888',
+  validBean: '99999999-9999-4999-8999-999999999999',
+  validMutation: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 }
 const firstTime = '2026-08-09T10:00:00.000Z'
 const secondTime = '2026-08-09T10:01:00.000Z'
@@ -24,6 +27,18 @@ function payload(name = 'bean') {
     purchase_date: null, source_url: null, image_url: null,
     bean_type: 'single_origin' as const, blend_components: [], blend_notes: null,
     notes: null, schema_version: 1,
+  }
+}
+
+function brewPayload(beanId: string) {
+  return {
+    bean_id: beanId, brewed_at: firstTime, method: null, dripper: null,
+    filter_paper: null, grinder: null, grind_setting: null,
+    coffee_grams: null, water_grams: null, ratio: null,
+    water_temperature_c: null, total_time_seconds: null, pour_steps: [],
+    rating: null, acidity: null, sweetness: null, bitterness: null,
+    astringency: null, body: null, aftertaste: null, flavor_tags: [],
+    is_pinned_recipe: false, notes: null, schema_version: 1,
   }
 }
 
@@ -178,6 +193,71 @@ describe('SyncManager cycles', () => {
     expect(h.api.getSnapshot).toHaveBeenCalledOnce()
     expect(h.storage.replaceServerSnapshot).not.toHaveBeenCalled()
     expect(manager.getState()).toEqual({ kind: 'synced', lastSyncedAt: secondTime })
+  })
+
+  it('isolates an invalid selection, reselects dependencies, and still sends unrelated valid work', async () => {
+    const invalid = mutation({
+      mutationId: ids.second,
+      entityId: ids.invalidBean,
+      payload: { ...payload('invalid'), schema_version: 2 },
+    } as Partial<SyncMutation>)
+    const valid = mutation({
+      mutationId: ids.validMutation,
+      entityId: ids.validBean,
+      payload: payload('valid'),
+    })
+    const dependent = mutation({
+      mutationId: ids.brewMutation,
+      entityId: ids.brew,
+      entityType: 'brewLog',
+      payload: brewPayload(ids.invalidBean),
+    } as Partial<SyncMutation>)
+    const h = harness([invalid, valid, dependent])
+    const manager = createSyncManager(h.deps)
+
+    await manager.run()
+
+    expect(h.storage.markMutationAttention).toHaveBeenCalledWith(
+      ids.user,
+      [ids.second],
+      'INVALID_SYNC_OPERATION',
+      expect.any(String),
+    )
+    expect(h.storage.markMutationsSyncing).toHaveBeenCalledTimes(1)
+    expect(h.storage.markMutationsSyncing).toHaveBeenCalledWith(
+      ids.user,
+      [ids.validMutation],
+    )
+    expect(h.api.applyBatch).toHaveBeenCalledWith(1, [{
+      mutationId: ids.validMutation,
+      deviceId: ids.device,
+      entityType: 'bean',
+      entityId: ids.validBean,
+      operation: 'upsert',
+      payload: payload('valid'),
+    }])
+    expect(h.storage.acknowledgeMutationsAndReplaceSnapshot).toHaveBeenCalledWith(
+      ids.user,
+      [ids.validMutation],
+      snapshot(),
+    )
+    expect(h.getOutbox()).toEqual([
+      expect.objectContaining({
+        mutationId: ids.second,
+        status: 'needs_attention',
+        lastErrorCode: 'INVALID_SYNC_OPERATION',
+      }),
+      expect.objectContaining({
+        mutationId: ids.brewMutation,
+        status: 'pending',
+      }),
+    ])
+
+    await manager.run()
+
+    expect(h.storage.markMutationAttention).toHaveBeenCalledTimes(1)
+    expect(h.storage.markMutationsSyncing).toHaveBeenCalledTimes(1)
+    expect(h.api.applyBatch).toHaveBeenCalledTimes(1)
   })
 
   it('pulls even when the Outbox is empty', async () => {

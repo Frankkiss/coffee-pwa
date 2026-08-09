@@ -85,6 +85,13 @@ export function createSyncApi(supabase: SupabaseClient) {
 }
 
 export function toSyncRpcOperation(mutation: SyncMutation): SyncRpcOperation {
+  return validateSyncMutationForWire(mutation)
+}
+
+export function validateSyncMutationForWire(mutation: unknown): SyncRpcOperation {
+  if (!isPlainRecord(mutation)) {
+    throw invalidOperation('Sync operation must be a plain object')
+  }
   if (!isUuid(mutation.mutationId) || !isUuid(mutation.deviceId) || !isUuid(mutation.entityId)) {
     throw invalidOperation('Invalid operation identifier')
   }
