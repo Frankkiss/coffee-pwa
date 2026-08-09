@@ -19,6 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
+export const legacyMigrationVersion = 2 as const
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number
@@ -30,6 +31,7 @@ export type LegacyMigrationCounts = {
 
 export type LegacyMigrationResult = {
   status: 'completed'
+  migrationVersion: typeof legacyMigrationVersion
   userId: string
   deviceId: string
   syncEpoch: number
@@ -96,11 +98,19 @@ export type LegacyMigrationTestOptions = {
 }
 
 export class LegacyMigrationError extends Error {
-  readonly code = 'LEGACY_MIGRATION_FAILED'
+  readonly code:
+    | 'LEGACY_MIGRATION_FAILED'
+    | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    code:
+      | 'LEGACY_MIGRATION_FAILED'
+      | 'LEGACY_MIGRATION_UPGRADE_REQUIRED' = 'LEGACY_MIGRATION_FAILED',
+  ) {
     super(message)
     this.name = 'LegacyMigrationError'
+    this.code = code
   }
 }
 
@@ -440,6 +450,7 @@ function prepareMigration(
   )
   const result: LegacyMigrationResult = {
     status: 'completed',
+    migrationVersion: legacyMigrationVersion,
     userId,
     deviceId,
     syncEpoch,
@@ -918,6 +929,9 @@ function readCompletedMigration(
     throw new LegacyMigrationError('Current-user migration metadata is corrupt')
   }
   const value = raw.value
+  if (value.migrationVersion !== legacyMigrationVersion) {
+    throwLegacyMigrationUpgradeRequired()
+  }
   if (
     value.status !== 'completed' ||
     value.userId !== userId ||
@@ -950,7 +964,17 @@ function readCompletedMigration(
       throw new LegacyMigrationError('Completed migration counts are invalid')
     }
   }
+  if (value.counts.sourceMutations !== value.counts.migratedMutations) {
+    throwLegacyMigrationUpgradeRequired()
+  }
   return value as LegacyMigrationResult
+}
+
+function throwLegacyMigrationUpgradeRequired(): never {
+  throw new LegacyMigrationError(
+    'Legacy migration upgrade required; preserve local data and call exportLegacyRecoveryData(userId)',
+    'LEGACY_MIGRATION_UPGRADE_REQUIRED',
+  )
 }
 
 function targetRowPointsToUser(raw: unknown, userId: string) {

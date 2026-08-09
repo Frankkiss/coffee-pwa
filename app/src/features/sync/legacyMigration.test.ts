@@ -64,6 +64,7 @@ describe('legacy offline migration', () => {
     const result = await migrateLegacyOfflineData(userOne, deviceId, 7)
 
     expect(result.status).toBe('completed')
+    expect(result).toEqual(expect.objectContaining({ migrationVersion: 2 }))
     expect(result.sourcePreserved).toBe(true)
     expect(result.idMap[localBeanId]).toMatch(uuidPattern)
     expect(result.idMap[localBrewId]).toMatch(uuidPattern)
@@ -450,6 +451,76 @@ describe('legacy offline migration', () => {
     expect(await listOutbox(userOne)).toEqual([
       expect.objectContaining({ operation: 'upsert' }),
     ])
+  })
+
+  it.each([
+    ['a missing version and compacted mutation counts', undefined, 2],
+    ['an older version and coincidentally equal mutation counts', 1, 3],
+    ['the current version but compacted mutation counts', 2, 2],
+  ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
+    const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
+    const pending = [
+      legacyMutation(
+        'old-update-a',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { notes: 'first old edit' },
+        '2026-08-08T10:00:01.000Z',
+      ),
+      legacyMutation(
+        'old-update-b',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { name: 'second old edit' },
+        '2026-08-08T10:00:02.000Z',
+      ),
+      legacyMutation(
+        'old-delete-c',
+        userOne,
+        'bean',
+        'delete',
+        cloudBeanId,
+        undefined,
+        '2026-08-08T10:00:03.000Z',
+      ),
+    ]
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean])],
+    ], pending)
+    const currentResult = await migrateLegacyOfflineData(userOne, deviceId, 1)
+    const oldResult = structuredClone(currentResult) as unknown as Record<string, unknown>
+    if (migrationVersion === undefined) {
+      delete oldResult.migrationVersion
+    } else {
+      oldResult.migrationVersion = migrationVersion
+    }
+    const oldCounts = oldResult.counts as Record<string, unknown>
+    oldCounts.migratedMutations = migratedMutations
+    const metaKey = entityKey(userOne, 'legacyMigration')
+    await putEnvelope('migrationMeta', {
+      key: metaKey,
+      userId: userOne,
+      value: oldResult,
+    })
+    const sourcesBeforeRetry = await readLegacySources()
+    const targetsBeforeRetry = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 999),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_UPGRADE_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+    expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+    const recovery = await exportLegacyRecoveryData(userOne)
+    expect(recovery.pendingMutations).toEqual(expect.arrayContaining(pending))
+    expect(recovery.pendingMutations).toHaveLength(3)
   })
 
   it('retries UUID collisions so every legacy local id gets a distinct permanent id', async () => {
