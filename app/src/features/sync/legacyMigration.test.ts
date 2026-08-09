@@ -65,7 +65,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 5,
+      migrationVersion: 6,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -550,6 +550,91 @@ describe('legacy offline migration', () => {
   })
 
   it.each([
+    [
+      'bean snapshot row',
+      () => {
+        const bean = legacyBean(userOne, cloudBeanId, 'missing snapshot version') as Record<string, unknown>
+        delete bean.schema_version
+        return {
+          snapshots: [['beans', legacySnapshot(userOne, [bean])]] as LegacySnapshotEntry[],
+          pending: [],
+        }
+      },
+    ],
+    [
+      'brew snapshot row',
+      () => {
+        const brew = legacyBrew(
+          userOne,
+          '00000000-0000-4000-8000-0000000000c7',
+          cloudBeanId,
+        ) as Record<string, unknown>
+        delete brew.schema_version
+        return {
+          snapshots: [['brewLogs', legacySnapshot(userOne, [brew])]] as LegacySnapshotEntry[],
+          pending: [],
+        }
+      },
+    ],
+    [
+      'bean non-delete pending payload',
+      () => {
+        const mutation = legacyMutation(
+          'missing-pending-version',
+          userOne,
+          'bean',
+          'update',
+          cloudBeanId,
+          { notes: 'must not be guessed' },
+        )
+        delete (mutation.payload as Record<string, unknown>).schema_version
+        return {
+          snapshots: [['beans', legacySnapshot(userOne, [
+            legacyBean(userOne, cloudBeanId, 'pending baseline'),
+          ])]] as LegacySnapshotEntry[],
+          pending: [mutation],
+        }
+      },
+    ],
+    [
+      'brew non-delete pending payload',
+      () => {
+        const mutation = legacyMutation(
+          'missing-brew-pending-version',
+          userOne,
+          'brewLog',
+          'create',
+          'local-brew-missing-schema',
+          brewCreatePayload(userOne, cloudBeanId),
+        )
+        delete (mutation.payload as Record<string, unknown>).schema_version
+        return {
+          snapshots: [] as LegacySnapshotEntry[],
+          pending: [mutation],
+        }
+      },
+    ],
+  ])('requires recovery when schema_version is missing from a %s', async (_case, buildInput) => {
+    const input = buildInput()
+    await seedVersionTwoDatabase(input.snapshots, input.pending)
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    expect(await exportLegacyRecoveryData(userOne)).toEqual(expect.objectContaining({
+      userId: userOne,
+    }))
+  })
+
+  it.each([
     ['append', 'appended-fingerprint-mutation'],
     ['rewrite', 'fingerprint-base-mutation'],
     ['delete', 'fingerprint-base-mutation'],
@@ -610,9 +695,77 @@ describe('legacy offline migration', () => {
   })
 
   it.each([
+    [
+      'cross-user inner row',
+      legacyBean(
+        userTwo,
+        '00000000-0000-4000-8000-0000000000c6',
+        'cross-user source change secret',
+      ),
+    ],
+    ['malformed inner row', { malformed: true, secret: 'malformed source change secret' }],
+  ])('detects a completed migration source change from an appended %s', async (_case, appendedRow) => {
+    const baseline = legacyBean(userOne, cloudBeanId, 'inner source baseline')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [baseline])],
+    ], [])
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+    await putLegacySnapshot('beans', legacySnapshot(userOne, [baseline, appendedRow]))
+    const sourcesBeforeRetry = await readLegacySources()
+    const targetsBeforeRetry = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 999),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_SOURCE_CHANGED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+    expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+    expect(JSON.stringify(await exportLegacyRecoveryData(userOne))).not.toContain(
+      (appendedRow as Record<string, unknown>).secret,
+    )
+  })
+
+  it('fingerprints a current-user pending record before recovery ownership filtering', async () => {
+    const baseline = legacyBean(userOne, cloudBeanId, 'pending envelope baseline')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [baseline])],
+    ], [])
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+    await putLegacyPendingMutation(legacyMutation(
+      'cross-user-inner-pending',
+      userOne,
+      'bean',
+      'update',
+      cloudBeanId,
+      {
+        user_id: userTwo,
+        notes: 'cross-user pending source change secret',
+      },
+    ))
+    const sourcesBeforeRetry = await readLegacySources()
+    const targetsBeforeRetry = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 999),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_SOURCE_CHANGED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+    expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+    expect(JSON.stringify(await exportLegacyRecoveryData(userOne))).not.toContain(
+      'cross-user pending source change secret',
+    )
+  })
+
+  it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 4, 3],
-    ['the current version but compacted mutation counts', 5, 2],
+    ['an older version and coincidentally equal mutation counts', 5, 3],
+    ['the current version but compacted mutation counts', 6, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
@@ -1129,6 +1282,7 @@ function legacyBrew(userId: string, id: string, beanId: string | null) {
     created_at: fixedTime,
     updated_at: fixedTime,
     deleted_at: null,
+    schema_version: 1,
   }
 }
 
@@ -1177,13 +1331,20 @@ function legacyMutation(
   payload?: unknown,
   createdAt = fixedTime,
 ) {
+  const versionedPayload =
+    action !== 'delete' &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload)
+      ? { schema_version: 1, ...payload as Record<string, unknown> }
+      : payload
   return {
     id,
     userId,
     entity,
     action,
     entityId,
-    ...(payload === undefined ? {} : { payload }),
+    ...(versionedPayload === undefined ? {} : { payload: versionedPayload }),
     createdAt,
     attempts: 0,
     lastError: null,
@@ -1232,6 +1393,20 @@ async function putEnvelope(storeName: string, envelope: unknown) {
 
 async function putLegacyPendingMutation(mutation: unknown) {
   await mutateLegacyPendingStore((store) => store.put(mutation))
+}
+
+async function putLegacySnapshot(key: 'beans' | 'brewLogs', value: unknown) {
+  const database = await openSyncDatabase()
+  try {
+    await transactionComplete(
+      database.transaction('snapshots', 'readwrite'),
+      (transaction) => {
+        transaction.objectStore('snapshots').put(value, key)
+      },
+    )
+  } finally {
+    database.close()
+  }
 }
 
 async function deleteLegacyPendingMutation(mutationId: string) {

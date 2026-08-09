@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 5 as const
+export const legacyMigrationVersion = 6 as const
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number
@@ -880,13 +880,11 @@ function createLegacySourceFingerprint(
   const filterSnapshot = (raw: unknown) => {
     if (!isRecord(raw) || raw.userId !== userId) return null
     const rows = Array.isArray(raw.rows)
-      ? raw.rows
-          .filter((row) => isRecord(row) && row.user_id === userId)
-          .sort((left, right) => {
-            const leftValue = stableSerialize(left)
-            const rightValue = stableSerialize(right)
-            return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
-          })
+      ? [...raw.rows].sort((left, right) => {
+          const leftValue = stableSerialize(left)
+          const rightValue = stableSerialize(right)
+          return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
+        })
       : raw.rows
     return {
       ...raw,
@@ -897,7 +895,7 @@ function createLegacySourceFingerprint(
     rawPending,
     'legacy mutation rows for fingerprint',
   )
-    .filter((row) => isRecoveryMutationOwnedBy(row, userId))
+    .filter((row) => isRecord(row) && row.userId === userId)
     .map(stableSerialize)
     .sort()
   const manifest = stableSerialize({
@@ -1295,7 +1293,7 @@ function assertOwnedRow(
 }
 
 function assertLegacySchemaVersion(value: unknown, label: string) {
-  if (value !== undefined && value !== 1) {
+  if (value !== 1) {
     throwLegacyMigrationRecoveryRequired(`${label} must equal 1`)
   }
 }
