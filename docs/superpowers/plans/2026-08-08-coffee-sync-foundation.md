@@ -1253,6 +1253,11 @@ expect(migrationMeta.sourcePreserved).toBe(true)
 
 Add a forced validation failure and assert no v3 entity or Outbox rows remain while both legacy rows remain.
 
+Treat legacy snapshots as local materialized-cache baselines, never as acknowledgement evidence. Add realistic legacy ordering tests where
+the queue write happens first and the cache write follows: create then cached row, delete then missing cached row, and update then updated
+cached row. All three pending writes must still be represented in the migrated Outbox. Also cover multiple pending writes whose conservative
+compaction reports every source mutation through `coveredMutationIds`.
+
 - [ ] **Step 2: Verify failure**
 
 ```powershell
@@ -1266,11 +1271,16 @@ Expected: FAIL because the migrator does not exist.
 `migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
 
 1. Return the stored successful result if `migrationMeta` already says completed.
-2. Read legacy snapshots and pending rows for only `userId`.
+2. Read legacy snapshots and pending rows for only `userId`; validate snapshot `updatedAt` for audit only.
 3. Build one stable ID map for every `local-bean-*` and `local-brew-*` ID.
 4. Rewrite entity IDs, mutation entity IDs, payload IDs, and `brewLog.bean_id`.
-5. Convert `create` and `update` to `upsert`; convert `delete` to `delete`.
-6. Compact converted mutations.
+5. Starting from the complete snapshot row baseline, apply every valid pending mutation in canonical `createdAt` plus ID order: merge partial
+   updates, reconstruct or merge creates, and apply delete tombstone/removal semantics. A complete create may rebuild a missing row; an update
+   without a complete baseline must abort the whole migration, while a delete without a row remains a valid delete intent.
+6. Convert every legacy `create` and `update` to `upsert`, and every `delete` to `delete`, then compact them using the Task 7 conservative rules.
+   Upserts carry the final complete migrated entity payload. No pending row may be discarded because the snapshot is newer; snapshot
+   `updatedAt` is not a cloud receipt. Every source pending ID must remain represented directly or in `coveredMutationIds`, and only a later
+   successful server receipt may acknowledge it. Preserve the required `upsert` then `delete` pair for a local create followed by delete.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
 9. Return `{ status: 'completed', idMap, sourcePreserved: true }`.
