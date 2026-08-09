@@ -252,6 +252,13 @@ Realtime 回调和异步结果不得再写 storage 或发布状态。composition
 `applyBatch` 在调用服务器前必须验证请求中每个 `mutationId` 唯一；重复 ID 使用稳定本地验证错误拒绝，RPC 不得发出。
 响应回执必须按原始请求长度与 ID 一一对应，不能用 `Map` 或集合去重掩盖重复请求、重复回执、缺失或额外回执。
 
+本地 Outbox 持久化与读取必须复用与 wire mapper 相同的运行时边界：UUID、实体/操作判别、完整 mutable payload allowlist、
+`schema_version`、有限数值、时间与领域约束任一不满足时，新的实体加 Outbox 事务必须在写入前拒绝；已有 current-user owned row
+必须分类为 `LOCAL_SYNC_DATA_CORRUPT`。`needs_attention` 等纯本地状态字段不影响 wire payload 校验。`SyncManager` 必须在任何
+`markMutationsSyncing` 前逐项完成 wire 映射；单项 `INVALID_SYNC_OPERATION` 只隔离其全部 `coveredMutationIds`，随后从更新后的内存
+Outbox 重新选择批次，使依赖该非法项的 mutation 不会误发，同时继续上传其余合法、无依赖冲突的项。未知 mapper 异常保持
+mutation 为 pending 并发布失败；marked、sent 与 acknowledged IDs 只能来自成功映射且实际发送的 selection。
+
 跨标签锁回调必须接收协作式 `SyncLockGuard`，至少提供 `signal` 与异步 `assertHeld()`。Web Locks guard 在回调期间始终有效；
 IndexedDB lease guard 的续租返回失主或抛错时必须 abort signal，并捕获续租拒绝。`assertHeld()` 每次在原子只读事务内确认 owner
 仍是当前持有者且 lease 尚未过期。`SyncManager` 在锁内每个 await 之后，以及每次后续 storage 写、API 下一步和状态发布之前，

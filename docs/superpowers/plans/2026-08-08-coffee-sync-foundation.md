@@ -1530,9 +1530,18 @@ Expose `start`, `stop`, `run`, `retryMutation`, `discardMutation`, `subscribe`, 
 a 60-second foreground poll, and the injected wake-up subscription. Browser/Supabase composition code added later binds these adapters to DOM events
 and `subscribeToSyncWakeups`; the manager itself must not use globals or retain hidden subscriptions. `start`/`stop` are idempotent, every start owns a
 new generation, and every cleanup is executed at most once. `run` must pull even when Outbox is empty, never acknowledge before RPC
-confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before upload it calls
-`markMutationsSyncing(userId, ids)`, maps each mutation with `toSyncRpcOperation`, and on retryable failure calls
-`recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass `userId` to storage.
+confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before any
+`markMutationsSyncing`, map each selected item with the same exported pure wire validator used by local persistence. An
+`INVALID_SYNC_OPERATION` marks only that item's complete `coveredMutationIds` as attention; update the in-memory Outbox and select again so
+dependent items are excluded while unrelated valid items still upload. An unexpected mapper error leaves every affected row pending and
+publishes failure. Only successfully mapped and actually sent selections contribute IDs to `markMutationsSyncing`, retry handling, or
+acknowledgement. On retryable apply failure call `recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass
+`userId` to storage.
+
+Local persistence must reuse that pure wire validator at both new entity-plus-Outbox write entry points and current-user Outbox row
+classification. Reject invalid UUIDs, schema/domain violations such as `backup_reminder_days: 0`, unknown fields, non-JSON values, and payloads
+that cannot produce a valid wire operation before opening the write transaction. Existing owned rows that cannot produce a wire operation are
+`LOCAL_SYNC_DATA_CORRUPT`; local queue status and error metadata remain valid local-only fields and are not copied to the wire payload.
 
 The injected lock callback accepts a `SyncLockGuard`. Inside the lock, after every awaited storage/API operation and before every next write,
 RPC step, or state publication, `SyncManager` checks both its generation and `await guard.assertHeld()`. A lost fallback lease aborts the cycle;
