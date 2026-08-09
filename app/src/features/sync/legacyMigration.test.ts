@@ -220,6 +220,36 @@ describe('legacy offline migration', () => {
     ])
   })
 
+  it('prefers a pending update when snapshot and mutation timestamps are equal', async () => {
+    const bean = legacyBean(userOne, localBeanId, 'snapshot at same instant')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean], fixedTime)],
+    ], [
+      legacyMutation(
+        'equal-time-update',
+        userOne,
+        'bean',
+        'update',
+        localBeanId,
+        { name: 'equal-time pending edit survives' },
+        fixedTime,
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({ name: 'equal-time pending edit survives' }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          name: 'equal-time pending edit survives',
+        }),
+      }),
+    ])
+  })
+
   it('retries UUID collisions so every legacy local id gets a distinct permanent id', async () => {
     const firstId = '00000000-0000-4000-8000-0000000000a1'
     const secondId = '00000000-0000-4000-8000-0000000000a2'

@@ -521,7 +521,7 @@ function buildMigratedEntities(
       const capturedAt = snapshotCapturedAtByEntity.get(key)
       if (
         capturedAt === undefined ||
-        capturedAt >= mutation.createdAtInstant
+        capturedAt > mutation.createdAtInstant
       ) {
         continue
       }
