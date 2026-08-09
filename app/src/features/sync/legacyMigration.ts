@@ -54,6 +54,7 @@ type LegacySnapshot = {
   key: 'beans' | 'brewLogs'
   userId: string
   updatedAt: string
+  updatedAtInstant: bigint
   rows: unknown[]
 }
 
@@ -65,6 +66,7 @@ type ParsedLegacyMutation = {
   entityId: string
   payload: Record<string, unknown> | undefined
   createdAt: string
+  createdAtInstant: bigint
   attempts: number
   lastError: string | null
 }
@@ -157,13 +159,17 @@ export async function exportLegacyRecoveryData(
     return {
       exportedAt: new Date().toISOString(),
       userId,
-      snapshots: snapshots.flatMap((value, index) =>
-        isRecord(value) && value.userId === userId
-          ? [{ key: snapshotKeys[index], value }]
-          : [],
-      ),
+      snapshots: snapshots.flatMap((value, index) => {
+        if (!isRecord(value) || value.userId !== userId) return []
+        const rows = Array.isArray(value.rows)
+          ? value.rows.filter(
+              (row) => isRecord(row) && row.user_id === userId,
+            )
+          : []
+        return [{ key: snapshotKeys[index], value: { ...value, rows } }]
+      }),
       pendingMutations: pendingMutations.filter(
-        (value) => isRecord(value) && value.userId === userId,
+        (value) => isRecoveryMutationOwnedBy(value, userId),
       ),
     }
   } finally {
@@ -363,11 +369,13 @@ function prepareMigration(
   const idMap = createPermanentIdMap(localIds)
   const pending = pendingRows
     .map((row) => parseLegacyMutation(row, userId, idMap))
-    .sort(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) ||
-        left.id.localeCompare(right.id),
-    )
+    .sort((left, right) => {
+      const instantOrder = compareInstants(
+        left.createdAtInstant,
+        right.createdAtInstant,
+      )
+      return instantOrder || left.id.localeCompare(right.id)
+    })
 
   const entities = buildMigratedEntities(snapshots, pending, userId, idMap)
   assertMigratedReferences(entities, idMap)
@@ -489,6 +497,7 @@ function buildMigratedEntities(
   idMap: Record<string, string>,
 ) {
   const entities = new Map<string, MigratedEntity>()
+  const snapshotCapturedAtByEntity = new Map<string, bigint>()
   for (const snapshot of snapshots) {
     for (const rawRow of snapshot.rows) {
       const entity =
@@ -500,6 +509,7 @@ function buildMigratedEntities(
         throw new LegacyMigrationError(`Duplicate legacy ${entity.type} id`)
       }
       entities.set(key, entity)
+      snapshotCapturedAtByEntity.set(key, snapshot.updatedAtInstant)
     }
   }
 
@@ -507,7 +517,17 @@ function buildMigratedEntities(
     if (mutation.action === 'delete') continue
     const key = entityLookupKey(mutation.entity, mutation.entityId)
     const current = entities.get(key)
-    if (current?.source === 'snapshot') continue
+    if (current?.source === 'snapshot') {
+      const capturedAt = snapshotCapturedAtByEntity.get(key)
+      if (
+        capturedAt === undefined ||
+        capturedAt >= mutation.createdAtInstant
+      ) {
+        continue
+      }
+      entities.set(key, mergePendingEntity(current, mutation, userId, idMap))
+      continue
+    }
 
     if (mutation.action === 'create') {
       entities.set(
@@ -780,6 +800,10 @@ function parseLegacyMutation(
     entityId,
     payload: parsedPayload,
     createdAt: canonicalTime(record.createdAt, 'legacy mutation createdAt'),
+    createdAtInstant: canonicalInstantNanoseconds(
+      record.createdAt,
+      'legacy mutation createdAt',
+    ),
     attempts,
     lastError,
   }
@@ -796,8 +820,21 @@ function readOwnedSnapshot(
     key,
     userId,
     updatedAt: canonicalTime(raw.updatedAt, `legacy ${key} snapshot updatedAt`),
+    updatedAtInstant: canonicalInstantNanoseconds(
+      raw.updatedAt,
+      `legacy ${key} snapshot updatedAt`,
+    ),
     rows,
   }
+}
+
+function isRecoveryMutationOwnedBy(value: unknown, userId: string) {
+  if (!isRecord(value) || value.userId !== userId) return false
+  return !(
+    isRecord(value.payload) &&
+    Object.hasOwn(value.payload, 'user_id') &&
+    value.payload.user_id !== userId
+  )
 }
 
 function collectLocalIds(
@@ -1151,6 +1188,27 @@ function canonicalTime(value: unknown, label: string) {
   const epoch = Date.parse(time)
   if (!Number.isFinite(epoch)) throw new LegacyMigrationError(`Invalid ${label}`)
   return new Date(epoch).toISOString()
+}
+
+function canonicalInstantNanoseconds(value: unknown, label: string) {
+  const time = assertString(value, label)
+  canonicalTime(time, label)
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(
+    time,
+  )
+  if (match === null) throw new LegacyMigrationError(`Invalid ${label}`)
+  const wholeSecondMilliseconds = Date.parse(`${match[1]}${match[3]}`)
+  if (!Number.isFinite(wholeSecondMilliseconds)) {
+    throw new LegacyMigrationError(`Invalid ${label}`)
+  }
+  const fractionalNanoseconds = BigInt(
+    (match[2] ?? '').padEnd(9, '0') || '0',
+  )
+  return BigInt(wholeSecondMilliseconds) * 1_000_000n + fractionalNanoseconds
+}
+
+function compareInstants(left: bigint, right: bigint) {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function assertTimeOrder(createdAt: string, updatedAt: string, label: string) {

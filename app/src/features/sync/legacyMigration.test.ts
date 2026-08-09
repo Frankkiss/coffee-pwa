@@ -49,8 +49,14 @@ describe('legacy offline migration', () => {
       legacyMutation('foreign-secret', userTwo, 'bean', 'delete', '00000000-0000-4000-8000-000000000099'),
     ]
     await seedVersionTwoDatabase([
-      ['beans', legacySnapshot(userOne, [bean])],
-      ['brewLogs', legacySnapshot(userOne, [brew])],
+      [
+        'beans',
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:02.000Z'),
+      ],
+      [
+        'brewLogs',
+        legacySnapshot(userOne, [brew], '2026-08-08T10:00:02.000Z'),
+      ],
     ], pending)
 
     const beforeSources = await readLegacySources()
@@ -147,6 +153,69 @@ describe('legacy offline migration', () => {
       expect.objectContaining({
         id: result.idMap[pendingBrewId],
         bean_id: result.idMap[pendingBeanId],
+      }),
+    ])
+  })
+
+  it('merges a pending update captured after an older snapshot', async () => {
+    const bean = legacyBean(userOne, localBeanId, 'snapshot before update')
+    await seedVersionTwoDatabase([
+      [
+        'beans',
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000001Z'),
+      ],
+    ], [
+      legacyMutation(
+        'newer-update',
+        userOne,
+        'bean',
+        'update',
+        localBeanId,
+        { name: 'pending edit survives' },
+        '2026-08-08T10:00:00.000002Z',
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({ name: 'pending edit survives' }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({
+        operation: 'upsert',
+        payload: expect.objectContaining({ name: 'pending edit survives' }),
+      }),
+    ])
+  })
+
+  it('does not replay an older pending update over a newer snapshot', async () => {
+    const bean = legacyBean(userOne, localBeanId, 'snapshot already updated')
+    await seedVersionTwoDatabase([
+      [
+        'beans',
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000002Z'),
+      ],
+    ], [
+      legacyMutation(
+        'older-update',
+        userOne,
+        'bean',
+        'update',
+        localBeanId,
+        { name: 'stale pending payload' },
+        '2026-08-08T10:00:00.000001Z',
+      ),
+    ])
+
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({ name: 'snapshot already updated' }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ name: 'snapshot already updated' }),
       }),
     ])
   })
@@ -285,24 +354,60 @@ describe('legacy offline migration', () => {
   })
 
   it('exports only raw recovery rows owned by the requested user without changing the database', async () => {
-    const ownSnapshot = legacySnapshot(userOne, [legacyBean(userOne, localBeanId, 'recover me')])
+    const ownBean = legacyBean(userOne, localBeanId, 'recover me')
+    const crossUserBean = {
+      ...legacyBean(userTwo, 'local-bean-cross-user-secret', 'must not export'),
+      secret: 'cross-user snapshot secret',
+    }
+    const ownSnapshot = legacySnapshot(userOne, [ownBean, crossUserBean])
     const foreignSnapshot = legacySnapshot(userTwo, [legacyBrew(userTwo, 'local-brew-secret', null)])
     const ownMutation = legacyMutation('own-recovery', userOne, 'bean', 'delete', cloudBeanId)
+    const ownUpdateWithoutPayloadOwner = legacyMutation(
+      'own-ownerless-update',
+      userOne,
+      'bean',
+      'update',
+      cloudBeanId,
+      { notes: 'recover ownerless update' },
+    )
+    const crossUserPayload = legacyMutation(
+      'cross-user-payload',
+      userOne,
+      'bean',
+      'create',
+      localBeanId,
+      { user_id: userTwo, secret: 'cross-user payload secret' },
+    )
     const foreignMutation = legacyMutation('foreign-recovery', userTwo, 'bean', 'delete', '00000000-0000-4000-8000-000000000099', { secret: 'do not export' })
     await seedVersionTwoDatabase([
       ['beans', ownSnapshot],
       ['brewLogs', foreignSnapshot],
-    ], [ownMutation, foreignMutation])
+    ], [
+      ownMutation,
+      ownUpdateWithoutPayloadOwner,
+      crossUserPayload,
+      foreignMutation,
+    ])
     const before = await readLegacySourcesUnversioned()
 
     const exported = await exportLegacyRecoveryData(userOne)
 
     expect(exported.userId).toBe(userOne)
     expect(exported.exportedAt).toMatch(canonicalTimePattern)
-    expect(exported.snapshots).toEqual([{ key: 'beans', value: ownSnapshot }])
-    expect(exported.pendingMutations).toEqual([ownMutation])
+    expect(exported.snapshots).toEqual([
+      {
+        key: 'beans',
+        value: { ...ownSnapshot, rows: [ownBean] },
+      },
+    ])
+    expect(exported.pendingMutations).toHaveLength(2)
+    expect(exported.pendingMutations).toEqual(
+      expect.arrayContaining([ownMutation, ownUpdateWithoutPayloadOwner]),
+    )
     expect(JSON.stringify(exported)).not.toContain('do not export')
     expect(JSON.stringify(exported)).not.toContain('local-brew-secret')
+    expect(JSON.stringify(exported)).not.toContain('cross-user snapshot secret')
+    expect(JSON.stringify(exported)).not.toContain('cross-user payload secret')
     expect(await readLegacySourcesUnversioned()).toEqual(before)
   })
 })
@@ -312,8 +417,8 @@ type LegacySnapshotEntry = [key: 'beans' | 'brewLogs', value: unknown]
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const canonicalTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
-function legacySnapshot(userId: string, rows: unknown[]) {
-  return { userId, updatedAt: fixedTime, rows }
+function legacySnapshot(userId: string, rows: unknown[], updatedAt = fixedTime) {
+  return { userId, updatedAt, rows }
 }
 
 function legacyBean(userId: string, id: string, name: string) {
