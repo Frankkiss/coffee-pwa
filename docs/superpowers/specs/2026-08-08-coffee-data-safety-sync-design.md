@@ -517,9 +517,19 @@ RPC 优先使用调用者权限运行并保留 RLS。若某个恢复流程确实
 2. 复制旧数据到新版本的临时目标仓库，不先清空来源。
 3. 为每个 `local-bean-*` 生成永久 UUID，并保存确定的映射表。
 4. 改写所有旧待同步操作、本地豆子、冲煮记录及其 `bean_id` 引用。
-5. 将页面级操作转换为新 Outbox 格式并执行队列压缩。
+5. 将每个合法页面级源 mutation 一对一转换并落盘为新 Outbox row；迁移过程不执行压缩。只有发送选择阶段可以在内存中
+   保守压缩，并且每个发送项的 `coveredMutationIds` 必须覆盖其代表的全部源 mutation ID，服务器确认后才能据此 acknowledge。
 6. 校验实体数量、引用完整性、用户归属和 Outbox 数量。
 7. 只有校验通过才标记迁移完成并停止使用旧仓库。
+
+迁移解析必须在依赖完整 snapshot baseline 之前检查 bean `blend_components` 的嵌套字段白名单；即使无 baseline update 最终不能
+重建实体，其中任何 component 的未知字段也必须优先触发 `LEGACY_MIGRATION_RECOVERY_REQUIRED` 并回滚整个事务。
+
+completed meta 只保存非敏感 `sourceFingerprint` digest，不保存源 payload。指纹序列化必须覆盖 IndexedDB structured-clone
+可保存值的类型语义，明确区分普通对象、Date、Map、Set、ArrayBuffer、各类 typed array、undefined、特殊 number 等，并通过
+稳定引用标记支持循环/共享引用；不得把这些值统一折叠为 `{}`。completed 后同 ID 源内容发生任一此类类型或内容变化时必须抛
+`LEGACY_MIGRATION_SOURCE_CHANGED`，保持 v2、v3 与 meta 原样。该契约使用 current `migrationVersion: 9`；旧 v8 completion
+必须走 `LEGACY_MIGRATION_UPGRADE_REQUIRED`。
 
 若任何步骤失败：
 

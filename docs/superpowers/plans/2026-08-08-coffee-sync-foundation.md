@@ -1296,6 +1296,19 @@ reason. Delete payloads remain exempt. Preserve recovery export access and all s
 Allow only `origin`, `process`, `variety`, `percentage`, `role`, and `notes` keys in each bean `blend_components` item; nested unknown fields in
 either snapshot rows or pending payloads fail the whole transaction with the same recovery-required guarantee.
 
+Run the nested `blend_components` key check while parsing pending payloads, before entity reconstruction requires a complete snapshot baseline.
+An unversioned update with no baseline and an unknown nested component field must therefore fail first with
+`LEGACY_MIGRATION_RECOVERY_REQUIRED`; v2 sources, every v3 target store, and migration meta remain unchanged. Keep the existing generic failure
+semantics for other no-baseline updates.
+
+```ts
+await expect(migrateLegacyOfflineData(userId, deviceId, 1)).rejects.toMatchObject({
+  code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+})
+expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+```
+
 ```ts
 await expect(migrateLegacyOfflineData(userId, deviceId, 1)).rejects.toMatchObject({
   code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
@@ -1303,15 +1316,20 @@ await expect(migrateLegacyOfflineData(userId, deviceId, 1)).rejects.toMatchObjec
 expect(await readTargetRows()).toEqual(targetRowsBeforeMigration)
 ```
 
-Advance the current migration algorithm to version `8` and add a non-sensitive `sourceFingerprint` over the complete semantic content of each
+Advance the current migration algorithm to version `9` and add a non-sensitive `sourceFingerprint` over the complete semantic content of each
 current-user outer snapshot envelope and pending envelope. The fingerprint includes every raw inner snapshot row and each complete raw pending
-record selected by its outer `userId`; it must not ownership-filter malformed or cross-user inner content. Use stable key serialization and
-stable row ordering with a sufficiently strong deterministic digest; metadata stores only the digest, never user payload. A current-version
+record selected by its outer `userId`; it must not ownership-filter malformed or cross-user inner content. Use stable key ordering, explicit
+type tags for all supported IndexedDB structured-clone values, byte-level ArrayBuffer/view encoding, and deterministic reference IDs for
+circular/shared references. Ordinary objects, Date, Map, Set, ArrayBuffer, typed arrays, undefined, bigint, NaN, infinities, and negative zero
+must remain distinguishable; metadata stores only the digest, never user payload. A current-version
 completion must reread the legacy sources in the same IndexedDB transaction and return idempotently only when the digest still matches.
 Appended/deleted rows, same-ID payload rewrites, or appended malformed/cross-user inner rows throw stable
 `LEGACY_MIGRATION_SOURCE_CHANGED`, point to `exportLegacyRecoveryData`, and leave v2, v3, and metadata untouched. Never rerun or overwrite
-automatically. Old v7 completions remain `LEGACY_MIGRATION_UPGRADE_REQUIRED`. Tests cover append, rewrite, delete, malformed inner append,
+automatically. Old v8 completions remain `LEGACY_MIGRATION_UPGRADE_REQUIRED`. Tests cover append, rewrite, delete, malformed inner append,
 unchanged idempotency, missing snapshot schema versions, real unversioned v2 insert/update pending payloads, and explicit future schema versions.
+After completing a valid migration whose pending payload is an empty ordinary object, rewrite that same source ID with Date, Map, Set,
+ArrayBuffer, an empty typed array, undefined/special-number content, and a circular object in parameterized cases. Every retry must reject with
+`LEGACY_MIGRATION_SOURCE_CHANGED` and leave all source/target/meta stores unchanged; unchanged structured-clone sources remain idempotent.
 
 - [ ] **Step 2: Verify failure**
 
@@ -1325,7 +1343,7 @@ Expected: FAIL because the migrator does not exist.
 
 `migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
 
-1. Accept stored completion metadata only when it has exact `migrationVersion: 8`, a valid `sourceFingerprint`, validates completely, and
+1. Accept stored completion metadata only when it has exact `migrationVersion: 9`, a valid `sourceFingerprint`, validates completely, and
    satisfies `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
    `LEGACY_MIGRATION_UPGRADE_REQUIRED` without modifying any store; do not auto-clear or rerun.
 2. Even when completion metadata exists, read legacy snapshots and pending rows for only the outer `userId` in the same transaction. Include
@@ -1351,7 +1369,7 @@ Expected: FAIL because the migrator does not exist.
    are never returned by send-time selection. A later Task 9 confirmation creates/releases the required current-epoch sequence.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
-9. Persist and return `{ status: 'completed', migrationVersion: 8, sourceFingerprint, idMap, sourcePreserved: true }`; first-release migrations only
+9. Persist and return `{ status: 'completed', migrationVersion: 9, sourceFingerprint, idMap, sourcePreserved: true }`; first-release migrations only
    write the current version.
 
 Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is
