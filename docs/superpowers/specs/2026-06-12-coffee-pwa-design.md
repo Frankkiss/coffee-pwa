@@ -249,6 +249,21 @@ Task 9 的用户重试流程负责拉取并比较云快照，只有用户确认�
 Realtime 回调和异步结果不得再写 storage 或发布状态。composition root 在后续任务中负责把浏览器事件与
 `subscribeToSyncWakeups` 绑定到这些适配器，并保证所有清理函数只执行一次。
 
+`applyBatch` 在调用服务器前必须验证请求中每个 `mutationId` 唯一；重复 ID 使用稳定本地验证错误拒绝，RPC 不得发出。
+响应回执必须按原始请求长度与 ID 一一对应，不能用 `Map` 或集合去重掩盖重复请求、重复回执、缺失或额外回执。
+
+跨标签锁回调必须接收协作式 `SyncLockGuard`，至少提供 `signal` 与异步 `assertHeld()`。Web Locks guard 在回调期间始终有效；
+IndexedDB lease guard 的续租返回失主或抛错时必须 abort signal，并捕获续租拒绝。`assertHeld()` 每次在原子只读事务内确认 owner
+仍是当前持有者且 lease 尚未过期。`SyncManager` 在锁内每个 await 之后，以及每次后续 storage 写、API 下一步和状态发布之前，
+必须同时验证 generation 与 guard。页面挂起导致 lease 过期并被另一标签页接管后，旧标签页恢复时允许已经在途的 RPC 完成，
+但不得再 acknowledge、替换快照、标记队列或发布状态；旧 owner 的 release 也不得删除新 owner lease。
+
+push 与随后的快照获取都成功时，确认 covered Outbox IDs 与安装服务器快照必须使用
+`acknowledgeMutationsAndReplaceSnapshot(userId, coveredIds, snapshot)` 在一个 user-scoped IndexedDB readwrite 事务内完成。
+事务先完整验证 confirmed IDs、归属、本地 envelope 与 snapshot 单调性；计算本地 overlay 时排除将确认的 IDs，再写入五类服务器
+权威行、更新 sync meta 并删除 confirmed Outbox。任一步失败全部回滚。若 apply 回执已验证但 `getSnapshot` 失败，仍只单独
+acknowledge 已确认 IDs 且不替换 cache；Outbox 为空的普通 pull 继续使用 `replaceServerSnapshot`。
+
 对 `LEGACY_CREATE_REQUIRES_CONFIRMATION`，`retryMutation(mutationId, { confirmLegacyCreate?: boolean } = {})` 返回判别结果。
 未确认时必须在跨标签锁内先获取并完整验证最新服务器快照，再读取当前用户 Outbox；返回 `confirmation_required` 预览，其中
 包含目标 mutation、将被释放的关联链，以及当前用户云端同类型候选的安全比较字段，但不得修改队列。不得根据 legacy local ID

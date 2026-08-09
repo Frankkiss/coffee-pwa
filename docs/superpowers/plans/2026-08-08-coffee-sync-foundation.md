@@ -1432,6 +1432,9 @@ Assert each `wireOperations` item has only `mutationId`, `deviceId`, `entityType
 `baseSyncEpoch`, queue status, attempts, timestamps, or error fields may be sent. Assert Supabase errors become `SyncApiError` with `code`,
 `message`, and `retryable`. Feed malformed top-level results, malformed complete rows, invalid template enums/steps, non-JSON values, missing
 required bean fields, and invalid `applied | duplicate` statuses; every case must return `INVALID_SYNC_RESPONSE` and never produce a typed result.
+Before RPC, reject duplicate request `mutationId` values with a stable local validation error and prove the RPC was not called. Receipt validation
+uses the original request length and per-position/per-ID accounting; it must reject duplicate, missing, and extra receipts without first collapsing
+requests or receipts into a `Map`/set that can hide duplicates.
 
 - [ ] **Step 2: Implement `syncApi.ts`**
 
@@ -1470,6 +1473,10 @@ to store general JSON and unconstrained template text in this task; the validato
 - [ ] **Step 3: Write and implement lock tests**
 
 Test that a second lease owner cannot enter before expiry and can enter after expiry. `withSyncLock(userId, action)` uses `navigator.locks.request` when available; otherwise store `{ ownerId, expiresAt }` under `syncMeta` key `lock:${userId}` with a 30-second lease renewed every 10 seconds.
+The callback receives `SyncLockGuard { signal: AbortSignal; assertHeld(): Promise<void> }`. The fallback guard atomically rereads owner and expiry;
+renewal returning false or throwing aborts the signal and catches the rejection. Tests must simulate a suspended owner A, expiry and takeover by B,
+then A resuming: A's guard rejects, its release preserves B's lease, and no unhandled renewal rejection occurs. Web Locks supplies an equivalent
+guard that remains held for the callback lifetime.
 
 - [ ] **Step 4: Write failing manager tests**
 
@@ -1480,8 +1487,11 @@ expect(api.applyBatch).toHaveBeenCalledTimes(1)
 expect(storage.markMutationsSyncing).toHaveBeenCalledWith('user-1', ['mutation-1'])
 expect(api.applyBatch).toHaveBeenCalledWith(1, [expectedWireOperation])
 expect(api.getSnapshot).toHaveBeenCalledTimes(1)
-expect(storage.acknowledgeMutations).toHaveBeenCalledWith('user-1', ['mutation-1'])
-expect(storage.replaceServerSnapshot).toHaveBeenCalledWith('user-1', snapshot)
+expect(storage.acknowledgeMutationsAndReplaceSnapshot).toHaveBeenCalledWith(
+  'user-1',
+  ['mutation-1'],
+  snapshot,
+)
 expect(manager.getState().kind).toBe('synced')
 ```
 
@@ -1523,6 +1533,16 @@ new generation, and every cleanup is executed at most once. `run` must pull even
 confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before upload it calls
 `markMutationsSyncing(userId, ids)`, maps each mutation with `toSyncRpcOperation`, and on retryable failure calls
 `recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass `userId` to storage.
+
+The injected lock callback accepts a `SyncLockGuard`. Inside the lock, after every awaited storage/API operation and before every next write,
+RPC step, or state publication, `SyncManager` checks both its generation and `await guard.assertHeld()`. A lost fallback lease aborts the cycle;
+an already in-flight RPC may resolve, but no subsequent acknowledge, snapshot replacement, queue status change, or publication is allowed.
+
+After validated apply receipts and a validated snapshot, call only the new user-scoped atomic storage operation
+`acknowledgeMutationsAndReplaceSnapshot(userId, coveredMutationIds, snapshot)`. It validates all confirmed rows and snapshot monotonicity in one
+readwrite transaction, computes overlay without those confirmed mutations, installs the five-table snapshot, updates sync meta, and deletes the
+confirmed Outbox rows. Failure rolls back both cache and Outbox. If snapshot RPC/validation fails after apply confirmation, call the existing
+`acknowledgeMutations` only for confirmed covered IDs and preserve cache. An empty-Outbox pull still uses `replaceServerSnapshot`.
 
 `retryMutation(mutationId, { confirmLegacyCreate?: boolean } = {})` returns a discriminated result. It must special-case
 `LEGACY_CREATE_REQUIRES_CONFIRMATION` inside the cross-tab lock. Both preview and explicit confirmation first fetch and validate a fresh server
