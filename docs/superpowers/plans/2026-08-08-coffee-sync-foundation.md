@@ -1271,6 +1271,18 @@ a valid bean create chain. If proof is missing, fail the transaction with stable
 so an intermediate completion cannot bypass this new safety gate. Tests cover orphaned local bean rows, orphaned local brew rows/references,
 and the normal proven-create path.
 
+Require explicit legacy bean/brew `schema_version` values in snapshots and pending payloads to equal `1`; reject `2`, `999`, and every other
+future version with `LEGACY_MIGRATION_RECOVERY_REQUIRED` without down-conversion or dropping unknown fields. Preserve recovery export access and
+all stores on failure.
+
+Advance the current migration algorithm to version `5` and add a non-sensitive `sourceFingerprint` over the complete semantic content of the
+current-user-filtered legacy snapshots and pending rows. Use stable key serialization and stable row ordering with a sufficiently strong
+deterministic digest; metadata stores only the digest, never user payload. A current-version completion must reread the legacy sources in the
+same IndexedDB transaction and return idempotently only when the digest still matches. Appended/deleted rows or same-ID payload rewrites throw
+stable `LEGACY_MIGRATION_SOURCE_CHANGED`, point to `exportLegacyRecoveryData`, and leave v2, v3, and metadata untouched. Never rerun or overwrite
+automatically. Old v4 completions remain `LEGACY_MIGRATION_UPGRADE_REQUIRED`. Tests cover append, rewrite, delete, unchanged idempotency, and
+snapshot/pending future schema versions.
+
 - [ ] **Step 2: Verify failure**
 
 ```powershell
@@ -1283,10 +1295,12 @@ Expected: FAIL because the migrator does not exist.
 
 `migrateLegacyOfflineData(userId, deviceId, syncEpoch)` must:
 
-1. Return the stored successful result only when `migrationMeta` has the exact current `migrationVersion`, validates completely, and satisfies
-   `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
+1. Accept stored completion metadata only when it has exact `migrationVersion: 5`, a valid `sourceFingerprint`, validates completely, and
+   satisfies `counts.sourceMutations === counts.migratedMutations`. Missing/older versions or invariant failures throw
    `LEGACY_MIGRATION_UPGRADE_REQUIRED` without modifying any store; do not auto-clear or rerun.
-2. Read legacy snapshots and pending rows for only `userId`; validate snapshot `updatedAt` for audit only.
+2. Even when completion metadata exists, read legacy snapshots and pending rows for only `userId` in the same transaction. Validate snapshot
+   `updatedAt` for audit, compute the stable filtered-source fingerprint, and return the stored result only when it matches. A mismatch throws
+   `LEGACY_MIGRATION_SOURCE_CHANGED` without modifying any store.
 3. Parse and validate pending rows, then require every local entity ID and local bean reference found in snapshots to have a valid pending
    `create` for the matching entity type and ID. Missing proof throws `LEGACY_MIGRATION_RECOVERY_REQUIRED` without writes; never synthesize an
    upsert for an orphaned local snapshot row. After this safety gate passes, build one stable ID map for every legacy `local-bean-*` and
@@ -1305,7 +1319,7 @@ Expected: FAIL because the migrator does not exist.
    followed by delete.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
-9. Persist and return `{ status: 'completed', migrationVersion: 4, idMap, sourcePreserved: true }`; first-release migrations only
+9. Persist and return `{ status: 'completed', migrationVersion: 5, sourceFingerprint, idMap, sourcePreserved: true }`; first-release migrations only
    write the current version.
 
 Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is
@@ -1807,7 +1821,9 @@ npm run build
 ```
 
 Expected: SQL tests, Vitest, lint, build, and the real Chromium IndexedDB smoke suite all pass. The smoke suite must cover v2-to-v3 upgrade,
-blocked open deduplication/late close, entity-plus-Outbox abort, and snapshot-plus-meta abort. fake-indexeddb passing alone is not a release gate.
+legacy schema-version recovery rejection, completed-source fingerprint change rejection, blocked open deduplication/late close,
+entity-plus-Outbox abort, and snapshot-plus-meta abort. fake-indexeddb passing alone is not a release gate. Chromium remains a Task 15 release
+gate and is not required by the focused Task 8 implementation loop.
 
 - [ ] **Step 2: Record verification evidence**
 

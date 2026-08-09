@@ -235,6 +235,15 @@ current migration algorithm 还必须证明 snapshot 中每个 `local-bean-*` �
 无法判断本地 ID 是否已经上传过，禁止合成 upsert 以免在云端重复创建。迁移应提升 algorithm version，并稳定抛出
 `LEGACY_MIGRATION_RECOVERY_REQUIRED`，提示 `exportLegacyRecoveryData`，同时保持 v2、v3 与 migration meta 全部原样。
 
+legacy bean/brew snapshot row 与 pending payload 一旦显式携带 `schema_version`，只能严格等于 `1`；未来版本 `2`、`999`
+等都不能降级成 v1，也不能静默丢弃未知字段。此类输入必须以 `LEGACY_MIGRATION_RECOVERY_REQUIRED` 中止并保留全部源数据。
+
+current algorithm 的完成记录还必须保存该用户过滤后 legacy snapshots 与 pending 完整语义内容的稳定非敏感
+`sourceFingerprint`。摘要使用稳定 key 序列化与排序，仅在 meta 中保存 digest，不保存用户 payload。completed 检查必须在
+同一 IndexedDB 事务内重读源：摘要相同才可幂等返回；新增、删除记录或同 ID payload 改写均以
+`LEGACY_MIGRATION_SOURCE_CHANGED` 安全拒绝，提示恢复导出并保持 v2、v3 与 meta 原样。禁止自动重跑或覆盖可能已有的新 v3
+编辑；该算法变更将 current `migrationVersion` 提升到 `5`，旧 v4 completion 继续走 upgrade-required。
+
 ### 轻量备份
 
 默认备份为版本化轻量 JSON 文件，包含全部用户可见文字数据：豆子、冲煮记录、自定义模板、AI 推荐、
