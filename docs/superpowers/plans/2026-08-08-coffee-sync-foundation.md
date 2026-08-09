@@ -1507,19 +1507,36 @@ export type SyncManagerDependencies = {
   online: () => boolean
   schedule: (callback: () => void, delayMs: number) => number
   cancelSchedule: (id: number) => void
+  events: {
+    subscribeOnline: (callback: () => void) => () => void
+    subscribeVisibility: (callback: () => void) => () => void
+    isVisible: () => boolean
+  }
+  subscribeWakeups: (userId: string, wake: () => void) => () => void
 }
 ```
 
 Expose `start`, `stop`, `run`, `retryMutation`, `discardMutation`, `subscribe`, and `getState`. `start` registers online and visibility listeners,
-a 60-second foreground interval, and `subscribeToSyncWakeups`. `run` must pull even when Outbox is empty, never acknowledge before RPC
+a 60-second foreground poll, and the injected wake-up subscription. Browser/Supabase composition code added later binds these adapters to DOM events
+and `subscribeToSyncWakeups`; the manager itself must not use globals or retain hidden subscriptions. `start`/`stop` are idempotent, every start owns a
+new generation, and every cleanup is executed at most once. `run` must pull even when Outbox is empty, never acknowledge before RPC
 confirmation, pull after push, and quarantine all old-epoch mutations on `STALE_SYNC_EPOCH` before pulling. Before upload it calls
 `markMutationsSyncing(userId, ids)`, maps each mutation with `toSyncRpcOperation`, and on retryable failure calls
 `recordRetryableFailure(userId, ids, code, message)`. Retry/discard/attention paths pass `userId` to storage.
 
-`retryMutation` must special-case `LEGACY_CREATE_REQUIRES_CONFIRMATION`: first fetch and validate the current server snapshot, compare the
-quarantined entity/create chain with cloud candidates, and require an explicit user confirmation before generating or releasing a mutation at
-the current `sync_epoch`. It must never merely flip the migrated attention row to `pending`, reuse its old epoch, or infer nonexistence from the
-legacy local ID. This confirmation flow belongs to Task 9, not Task 8.
+`retryMutation(mutationId, { confirmLegacyCreate?: boolean } = {})` returns a discriminated result. It must special-case
+`LEGACY_CREATE_REQUIRES_CONFIRMATION` inside the cross-tab lock. Both preview and explicit confirmation first fetch and validate a fresh server
+snapshot, then read the current user's Outbox. Preview returns `confirmation_required` with the target, complete related mutation IDs, and safe
+comparison data for same-type cloud candidates, and performs zero queue writes. It must never infer nonexistence from a legacy local ID.
+
+Confirmation fetches another fresh snapshot and calls a new user-scoped atomic storage method
+`releaseLegacyCreateChain(userId, mutationId, expectedMutationIds, snapshot.syncEpoch)`. In one IndexedDB transaction the storage method recomputes
+and verifies the exact dependency chain, verifies every row still belongs to the user and remains
+`needs_attention/LEGACY_CREATE_REQUIRES_CONFIRMATION`, then changes the whole chain to `pending`, clears both error fields, and replaces every old
+`baseSyncEpoch` with the supplied current epoch. The chain includes all operations for the same local-create root entity; for a bean root it also
+includes the complete chain for every brew entity whose upsert references that bean. Missing rows, foreign ownership, changed statuses, or any
+concurrent addition/removal from the expected chain abort the whole transaction. Only after this method succeeds may the manager call `run`.
+Never release one row, reuse the legacy epoch, or write during preview. This confirmation flow belongs to Task 9, not Task 8.
 
 Capture a generation token for each start/user session and re-check it after every awaited API/storage operation; callbacks from a stopped or
 replaced user session must return without any later storage write or state publication. A malformed apply response leaves mutations unacknowledged.

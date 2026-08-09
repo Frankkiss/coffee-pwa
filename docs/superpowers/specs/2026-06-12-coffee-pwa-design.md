@@ -244,6 +244,20 @@ entity mutation 全链也必须隔离。隔离项使用稳定 `lastErrorCode: LE
 Task 9 的用户重试流程负责拉取并比较云快照，只有用户确认后才生成或放行使用 current sync epoch 的 mutation；Task 8
 不实现自动确认、自动重试或可能重复创建的猜测。
 
+`SyncManager` 的生命周期依赖必须显式注入 online、visibility 和 Realtime wake-up 订阅适配器；核心管理器不得直接读取全局
+`window`、`document` 或 Supabase client。`start()`/`stop()` 必须幂等，且每次 start 建立独立 generation；停止后的旧事件、定时器、
+Realtime 回调和异步结果不得再写 storage 或发布状态。composition root 在后续任务中负责把浏览器事件与
+`subscribeToSyncWakeups` 绑定到这些适配器，并保证所有清理函数只执行一次。
+
+对 `LEGACY_CREATE_REQUIRES_CONFIRMATION`，`retryMutation(mutationId, { confirmLegacyCreate?: boolean } = {})` 返回判别结果。
+未确认时必须在跨标签锁内先获取并完整验证最新服务器快照，再读取当前用户 Outbox；返回 `confirmation_required` 预览，其中
+包含目标 mutation、将被释放的关联链，以及当前用户云端同类型候选的安全比较字段，但不得修改队列。不得根据 legacy local ID
+推断云端不存在。显式确认时必须再次获取新鲜、已验证的快照，再调用 user-scoped 原子 storage 操作：事务内重新验证目标与
+关联链仍属于该用户、仍全部处于 `needs_attention/LEGACY_CREATE_REQUIRES_CONFIRMATION`，且关联链与预期集合完全一致；随后一次性
+把同 local-create 根实体的完整链，以及引用该 local bean 的每个 brew 实体完整链，改为 `pending`，清空错误，并把每行
+`baseSyncEpoch` 更新为该新鲜快照的 `syncEpoch`。任一行缺失、归属或状态变化、或链集合并发变化时全事务拒绝；只有原子释放成功后
+才允许启动同步。禁止仅改单行、复用旧 epoch 或在预览阶段写入。
+
 legacy bean/brew snapshot 完整 row 必须显式携带 `schema_version: 1`。真实 v2 bean/brew insert 与 update pending payload
 原本不含该字段，因此允许缺失；一旦显式携带则只能严格等于 `1`。未来版本 `2`、`999` 等都不能降级成 v1，也不能
 静默丢弃未知字段。snapshot row 或 non-delete pending payload 出现当前实体 schema 未知的字段时也必须拒绝。此类输入必须以
