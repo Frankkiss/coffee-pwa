@@ -64,7 +64,7 @@ describe('legacy offline migration', () => {
     const result = await migrateLegacyOfflineData(userOne, deviceId, 7)
 
     expect(result.status).toBe('completed')
-    expect(result).toEqual(expect.objectContaining({ migrationVersion: 2 }))
+    expect(result).toEqual(expect.objectContaining({ migrationVersion: 3 }))
     expect(result.sourcePreserved).toBe(true)
     expect(result.idMap[localBeanId]).toMatch(uuidPattern)
     expect(result.idMap[localBrewId]).toMatch(uuidPattern)
@@ -160,7 +160,7 @@ describe('legacy offline migration', () => {
   })
 
   it('merges a pending update captured after an older snapshot', async () => {
-    const bean = legacyBean(userOne, localBeanId, 'snapshot before update')
+    const bean = legacyBean(userOne, cloudBeanId, 'snapshot before update')
     await seedVersionTwoDatabase([
       [
         'beans',
@@ -172,7 +172,7 @@ describe('legacy offline migration', () => {
         userOne,
         'bean',
         'update',
-        localBeanId,
+        cloudBeanId,
         { name: 'pending edit survives' },
         '2026-08-08T10:00:00.000002Z',
       ),
@@ -192,7 +192,7 @@ describe('legacy offline migration', () => {
   })
 
   it('retains an update queued before the cache stored its resulting row', async () => {
-    const bean = legacyBean(userOne, localBeanId, 'snapshot already updated')
+    const bean = legacyBean(userOne, cloudBeanId, 'snapshot already updated')
     await seedVersionTwoDatabase([
       [
         'beans',
@@ -204,7 +204,7 @@ describe('legacy offline migration', () => {
         userOne,
         'bean',
         'update',
-        localBeanId,
+        cloudBeanId,
         { name: 'snapshot already updated' },
         '2026-08-08T10:00:00.000001Z',
       ),
@@ -229,7 +229,7 @@ describe('legacy offline migration', () => {
   })
 
   it('prefers a pending update when snapshot and mutation timestamps are equal', async () => {
-    const bean = legacyBean(userOne, localBeanId, 'snapshot at same instant')
+    const bean = legacyBean(userOne, cloudBeanId, 'snapshot at same instant')
     await seedVersionTwoDatabase([
       ['beans', legacySnapshot(userOne, [bean], fixedTime)],
     ], [
@@ -238,7 +238,7 @@ describe('legacy offline migration', () => {
         userOne,
         'bean',
         'update',
-        localBeanId,
+        cloudBeanId,
         { name: 'equal-time pending edit survives' },
         fixedTime,
       ),
@@ -455,8 +455,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 1, 3],
-    ['the current version but compacted mutation counts', 2, 2],
+    ['an older version and coincidentally equal mutation counts', 2, 3],
+    ['the current version but compacted mutation counts', 3, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
@@ -523,19 +523,80 @@ describe('legacy offline migration', () => {
     expect(recovery.pendingMutations).toHaveLength(3)
   })
 
+  it.each([
+    [
+      'local bean row',
+      'local-bean-orphaned-snapshot',
+      [['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, 'local-bean-orphaned-snapshot', 'orphaned bean'),
+      ])]] as LegacySnapshotEntry[],
+    ],
+    [
+      'local brew row',
+      'local-brew-orphaned-snapshot',
+      [['brewLogs', legacySnapshot(userOne, [
+        legacyBrew(userOne, 'local-brew-orphaned-snapshot', cloudBeanId),
+      ])]] as LegacySnapshotEntry[],
+    ],
+    [
+      'local bean reference in a brew row',
+      'local-bean-orphaned-reference',
+      [['brewLogs', legacySnapshot(userOne, [
+        legacyBrew(
+          userOne,
+          '00000000-0000-4000-8000-0000000000c3',
+          'local-bean-orphaned-reference',
+        ),
+      ])]] as LegacySnapshotEntry[],
+    ],
+  ])('requires recovery for an unproven %s', async (_case, localId, snapshots) => {
+    await seedVersionTwoDatabase(snapshots, [])
+    const foreignTarget = currentBean(
+      userTwo,
+      '00000000-0000-4000-8000-0000000000f3',
+      'foreign target remains',
+    )
+    await putEnvelope('beans', {
+      key: entityKey(userTwo, foreignTarget.id),
+      userId: userTwo,
+      value: foreignTarget,
+    })
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    const recovery = await exportLegacyRecoveryData(userOne)
+    expect(JSON.stringify(recovery)).toContain(localId)
+  })
+
   it('retries UUID collisions so every legacy local id gets a distinct permanent id', async () => {
     const firstId = '00000000-0000-4000-8000-0000000000a1'
     const secondId = '00000000-0000-4000-8000-0000000000a2'
+    const firstMutationId = '00000000-0000-4000-8000-0000000000b1'
+    const secondMutationId = '00000000-0000-4000-8000-0000000000b2'
     vi.spyOn(crypto, 'randomUUID')
       .mockReturnValueOnce(firstId)
       .mockReturnValueOnce(firstId)
       .mockReturnValueOnce(secondId)
+      .mockReturnValueOnce(firstMutationId)
+      .mockReturnValueOnce(secondMutationId)
     await seedVersionTwoDatabase([
       ['beans', legacySnapshot(userOne, [
         legacyBean(userOne, 'local-bean-first', 'first'),
         legacyBean(userOne, 'local-bean-second', 'second'),
       ])],
-    ], [])
+    ], [
+      legacyMutation('create-first', userOne, 'bean', 'create', 'local-bean-first', beanCreatePayload(userOne, 'first')),
+      legacyMutation('create-second', userOne, 'bean', 'create', 'local-bean-second', beanCreatePayload(userOne, 'second')),
+    ])
 
     const result = await migrateLegacyOfflineData(userOne, deviceId, 1)
 
@@ -548,7 +609,10 @@ describe('legacy offline migration', () => {
     const invalid = legacyBean(userOne, 'local-bean-invalid', '')
     await seedVersionTwoDatabase([
       ['beans', legacySnapshot(userOne, [valid, invalid])],
-    ], [legacyMutation('create-valid', userOne, 'bean', 'create', localBeanId, beanCreatePayload(userOne, 'valid first'))])
+    ], [
+      legacyMutation('create-valid', userOne, 'bean', 'create', localBeanId, beanCreatePayload(userOne, 'valid first')),
+      legacyMutation('create-invalid', userOne, 'bean', 'create', 'local-bean-invalid', beanCreatePayload(userOne, '')),
+    ])
     const beforeSources = await readLegacySources()
 
     await expect(migrateLegacyOfflineData(userOne, deviceId, 1)).rejects.toThrow(/name/i)

@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 2 as const
+export const legacyMigrationVersion = 3 as const
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number
@@ -101,12 +101,14 @@ export class LegacyMigrationError extends Error {
   readonly code:
     | 'LEGACY_MIGRATION_FAILED'
     | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
+    | 'LEGACY_MIGRATION_RECOVERY_REQUIRED'
 
   constructor(
     message: string,
     code:
       | 'LEGACY_MIGRATION_FAILED'
-      | 'LEGACY_MIGRATION_UPGRADE_REQUIRED' = 'LEGACY_MIGRATION_FAILED',
+      | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
+      | 'LEGACY_MIGRATION_RECOVERY_REQUIRED' = 'LEGACY_MIGRATION_FAILED',
   ) {
     super(message)
     this.name = 'LegacyMigrationError'
@@ -384,6 +386,7 @@ function prepareMigration(
       )
       return instantOrder || left.id.localeCompare(right.id)
     })
+  assertSnapshotLocalCreateProof(snapshots, pending)
 
   const entities = buildMigratedEntities(
     snapshots,
@@ -865,6 +868,47 @@ function collectLocalIds(
 
 function collectLocalId(value: unknown, ids: Set<string>) {
   if (typeof value === 'string' && isRecognizedLocalId(value)) ids.add(value)
+}
+
+function assertSnapshotLocalCreateProof(
+  snapshots: LegacySnapshot[],
+  pending: ParsedLegacyMutation[],
+) {
+  const provenCreates = new Set(
+    pending.flatMap((mutation) =>
+      mutation.action === 'create'
+        ? [entityLookupKey(mutation.entity, mutation.entityId)]
+        : [],
+    ),
+  )
+  const requireCreate = (entity: LegacyEntityType, id: unknown) => {
+    if (
+      typeof id === 'string' &&
+      isRecognizedLocalId(id) &&
+      !provenCreates.has(entityLookupKey(entity, id))
+    ) {
+      throwLegacyMigrationRecoveryRequired(id)
+    }
+  }
+
+  for (const snapshot of snapshots) {
+    for (const row of snapshot.rows) {
+      if (!isRecord(row)) continue
+      if (snapshot.key === 'beans') {
+        requireCreate('bean', row.id)
+      } else {
+        requireCreate('brewLog', row.id)
+        requireCreate('bean', row.bean_id)
+      }
+    }
+  }
+}
+
+function throwLegacyMigrationRecoveryRequired(localId: string): never {
+  throw new LegacyMigrationError(
+    `Legacy local entity ${localId} has no proven create chain; preserve local data and call exportLegacyRecoveryData(userId)`,
+    'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+  )
 }
 
 function assertMigratedReferences(
