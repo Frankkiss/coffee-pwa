@@ -1,6 +1,5 @@
 import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
-import { compactMutations } from './outboxModel'
 import {
   createDeletePayload,
   createEntityId,
@@ -432,7 +431,7 @@ function prepareMigration(
       payload: createUpsertPayload(entity),
     } as SyncMutation
   })
-  const mutations = compactMutations(convertedMutations)
+  const mutations = convertedMutations
   const beans = [...entities.values()].flatMap((entity) =>
     entity.type === 'bean' ? [entity.row] : [],
   )

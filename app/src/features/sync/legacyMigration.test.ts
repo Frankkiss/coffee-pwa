@@ -6,6 +6,7 @@ import {
   syncDatabaseName,
 } from './syncDatabase'
 import { listLocalEntities, listOutbox } from './localRepository'
+import { selectSendableMutationBatch } from './outboxModel'
 import {
   exportLegacyRecoveryData,
   migrateLegacyOfflineData,
@@ -29,7 +30,7 @@ describe('legacy offline migration', () => {
     await deleteTestDatabase(syncDatabaseName)
   })
 
-  it('maps local ids, rewrites references, compacts create/update, and preserves deletes and sources', async () => {
+  it('maps local ids, rewrites references, and preserves every mutation and source', async () => {
     const bean = legacyBean(userOne, localBeanId, 'snapshot final')
     const brew = legacyBrew(userOne, localBrewId, localBeanId)
     const pending = [
@@ -71,7 +72,7 @@ describe('legacy offline migration', () => {
       sourceMutations: 5,
       migratedBeans: 1,
       migratedBrewLogs: 1,
-      migratedMutations: 4,
+      migratedMutations: 5,
     })
 
     const [migratedBean] = await listLocalEntities('beans', userOne)
@@ -95,7 +96,7 @@ describe('legacy offline migration', () => {
     }))
 
     const outbox = await listOutbox(userOne)
-    expect(outbox).toHaveLength(4)
+    expect(outbox).toHaveLength(5)
     expect(outbox.every((mutation) => mutation.mutationId.match(uuidPattern))).toBe(true)
     expect(outbox.every((mutation) => mutation.userId === userOne)).toBe(true)
     expect(outbox.every((mutation) => mutation.deviceId === deviceId)).toBe(true)
@@ -105,7 +106,7 @@ describe('legacy offline migration', () => {
     const beanOperations = outbox
       .filter((mutation) => mutation.entityId === result.idMap[localBeanId])
       .map((mutation) => mutation.operation)
-    expect(beanOperations).toEqual(['upsert', 'delete'])
+    expect(beanOperations).toEqual(['upsert', 'upsert', 'delete'])
     const beanUpsert = outbox.find(
       (mutation) => mutation.entityId === result.idMap[localBeanId] && mutation.operation === 'upsert',
     )
@@ -321,7 +322,7 @@ describe('legacy offline migration', () => {
     ])
   })
 
-  it('applies every pending write before conservative upsert-delete compaction', async () => {
+  it('preserves every pending write for conservative send-time compaction', async () => {
     const bean = legacyBean(userOne, cloudBeanId, 'baseline')
     await seedVersionTwoDatabase([
       ['beans', legacySnapshot(userOne, [bean], '2026-08-08T10:00:04.000Z')],
@@ -367,14 +368,30 @@ describe('legacy offline migration', () => {
     const outbox = await listOutbox(userOne)
     expect(outbox.map((mutation) => mutation.operation)).toEqual([
       'upsert',
+      'upsert',
       'delete',
     ])
-    expect(outbox[0]?.payload).toEqual(expect.objectContaining({
-      name: 'final pending name',
-      notes: 'first pending edit',
-      bean_type: 'single_origin',
-      schema_version: 1,
-    }))
+    for (const mutation of outbox.slice(0, 2)) {
+      expect(mutation).toEqual(expect.objectContaining({
+        entityType: 'bean',
+        operation: 'upsert',
+        payload: expect.objectContaining({
+          name: 'final pending name',
+          notes: 'first pending edit',
+          bean_type: 'single_origin',
+          schema_version: 1,
+        }),
+      }))
+    }
+
+    const batch = selectSendableMutationBatch(outbox)
+    expect(batch.map((selection) => selection.mutation.operation)).toEqual([
+      'upsert',
+      'delete',
+    ])
+    expect(batch.flatMap((selection) => selection.coveredMutationIds)).toEqual(
+      outbox.map((mutation) => mutation.mutationId),
+    )
   })
 
   it('applies an equal-time delete over an active snapshot', async () => {
