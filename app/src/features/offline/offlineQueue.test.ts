@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { deleteTestDatabase } from '../../test/setupIndexedDb'
+import {
+  openSyncDatabase,
+  syncDatabaseName,
+} from '../sync/syncDatabase'
 import {
   createOfflinePendingMutation,
+  enqueueOfflineMutation,
   getPendingMutationsForUser,
   isOfflineWriteFailure,
+  readOfflineMutations,
 } from './offlineQueue'
 
 describe('offline pending mutations', () => {
@@ -71,5 +78,32 @@ describe('offline pending mutations', () => {
     expect(isOfflineWriteFailure(new Error('duplicate key value violates unique constraint'))).toBe(
       false,
     )
+  })
+})
+
+describe('legacy offline queue compatibility', () => {
+  beforeEach(async () => {
+    await deleteTestDatabase(syncDatabaseName)
+  })
+
+  afterEach(async () => {
+    await deleteTestDatabase(syncDatabaseName)
+  })
+
+  it('continues reading and writing the legacy queue after the database reaches v3', async () => {
+    const database = await openSyncDatabase()
+    database.close()
+    const mutation = createOfflinePendingMutation({
+      id: 'legacy-after-upgrade',
+      userId: 'user-1',
+      entity: 'bean',
+      action: 'delete',
+      entityId: 'bean-1',
+      createdAt: new Date('2026-08-08T10:00:00.000Z'),
+    })
+
+    await enqueueOfflineMutation(mutation)
+
+    expect(await readOfflineMutations('user-1')).toEqual([mutation])
   })
 })

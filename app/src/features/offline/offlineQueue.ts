@@ -1,3 +1,5 @@
+import { openSyncDatabase } from '../sync/syncDatabase'
+
 export type OfflineMutationEntity = 'bean' | 'brewLog'
 export type OfflineMutationAction = 'create' | 'update' | 'delete'
 
@@ -23,8 +25,6 @@ export type OfflinePendingMutationInput = {
   createdAt?: Date
 }
 
-const databaseName = 'kaday-offline-cache'
-const databaseVersion = 2
 const storeName = 'pendingMutations'
 
 export function createOfflinePendingMutation(
@@ -110,29 +110,7 @@ function createMutationId() {
 }
 
 function openQueueDatabase(): Promise<IDBDatabase> {
-  if (!('indexedDB' in window)) {
-    return Promise.reject(new Error('IndexedDB unavailable'))
-  }
-
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(databaseName, databaseVersion)
-
-    request.onupgradeneeded = () => {
-      const database = request.result
-
-      if (!database.objectStoreNames.contains('snapshots')) {
-        database.createObjectStore('snapshots')
-      }
-
-      if (!database.objectStoreNames.contains(storeName)) {
-        database.createObjectStore(storeName, { keyPath: 'id' })
-      }
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'))
-    request.onblocked = () => reject(new Error('IndexedDB open blocked'))
-  })
+  return openSyncDatabase()
 }
 
 function writeMutation(
