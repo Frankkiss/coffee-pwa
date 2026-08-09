@@ -1290,7 +1290,9 @@ Expected: FAIL because the migrator does not exist.
 3. Parse and validate pending rows, then require every local entity ID and local bean reference found in snapshots to have a valid pending
    `create` for the matching entity type and ID. Missing proof throws `LEGACY_MIGRATION_RECOVERY_REQUIRED` without writes; never synthesize an
    upsert for an orphaned local snapshot row. After this safety gate passes, build one stable ID map for every legacy `local-bean-*` and
-   `local-brew-*` ID.
+   `local-brew-*` ID. Reserve every valid UUID already present in legacy entity IDs/references and existing v3 entity rows so generated entity
+   IDs cannot collide. Generated mutation IDs must likewise exclude every existing Outbox key across all users and every ID generated in the
+   current batch. Retry collisions only to a fixed bound; exhaustion fails and rolls back the complete transaction.
 4. Rewrite entity IDs, mutation entity IDs, payload IDs, and `brewLog.bean_id`.
 5. Starting from the complete snapshot row baseline, apply every valid pending mutation in canonical `createdAt` plus ID order: merge partial
    updates, reconstruct or merge creates, and apply delete tombstone/removal semantics. A complete create may rebuild a missing row; an update

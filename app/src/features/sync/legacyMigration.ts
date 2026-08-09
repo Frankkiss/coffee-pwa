@@ -376,7 +376,12 @@ function prepareMigration(
     (row) => isRecord(row) && row.userId === userId,
   )
   const localIds = collectLocalIds(snapshots, pendingRows)
-  const idMap = createPermanentIdMap(localIds)
+  const reservedEntityIds = collectReservedEntityIds(
+    snapshots,
+    pendingRows,
+    [...targetBeans, ...targetBrews, ...targetOutbox],
+  )
+  const idMap = createPermanentIdMap(localIds, reservedEntityIds)
   const pending = pendingRows
     .map((row) => parseLegacyMutation(row, userId, idMap))
     .sort((left, right) => {
@@ -397,7 +402,9 @@ function prepareMigration(
   assertMigratedReferences(entities, idMap)
   const existingOutboxKeys = new Set(
     targetOutbox.flatMap((row) =>
-      isRecord(row) && typeof row.key === 'string' ? [row.key] : [],
+      isRecord(row) && typeof row.key === 'string'
+        ? [normalizeUuidKey(row.key)]
+        : [],
     ),
   )
   const generatedMutationIds = new Set<string>()
@@ -870,6 +877,46 @@ function collectLocalId(value: unknown, ids: Set<string>) {
   if (typeof value === 'string' && isRecognizedLocalId(value)) ids.add(value)
 }
 
+function collectReservedEntityIds(
+  snapshots: LegacySnapshot[],
+  pendingRows: unknown[],
+  targetRows: unknown[],
+) {
+  const ids = new Set<string>()
+  const add = (value: unknown) => {
+    if (isUuid(value)) ids.add(value.toLowerCase())
+  }
+  for (const snapshot of snapshots) {
+    for (const row of snapshot.rows) {
+      if (!isRecord(row)) continue
+      add(row.id)
+      add(row.bean_id)
+    }
+  }
+  for (const row of pendingRows) {
+    if (!isRecord(row)) continue
+    add(row.entityId)
+    if (isRecord(row.payload)) {
+      add(row.payload.id)
+      add(row.payload.bean_id)
+    }
+  }
+  for (const row of targetRows) {
+    if (!isRecord(row)) continue
+    add(row.id)
+    add(row.entityId)
+    if (typeof row.key === 'string') {
+      add(row.key.slice(row.key.lastIndexOf(':') + 1))
+    }
+    if (isRecord(row.value)) {
+      add(row.value.id)
+      add(row.value.bean_id)
+      add(row.value.entityId)
+    }
+  }
+  return ids
+}
+
 function assertSnapshotLocalCreateProof(
   snapshots: LegacySnapshot[],
   pending: ParsedLegacyMutation[],
@@ -1076,34 +1123,43 @@ function createUniqueMutationId(
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const id = createMutationId()
     assertUuid(id, 'generated mutation id')
-    if (!existing.has(id) && !generated.has(id)) {
-      generated.add(id)
+    const collisionKey = id.toLowerCase()
+    if (!existing.has(collisionKey) && !generated.has(collisionKey)) {
+      generated.add(collisionKey)
       return id
     }
   }
   throw new LegacyMigrationError('Could not allocate a unique mutation id')
 }
 
-function createPermanentIdMap(localIds: Set<string>) {
-  const allocated = new Set<string>()
+function createPermanentIdMap(
+  localIds: Set<string>,
+  reservedEntityIds: Set<string>,
+) {
+  const allocated = new Set(reservedEntityIds)
   const entries: Array<[string, string]> = []
   for (const localId of [...localIds].sort()) {
     let mapped: string | undefined
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const candidate = createEntityId()
       assertUuid(candidate, 'generated entity id')
-      if (!allocated.has(candidate)) {
+      const collisionKey = candidate.toLowerCase()
+      if (!allocated.has(collisionKey)) {
         mapped = candidate
+        allocated.add(collisionKey)
         break
       }
     }
     if (mapped === undefined) {
       throw new LegacyMigrationError('Could not allocate a unique entity id')
     }
-    allocated.add(mapped)
     entries.push([localId, mapped])
   }
   return Object.fromEntries(entries)
+}
+
+function normalizeUuidKey(value: string) {
+  return isUuid(value) ? value.toLowerCase() : value
 }
 
 function createOrderedQueuedAt(canonicalCreatedAt: string, index: number) {

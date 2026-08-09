@@ -577,6 +577,122 @@ describe('legacy offline migration', () => {
     expect(JSON.stringify(recovery)).toContain(localId)
   })
 
+  it('retries entity and mutation UUID collisions without overwriting existing data', async () => {
+    const localCollisionId = 'local-bean-collision-source'
+    const mappedEntityId = '00000000-0000-4000-8000-0000000000a6'
+    const foreignMutationId = '00000000-0000-4000-8000-0000000000d4'
+    const generatedMutationId = '00000000-0000-4000-8000-0000000000a7'
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'existing UUID source'),
+        legacyBean(userOne, localCollisionId, 'local source'),
+      ])],
+    ], [
+      legacyMutation(
+        'create-collision-source',
+        userOne,
+        'bean',
+        'create',
+        localCollisionId,
+        beanCreatePayload(userOne, 'local source'),
+      ),
+    ])
+    const foreignMutation = currentDeleteMutation(
+      userTwo,
+      foreignMutationId,
+      '00000000-0000-4000-8000-0000000000f4',
+    )
+    await putEnvelope('outbox', {
+      key: foreignMutationId,
+      userId: userTwo,
+      value: foreignMutation,
+    })
+    const foreignOutboxBefore = await listOutbox(userTwo)
+    vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce(cloudBeanId)
+      .mockReturnValueOnce(mappedEntityId)
+      .mockReturnValueOnce(foreignMutationId)
+      .mockReturnValueOnce(generatedMutationId)
+
+    const result = await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(result.idMap[localCollisionId]).toBe(mappedEntityId)
+    expect(
+      (await listLocalEntities('beans', userOne)).map((bean) => bean.id).sort(),
+    ).toEqual([cloudBeanId, mappedEntityId].sort())
+    expect((await listOutbox(userOne)).map((mutation) => mutation.mutationId)).toEqual([
+      generatedMutationId,
+    ])
+    expect(await listOutbox(userTwo)).toEqual(foreignOutboxBefore)
+  })
+
+  it('rolls back when permanent entity UUID collisions exhaust the retry limit', async () => {
+    const localCollisionId = 'local-bean-permanent-collision'
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'reserved cloud UUID'),
+        legacyBean(userOne, localCollisionId, 'cannot allocate'),
+      ])],
+    ], [
+      legacyMutation(
+        'create-permanent-collision',
+        userOne,
+        'bean',
+        'create',
+        localCollisionId,
+        beanCreatePayload(userOne, 'cannot allocate'),
+      ),
+    ])
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(cloudBeanId)
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toThrow(/unique entity id/i)
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+  })
+
+  it('rolls back when global Outbox UUID collisions exhaust the retry limit', async () => {
+    const foreignMutationId = '00000000-0000-4000-8000-0000000000d5'
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'cloud source'),
+      ])],
+    ], [
+      legacyMutation(
+        'update-with-colliding-mutation-id',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { notes: 'pending edit' },
+      ),
+    ])
+    const foreignMutation = currentDeleteMutation(
+      userTwo,
+      foreignMutationId,
+      '00000000-0000-4000-8000-0000000000f5',
+    )
+    await putEnvelope('outbox', {
+      key: foreignMutationId,
+      userId: userTwo,
+      value: foreignMutation,
+    })
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(foreignMutationId)
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toThrow(/unique mutation id/i)
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+  })
+
   it('retries UUID collisions so every legacy local id gets a distinct permanent id', async () => {
     const firstId = '00000000-0000-4000-8000-0000000000a1'
     const secondId = '00000000-0000-4000-8000-0000000000a2'
@@ -822,6 +938,28 @@ function currentBean(userId: string, id: string, name: string) {
     bean_type: 'single_origin' as const,
     blend_components: [],
     blend_notes: null,
+  }
+}
+
+function currentDeleteMutation(
+  userId: string,
+  mutationId: string,
+  entityId: string,
+) {
+  return {
+    mutationId,
+    deviceId,
+    entityType: 'bean' as const,
+    entityId,
+    userId,
+    operation: 'delete' as const,
+    payload: {},
+    baseSyncEpoch: 1,
+    queuedAt: fixedTime,
+    attemptCount: 0,
+    status: 'pending' as const,
+    lastErrorCode: null,
+    lastErrorMessage: null,
   }
 }
 
