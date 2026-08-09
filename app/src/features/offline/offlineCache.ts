@@ -1,3 +1,5 @@
+import { openSyncDatabase } from '../sync/syncDatabase'
+
 export type OfflineCacheKind = 'beans' | 'brewLogs'
 
 export type OfflineCacheSnapshot<Row> = {
@@ -6,8 +8,6 @@ export type OfflineCacheSnapshot<Row> = {
   rows: Row[]
 }
 
-const databaseName = 'kaday-offline-cache'
-const databaseVersion = 2
 const storeName = 'snapshots'
 
 export function buildOfflineCacheSnapshot<Row>(
@@ -79,29 +79,7 @@ export async function readOfflineCache<Row>(
 }
 
 function openOfflineDatabase(): Promise<IDBDatabase> {
-  if (!('indexedDB' in window)) {
-    return Promise.reject(new Error('IndexedDB unavailable'))
-  }
-
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(databaseName, databaseVersion)
-
-    request.onupgradeneeded = () => {
-      const database = request.result
-
-      if (!database.objectStoreNames.contains(storeName)) {
-        database.createObjectStore(storeName)
-      }
-
-      if (!database.objectStoreNames.contains('pendingMutations')) {
-        database.createObjectStore('pendingMutations', { keyPath: 'id' })
-      }
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'))
-    request.onblocked = () => reject(new Error('IndexedDB open blocked'))
-  })
+  return openSyncDatabase()
 }
 
 function writeSnapshot<Row>(
