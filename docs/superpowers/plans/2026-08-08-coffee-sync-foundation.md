@@ -1255,8 +1255,8 @@ Add a forced validation failure and assert no v3 entity or Outbox rows remain wh
 
 Treat legacy snapshots as local materialized-cache baselines, never as acknowledgement evidence. Add realistic legacy ordering tests where
 the queue write happens first and the cache write follows: create then cached row, delete then missing cached row, and update then updated
-cached row. All three pending writes must still be represented in the migrated Outbox. Also cover multiple pending writes whose conservative
-compaction reports every source mutation through `coveredMutationIds`.
+cached row. All three pending writes must still be represented one-for-one in the migrated Outbox. Also cover multiple pending writes whose
+send-time conservative compaction reports every source mutation through `coveredMutationIds`.
 
 - [ ] **Step 2: Verify failure**
 
@@ -1277,10 +1277,12 @@ Expected: FAIL because the migrator does not exist.
 5. Starting from the complete snapshot row baseline, apply every valid pending mutation in canonical `createdAt` plus ID order: merge partial
    updates, reconstruct or merge creates, and apply delete tombstone/removal semantics. A complete create may rebuild a missing row; an update
    without a complete baseline must abort the whole migration, while a delete without a row remains a valid delete intent.
-6. Convert every legacy `create` and `update` to `upsert`, and every `delete` to `delete`, then compact them using the Task 7 conservative rules.
-   Upserts carry the final complete migrated entity payload. No pending row may be discarded because the snapshot is newer; snapshot
-   `updatedAt` is not a cloud receipt. Every source pending ID must remain represented directly or in `coveredMutationIds`, and only a later
-   successful server receipt may acknowledge it. Preserve the required `upsert` then `delete` pair for a local create followed by delete.
+6. Convert every legacy `create` and `update` to `upsert`, and every `delete` to `delete`, preserving one v3 Outbox row per valid legacy pending
+   row in canonical `createdAt` plus legacy ID order. Upserts carry the final complete migrated entity payload. Do not compact during migration:
+   Task 7 `selectSendableMutationBatch` performs conservative send-time compaction, returns the complete `coveredMutationIds`, and allows the
+   source rows to be acknowledged only after a successful server receipt. No pending row may be discarded because the snapshot is newer;
+   snapshot `updatedAt` is not a cloud receipt. Send-time selection must preserve the required `upsert` then `delete` pair for a local create
+   followed by delete.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
 9. Return `{ status: 'completed', idMap, sourcePreserved: true }`.

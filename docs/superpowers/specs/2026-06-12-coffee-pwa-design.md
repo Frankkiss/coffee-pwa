@@ -219,9 +219,10 @@ DeepSeek API Key 不能放在前端代码、浏览器本地存储或公开配置
 冲突采用“最后成功写入服务器者为准”，不使用设备本地时钟，也不保留逐条修改历史。
 
 旧版本升级时，legacy snapshot 只作为本地 materialized cache 和完整实体基线，不能视为服务器已接收写入的证明。
-snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确认或丢弃 `pendingMutations`。当前用户的每一条合法
-pending 写入都必须转换进 v3 Outbox，或由保守压缩后的操作通过 `coveredMutationIds` 覆盖；只有服务器 RPC 返回的
-成功回执才允许 acknowledge。迁移不得因为 cache 写入时间较新而吞掉尚未同步的 create、update 或 delete。
+snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确认或丢弃 `pendingMutations`。迁移阶段必须把当前用户
+的每一条合法 pending 写入一对一转换进 v3 Outbox，不在落盘前做破坏性压缩。发送阶段才由 Task 7 的
+`selectSendableMutationBatch` 保守压缩，并通过 `coveredMutationIds` 保留所有源 mutation 的确认范围；只有服务器 RPC
+返回成功回执后才允许 acknowledge。迁移不得因为 cache 写入时间较新而吞掉尚未同步的 create、update 或 delete。
 
 ### 轻量备份
 
