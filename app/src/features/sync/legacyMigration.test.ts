@@ -69,7 +69,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 9,
+      migrationVersion: 10,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -856,6 +856,72 @@ describe('legacy offline migration', () => {
     )
   })
 
+  it('checks unknown blend component keys before non-JSON values without a baseline', async () => {
+    await seedVersionTwoDatabase([], [{
+      id: 'unknown-non-json-nested-field',
+      userId: userOne,
+      entity: 'bean',
+      action: 'update',
+      entityId: cloudBeanId,
+      payload: {
+        blend_components: [{
+          ...blendComponent(),
+          future_field: undefined,
+        }],
+      },
+      createdAt: fixedTime,
+      attempts: 0,
+      lastError: null,
+    }])
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_RECOVERY_REQUIRED',
+      message: expect.stringMatching(/exportLegacyRecoveryData/),
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+    const recovery = await exportLegacyRecoveryData(userOne)
+    const component = (
+      recovery.pendingMutations[0] as { payload: { blend_components: unknown[] } }
+    ).payload.blend_components[0] as Record<string, unknown>
+    expect(Object.hasOwn(component, 'future_field')).toBe(true)
+  })
+
+  it('keeps the existing failure code for a known non-JSON blend component field', async () => {
+    await seedVersionTwoDatabase([], [{
+      id: 'known-non-json-nested-field',
+      userId: userOne,
+      entity: 'bean',
+      action: 'update',
+      entityId: cloudBeanId,
+      payload: {
+        blend_components: [{
+          ...blendComponent(),
+          notes: undefined,
+        }],
+      },
+      createdAt: fixedTime,
+      attempts: 0,
+      lastError: null,
+    }])
+    const sourcesBeforeMigration = await readLegacySources()
+    const targetsBeforeMigration = await readTargetRows()
+
+    await expect(
+      migrateLegacyOfflineData(userOne, deviceId, 1),
+    ).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_FAILED',
+    })
+
+    expect(await readLegacySources()).toEqual(sourcesBeforeMigration)
+    expect(await readTargetRows()).toEqual(targetsBeforeMigration)
+  })
+
   it.each([
     ['Date', () => new Date('2026-08-08T10:00:00.000Z')],
     ['Map', () => new Map([['key', 'value']])],
@@ -904,6 +970,45 @@ describe('legacy offline migration', () => {
 
     expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
     expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+  })
+
+  it('never treats Blob source rewrites as an unchanged completed source', async () => {
+    const baseMutation = {
+      id: 'unsupported-blob-fingerprint',
+      userId: userOne,
+      entity: 'bean',
+      action: 'update',
+      entityId: cloudBeanId,
+      payload: {},
+      createdAt: fixedTime,
+      attempts: 0,
+      lastError: null,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [
+        legacyBean(userOne, cloudBeanId, 'blob fingerprint baseline'),
+      ])],
+    ], [baseMutation])
+    await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    for (const contents of ['A', 'B']) {
+      await putLegacyPendingMutation({
+        ...baseMutation,
+        payload: new Blob([contents], { type: 'text/plain' }),
+      })
+      const sourcesBeforeRetry = await readLegacySources()
+      const targetsBeforeRetry = await readTargetRows()
+
+      await expect(
+        migrateLegacyOfflineData(userOne, deviceId, 999),
+      ).rejects.toMatchObject({
+        code: 'LEGACY_MIGRATION_SOURCE_CHANGED',
+        message: expect.stringMatching(/exportLegacyRecoveryData/),
+      })
+
+      expect(await readLegacySources()).toEqual(sourcesBeforeRetry)
+      expect(await readTargetRows()).toEqual(targetsBeforeRetry)
+    }
   })
 
   it('fingerprints circular structured-clone source content deterministically', async () => {
@@ -1057,8 +1162,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 8, 3],
-    ['the current version but compacted mutation counts', 9, 2],
+    ['an older version and coincidentally equal mutation counts', 9, 3],
+    ['the current version but compacted mutation counts', 10, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [

@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 9 as const
+export const legacyMigrationVersion = 10 as const
 const legacyCreateAttentionCode = 'LEGACY_CREATE_REQUIRES_CONFIRMATION'
 const legacyCreateAttentionMessage =
   'Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.'
@@ -388,18 +388,26 @@ function scheduleMigrationReads(
     remaining -= 1
     if (remaining !== 0) return
     try {
-      const sourceFingerprint = createLegacySourceFingerprint(
+      const sourceRevision = createLegacySourceFingerprint(
         userId,
         requests.beanSnapshot.result,
         requests.brewSnapshot.result,
         requests.pending.result,
       )
       if (storedCompleted !== null) {
-        if (storedCompleted.sourceFingerprint !== sourceFingerprint) {
+        if (
+          sourceRevision.hasUnsupportedValue ||
+          storedCompleted.sourceFingerprint !== sourceRevision.digest
+        ) {
           throwLegacyMigrationSourceChanged()
         }
         setResult(storedCompleted)
         return
+      }
+      if (sourceRevision.hasUnsupportedValue) {
+        throw new LegacyMigrationError(
+          'Legacy source contains an unsupported structured-clone value',
+        )
       }
       const completed = prepareMigration(
         userId,
@@ -411,7 +419,7 @@ function scheduleMigrationReads(
         requests.targetBeans.result,
         requests.targetBrews.result,
         requests.targetOutbox.result,
-        sourceFingerprint,
+        sourceRevision.digest,
       )
       writeMigration(
         transaction,
@@ -859,6 +867,14 @@ function parseLegacyMutation(
   userId: string,
   idMap: Record<string, string>,
 ): ParsedLegacyMutation {
+  if (
+    isPlainRecord(raw) &&
+    raw.action !== 'delete' &&
+    raw.entity === 'bean' &&
+    isPlainRecord(raw.payload)
+  ) {
+    assertKnownBlendComponentFields(raw.payload.blend_components)
+  }
   const record = assertJsonRecord(raw, 'legacy mutation')
   if (record.userId !== userId) {
     throw new LegacyMigrationError('Legacy mutation ownership does not match user')
@@ -891,9 +907,6 @@ function parseLegacyMutation(
       entity === 'bean' ? legacyBeanFields : legacyBrewFields,
       `${entity} mutation payload`,
     )
-    if (entity === 'bean') {
-      assertKnownBlendComponentFields(parsedPayload.blend_components)
-    }
   }
   if (parsedPayload?.user_id !== undefined && parsedPayload.user_id !== userId) {
     throw new LegacyMigrationError('Legacy mutation payload ownership does not match user')
@@ -969,12 +982,14 @@ function createLegacySourceFingerprint(
   rawBrewSnapshot: unknown,
   rawPending: unknown,
 ) {
+  const fingerprintState = { hasUnsupportedValue: false }
+  const serialize = (value: unknown) => stableSerialize(value, fingerprintState)
   const filterSnapshot = (raw: unknown) => {
     if (!isRecord(raw) || raw.userId !== userId) return null
     const rows = Array.isArray(raw.rows)
       ? [...raw.rows].sort((left, right) => {
-          const leftValue = stableSerialize(left)
-          const rightValue = stableSerialize(right)
+          const leftValue = serialize(left)
+          const rightValue = serialize(right)
           return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
         })
       : raw.rows
@@ -988,9 +1003,9 @@ function createLegacySourceFingerprint(
     'legacy mutation rows for fingerprint',
   )
     .filter((row) => isRecord(row) && row.userId === userId)
-    .map(stableSerialize)
+    .map(serialize)
     .sort()
-  const manifest = stableSerialize({
+  const manifest = serialize({
     snapshots: [
       ['beans', filterSnapshot(rawBeanSnapshot)],
       ['brewLogs', filterSnapshot(rawBrewSnapshot)],
@@ -1000,10 +1015,16 @@ function createLegacySourceFingerprint(
   const bytes = new TextEncoder().encode(manifest)
   const first = fnv1a64(bytes, 0xcbf29ce484222325n)
   const second = fnv1a64(bytes, 0x84222325cbf29ce4n)
-  return `fnv1a128:${first}${second}`
+  return {
+    digest: `fnv1a128:${first}${second}`,
+    hasUnsupportedValue: fingerprintState.hasUnsupportedValue,
+  }
 }
 
-function stableSerialize(value: unknown): string {
+function stableSerialize(
+  value: unknown,
+  state: { hasUnsupportedValue: boolean },
+): string {
   const references = new Map<object, number>()
   const serialize = (current: unknown): string => {
     if (current === null) return fingerprintFrame('null')
@@ -1033,6 +1054,7 @@ function stableSerialize(value: unknown): string {
       typeof current === 'symbol' ||
       typeof current === 'function'
     ) {
+      state.hasUnsupportedValue = true
       return fingerprintFrame(typeof current, String(current))
     }
 
@@ -1117,8 +1139,9 @@ function stableSerialize(value: unknown): string {
       )
     }
     if (typeof Blob !== 'undefined' && current instanceof Blob) {
+      state.hasUnsupportedValue = true
       return fingerprintFrame(
-        'blob',
+        'unsupported-blob',
         referencePart,
         current.type,
         String(current.size),
@@ -1129,8 +1152,16 @@ function stableSerialize(value: unknown): string {
     const entries = Object.keys(record)
       .sort()
       .map((key) => fingerprintFrame('property', key, serialize(record[key])))
+    const prototype = Object.getPrototypeOf(current)
+    if (prototype !== null && prototype !== Object.prototype) {
+      state.hasUnsupportedValue = true
+    }
     return fingerprintFrame(
-      Object.getPrototypeOf(current) === null ? 'null-object' : 'object',
+      prototype === null
+        ? 'null-object'
+        : prototype === Object.prototype
+          ? 'object'
+          : 'unsupported-object',
       referencePart,
       ...entries,
     )

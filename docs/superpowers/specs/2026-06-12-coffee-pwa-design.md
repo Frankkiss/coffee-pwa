@@ -253,12 +253,13 @@ snapshot 或 pending payload 中出现任何嵌套未知字段都必须走同一
 
 current algorithm 的完成记录还必须保存当前用户外层 legacy snapshot/pending envelope 的完整原始语义内容的稳定非敏感
 `sourceFingerprint`；不得先按内层 row/payload 归属过滤。摘要使用稳定 key 序列化与排序，仅在 meta 中保存 digest，不保存
-用户 payload。序列化必须对 IndexedDB structured-clone 值使用稳定类型标记，区分普通对象、Date、Map、Set、ArrayBuffer、
+用户 payload。序列化必须对支持的 IndexedDB structured-clone 值使用稳定类型标记，区分普通对象、Date、Map、Set、ArrayBuffer、
 typed array、undefined 与特殊 number，并用引用 ID 支持循环/共享引用，不能让它们与 `{}` 或彼此碰撞。completed 检查必须在
 同一 IndexedDB 事务内重读源：摘要相同才可幂等返回；新增、删除记录或同 ID payload 改写均以
 `LEGACY_MIGRATION_SOURCE_CHANGED` 安全拒绝，提示恢复导出并保持 v2、v3 与 meta 原样。禁止自动重跑或覆盖可能已有的新 v3
-编辑；强化 structured-clone 指纹与前置嵌套字段校验后，current `migrationVersion` 提升到 `9`，旧 v8 completion 继续走
-upgrade-required。
+编辑。Blob、File 或任何不能完整同步指纹的 structured-clone 类型不读取异步内容字节，也永不视为 unchanged：首次迁移按既有
+恢复失败语义拒绝，completed fast path 必须返回 `LEGACY_MIGRATION_SOURCE_CHANGED`。强化该门禁与前置嵌套字段校验后，
+current `migrationVersion` 提升到 `10`，旧 v9 completion 继续走 upgrade-required。
 
 ### 轻量备份
 

@@ -525,11 +525,13 @@ RPC 优先使用调用者权限运行并保留 RLS。若某个恢复流程确实
 迁移解析必须在依赖完整 snapshot baseline 之前检查 bean `blend_components` 的嵌套字段白名单；即使无 baseline update 最终不能
 重建实体，其中任何 component 的未知字段也必须优先触发 `LEGACY_MIGRATION_RECOVERY_REQUIRED` 并回滚整个事务。
 
-completed meta 只保存非敏感 `sourceFingerprint` digest，不保存源 payload。指纹序列化必须覆盖 IndexedDB structured-clone
+completed meta 只保存非敏感 `sourceFingerprint` digest，不保存源 payload。指纹序列化必须覆盖支持的 IndexedDB structured-clone
 可保存值的类型语义，明确区分普通对象、Date、Map、Set、ArrayBuffer、各类 typed array、undefined、特殊 number 等，并通过
 稳定引用标记支持循环/共享引用；不得把这些值统一折叠为 `{}`。completed 后同 ID 源内容发生任一此类类型或内容变化时必须抛
-`LEGACY_MIGRATION_SOURCE_CHANGED`，保持 v2、v3 与 meta 原样。该契约使用 current `migrationVersion: 9`；旧 v8 completion
-必须走 `LEGACY_MIGRATION_UPGRADE_REQUIRED`。
+`LEGACY_MIGRATION_SOURCE_CHANGED`，保持 v2、v3 与 meta 原样。Blob、File 或任何不能完整同步指纹的 structured-clone 类型
+不读取异步内容字节，也永不满足 unchanged：首次迁移按既有恢复失败语义拒绝，completed fast path 必须返回
+`LEGACY_MIGRATION_SOURCE_CHANGED`。该契约使用 current `migrationVersion: 10`；旧 v9 completion 必须走
+`LEGACY_MIGRATION_UPGRADE_REQUIRED`。
 
 若任何步骤失败：
 
