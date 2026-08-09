@@ -1614,6 +1614,10 @@ git commit -m "feat: add unified sync manager"
 For each editable entity assert list, create, update, and soft delete operate locally and enqueue exactly one full-record mutation. Bean creation must use a permanent UUID before local save. Brew creation must preserve a newly created bean UUID. Settings must use `userId` as its stable entity ID. Saved recommendations expose local list only and no offline write method.
 Every bean, brew-log, and template soft-delete repository path calls `createDeletePayload()`; settings has no delete path. Tests assert the stored
 delete payload has zero enumerable keys and is not assembled from caller input.
+Add concurrency regressions proving create uses an atomic `missing` precondition, update/delete use an atomic `active` precondition with the
+pre-read `updated_at`, and a stale update cannot revive a concurrently deleted row or overwrite another update. Settings create succeeds only
+when the stable `userId` row is missing; a second create leaves the original row and Outbox unchanged. Add a mutation-safety regression that
+mutates shared nested input after a repository promise starts and proves both the stored entity and Outbox retained the validated snapshot.
 
 - [ ] **Step 2: Verify repository tests fail**
 
@@ -1637,6 +1641,15 @@ export type RepositoryContext = {
 ```
 
 Repository methods never call Supabase. `createBean` constructs a complete `Bean` row with UUID, server-compatible field names, `created_at` and provisional `updated_at`, then calls `saveLocalEntity`. Server snapshots later replace provisional timestamps.
+Feature pre-reads only construct complete rows. Every editable feature repository passes a local write precondition: create uses
+`{ kind: 'missing' }`; update/delete use `{ kind: 'active', expectedUpdatedAt: current.updated_at }`. `LocalRepository` validates that
+precondition by rereading the current-user envelope inside the same entity-plus-Outbox `readwrite` transaction before either write. Missing,
+foreign, corrupt, soft-deleted, or version-changed rows reject with a stable error and leave both stores unchanged. Existing low-level callers
+may omit the precondition for backward compatibility, but all Task 10 feature writes must supply one.
+
+After synchronous validation and before the first `await`/database open, `LocalRepository` takes a `structuredClone` snapshot of entity,
+mutation, precondition, and every nested value. Transaction callbacks write and compare only that snapshot, never caller-owned mutable
+references. Settings create uses the `missing` precondition and update preserves the original `created_at`.
 
 - [ ] **Step 4: Run repository tests**
 

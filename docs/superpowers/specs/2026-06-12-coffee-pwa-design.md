@@ -218,6 +218,17 @@ DeepSeek API Key 不能放在前端代码、浏览器本地存储或公开配置
 事务内更新实体并写入统一 `outbox`。联网后由认证 Supabase RPC 原子提交，成功后再拉取服务器权威快照。
 冲突采用“最后成功写入服务器者为准”，不使用设备本地时钟，也不保留逐条修改历史。
 
+业务 Repository 可以先读取当前用户实体来构造完整 row，但该预读不能作为最终安全判定。每次 create、update 或 delete
+必须把存在性、active 状态与版本前置条件交给本地实体仓库，并在更新实体与写入 `outbox` 的同一个 user-scoped IndexedDB
+`readwrite` 事务内重读和验证：create 只允许目标缺失；update/delete 只允许目标属于当前用户、未软删除且 `updated_at`
+仍等于业务 Repository 预读的版本。任一前置条件不符必须稳定拒绝且零写，防止并发 delete 后被陈旧 update 复活，或并发
+update 被陈旧完整 row 覆盖。用户设置以 `userId` 为稳定实体 ID，create 同样只允许缺失，已有设置必须走 update 并保留原
+`created_at`。
+
+本地实体仓库必须在验证 entity、mutation 与事务前置条件后、第一次 `await` 或打开 IndexedDB 前，对整个待写对象图执行
+同步 structured-clone 快照；实体、mutation、payload 及嵌套数组/对象随后都只使用该快照。调用方在 promise 已发起后继续
+修改共享引用，不能改变最终实体或 Outbox 内容，也不能绕过 wire validator。
+
 旧版本升级时，legacy snapshot 只作为本地 materialized cache 和完整实体基线，不能视为服务器已接收写入的证明。
 snapshot 的 `updatedAt` 仅用于格式校验和迁移审计，不能据此确认或丢弃 `pendingMutations`。迁移阶段必须把当前用户
 的每一条合法 pending 写入一对一转换进 v3 Outbox，不在落盘前做破坏性压缩。发送阶段才由 Task 7 的
