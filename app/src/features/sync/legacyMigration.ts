@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 3 as const
+export const legacyMigrationVersion = 4 as const
 
 export type LegacyMigrationCounts = {
   sourceSnapshots: number

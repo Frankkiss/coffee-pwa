@@ -1305,7 +1305,7 @@ Expected: FAIL because the migrator does not exist.
    followed by delete.
 7. Write v3 stores and completion metadata in one transaction.
 8. Leave `snapshots` and `pendingMutations` untouched.
-9. Persist and return `{ status: 'completed', migrationVersion: CURRENT_VERSION, idMap, sourcePreserved: true }`; first-release migrations only
+9. Persist and return `{ status: 'completed', migrationVersion: 4, idMap, sourcePreserved: true }`; first-release migrations only
    write the current version.
 
 Every converted legacy delete receives a fresh `createDeletePayload()` result after legacy payload validation; no legacy delete payload is

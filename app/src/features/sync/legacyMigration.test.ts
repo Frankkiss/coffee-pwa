@@ -64,7 +64,7 @@ describe('legacy offline migration', () => {
     const result = await migrateLegacyOfflineData(userOne, deviceId, 7)
 
     expect(result.status).toBe('completed')
-    expect(result).toEqual(expect.objectContaining({ migrationVersion: 3 }))
+    expect(result).toEqual(expect.objectContaining({ migrationVersion: 4 }))
     expect(result.sourcePreserved).toBe(true)
     expect(result.idMap[localBeanId]).toMatch(uuidPattern)
     expect(result.idMap[localBrewId]).toMatch(uuidPattern)
@@ -455,8 +455,8 @@ describe('legacy offline migration', () => {
 
   it.each([
     ['a missing version and compacted mutation counts', undefined, 2],
-    ['an older version and coincidentally equal mutation counts', 2, 3],
-    ['the current version but compacted mutation counts', 3, 2],
+    ['an older version and coincidentally equal mutation counts', 3, 3],
+    ['the current version but compacted mutation counts', 4, 2],
   ])('rejects completed migration metadata with %s without changing data', async (_case, migrationVersion, migratedMutations) => {
     const bean = legacyBean(userOne, cloudBeanId, 'old migration baseline')
     const pending = [
