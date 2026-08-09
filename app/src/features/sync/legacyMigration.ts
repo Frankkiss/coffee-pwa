@@ -54,7 +54,6 @@ type LegacySnapshot = {
   key: 'beans' | 'brewLogs'
   userId: string
   updatedAt: string
-  updatedAtInstant: bigint
   rows: unknown[]
 }
 
@@ -377,10 +376,9 @@ function prepareMigration(
       return instantOrder || left.id.localeCompare(right.id)
     })
 
-  const timeline = selectMigrationTimeline(snapshots, pending)
   const entities = buildMigratedEntities(
     snapshots,
-    timeline.appliedMutations,
+    pending,
     userId,
     idMap,
   )
@@ -391,7 +389,7 @@ function prepareMigration(
     ),
   )
   const generatedMutationIds = new Set<string>()
-  const convertedMutations = timeline.outboxMutations.map((mutation, index) => {
+  const convertedMutations = pending.map((mutation, index) => {
     const entity = entities.get(entityLookupKey(mutation.entity, mutation.entityId))
     if (mutation.action !== 'delete' && entity === undefined) {
       throw new LegacyMigrationError(
@@ -562,56 +560,6 @@ function buildMigratedEntities(
     }
   }
   return entities
-}
-
-function selectMigrationTimeline(
-  snapshots: LegacySnapshot[],
-  pending: ParsedLegacyMutation[],
-) {
-  const snapshotCapturedAtByEntityType = new Map<LegacyEntityType, bigint>()
-  for (const snapshot of snapshots) {
-    snapshotCapturedAtByEntityType.set(
-      snapshot.key === 'beans' ? 'bean' : 'brewLog',
-      snapshot.updatedAtInstant,
-    )
-  }
-
-  const appliedMutations: ParsedLegacyMutation[] = []
-  const coveredLocalCreateByEntity = new Map<string, ParsedLegacyMutation>()
-  for (const mutation of pending) {
-    const capturedAt = snapshotCapturedAtByEntityType.get(mutation.entity)
-    if (capturedAt !== undefined && capturedAt > mutation.createdAtInstant) {
-      if (
-        mutation.action === 'create' &&
-        isRecognizedLocalId(mutation.entityId)
-      ) {
-        coveredLocalCreateByEntity.set(
-          entityLookupKey(mutation.entity, mutation.entityId),
-          mutation,
-        )
-      }
-      continue
-    }
-    appliedMutations.push(mutation)
-  }
-
-  const retainedCoveredCreates = new Set<ParsedLegacyMutation>()
-  for (const [key, coveredCreate] of coveredLocalCreateByEntity) {
-    const entityMutations = appliedMutations.filter(
-      (mutation) =>
-        entityLookupKey(mutation.entity, mutation.entityId) === key,
-    )
-    if (entityMutations.at(-1)?.action === 'delete') {
-      retainedCoveredCreates.add(coveredCreate)
-    }
-  }
-  const appliedSet = new Set(appliedMutations)
-  const outboxMutations = pending.filter(
-    (mutation) =>
-      appliedSet.has(mutation) || retainedCoveredCreates.has(mutation),
-  )
-
-  return { appliedMutations, outboxMutations }
 }
 
 function reconstructEntityFromCreate(
@@ -867,10 +815,6 @@ function readOwnedSnapshot(
     key,
     userId,
     updatedAt: canonicalTime(raw.updatedAt, `legacy ${key} snapshot updatedAt`),
-    updatedAtInstant: canonicalInstantNanoseconds(
-      raw.updatedAt,
-      `legacy ${key} snapshot updatedAt`,
-    ),
     rows,
   }
 }

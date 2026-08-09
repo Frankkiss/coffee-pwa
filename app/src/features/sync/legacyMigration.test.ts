@@ -38,7 +38,7 @@ describe('legacy offline migration', () => {
         id: localBeanId,
       }),
       legacyMutation('update-bean', userOne, 'bean', 'update', localBeanId, {
-        name: 'partial update must not replace snapshot',
+        name: 'snapshot final',
       }, '2026-08-08T10:00:01.000Z'),
       legacyMutation('create-brew', userOne, 'brewLog', 'create', localBrewId, {
         ...brewCreatePayload(userOne, localBeanId),
@@ -189,7 +189,7 @@ describe('legacy offline migration', () => {
     ])
   })
 
-  it('does not replay an older pending update over a newer snapshot', async () => {
+  it('retains an update queued before the cache stored its resulting row', async () => {
     const bean = legacyBean(userOne, localBeanId, 'snapshot already updated')
     await seedVersionTwoDatabase([
       [
@@ -203,7 +203,7 @@ describe('legacy offline migration', () => {
         'bean',
         'update',
         localBeanId,
-        { name: 'stale pending payload' },
+        { name: 'snapshot already updated' },
         '2026-08-08T10:00:00.000001Z',
       ),
     ])
@@ -213,7 +213,17 @@ describe('legacy offline migration', () => {
     expect(await listLocalEntities('beans', userOne)).toEqual([
       expect.objectContaining({ name: 'snapshot already updated' }),
     ])
-    expect(await listOutbox(userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({
+        operation: 'upsert',
+        payload: expect.objectContaining({
+          name: 'snapshot already updated',
+          bean_type: 'single_origin',
+          blend_components: [],
+          schema_version: 1,
+        }),
+      }),
+    ])
   })
 
   it('prefers a pending update when snapshot and mutation timestamps are equal', async () => {
@@ -246,12 +256,11 @@ describe('legacy offline migration', () => {
     ])
   })
 
-  it('keeps a newer active snapshot unchanged by an older delete', async () => {
-    const bean = legacyBean(userOne, cloudBeanId, 'active snapshot wins')
+  it('retains a delete queued before the cache removed its row', async () => {
     await seedVersionTwoDatabase([
       [
         'beans',
-        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000002Z'),
+        legacySnapshot(userOne, [], '2026-08-08T10:00:00.000002Z'),
       ],
     ], [
       legacyMutation(
@@ -267,36 +276,82 @@ describe('legacy offline migration', () => {
 
     await migrateLegacyOfflineData(userOne, deviceId, 1)
 
-    expect(await listLocalEntities('beans', userOne)).toEqual([
+    expect(await listLocalEntities('beans', userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([
       expect.objectContaining({
-        name: 'active snapshot wins',
-        deleted_at: null,
+        operation: 'delete',
+        entityId: cloudBeanId,
+        payload: {},
       }),
     ])
-    expect(await listOutbox(userOne)).toEqual([])
   })
 
-  it('keeps a newer tombstone unchanged by an older update', async () => {
-    const deletedAt = '2026-08-08T10:00:00.000002Z'
-    const bean = {
-      ...legacyBean(userOne, cloudBeanId, 'newer tombstone'),
-      updated_at: deletedAt,
-      deleted_at: deletedAt,
-    }
+  it('retains a create queued before the cache stored its resulting row', async () => {
+    const bean = legacyBean(userOne, localBeanId, 'created offline')
     await seedVersionTwoDatabase([
       [
         'beans',
-        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000003Z'),
+        legacySnapshot(userOne, [bean], '2026-08-08T10:00:00.000002Z'),
       ],
     ], [
       legacyMutation(
-        'older-update',
+        'queued-create',
+        userOne,
+        'bean',
+        'create',
+        localBeanId,
+        beanCreatePayload(userOne, 'created offline'),
+        '2026-08-08T10:00:00.000001Z',
+      ),
+    ])
+
+    const result = await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({
+        id: result.idMap[localBeanId],
+        name: 'created offline',
+      }),
+    ])
+    expect(await listOutbox(userOne)).toEqual([
+      expect.objectContaining({
+        operation: 'upsert',
+        entityId: result.idMap[localBeanId],
+      }),
+    ])
+  })
+
+  it('applies every pending write before conservative upsert-delete compaction', async () => {
+    const bean = legacyBean(userOne, cloudBeanId, 'baseline')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean], '2026-08-08T10:00:04.000Z')],
+    ], [
+      legacyMutation(
+        'first-update',
         userOne,
         'bean',
         'update',
         cloudBeanId,
-        { name: 'must not revive' },
-        '2026-08-08T10:00:00.000001Z',
+        { notes: 'first pending edit' },
+        '2026-08-08T10:00:01.000Z',
+      ),
+      legacyMutation(
+        'second-update',
+        userOne,
+        'bean',
+        'update',
+        cloudBeanId,
+        { name: 'final pending name' },
+        '2026-08-08T10:00:02.000Z',
+      ),
+      legacyMutation(
+        'final-delete',
+        userOne,
+        'bean',
+        'delete',
+        cloudBeanId,
+        undefined,
+        '2026-08-08T10:00:03.000Z',
       ),
     ])
 
@@ -304,11 +359,22 @@ describe('legacy offline migration', () => {
 
     expect(await listLocalEntities('beans', userOne)).toEqual([
       expect.objectContaining({
-        name: 'newer tombstone',
-        deleted_at: '2026-08-08T10:00:00.000Z',
+        name: 'final pending name',
+        notes: 'first pending edit',
+        deleted_at: '2026-08-08T10:00:03.000Z',
       }),
     ])
-    expect(await listOutbox(userOne)).toEqual([])
+    const outbox = await listOutbox(userOne)
+    expect(outbox.map((mutation) => mutation.operation)).toEqual([
+      'upsert',
+      'delete',
+    ])
+    expect(outbox[0]?.payload).toEqual(expect.objectContaining({
+      name: 'final pending name',
+      notes: 'first pending edit',
+      bean_type: 'single_origin',
+      schema_version: 1,
+    }))
   })
 
   it('applies an equal-time delete over an active snapshot', async () => {
