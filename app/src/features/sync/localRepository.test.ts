@@ -31,6 +31,7 @@ import {
   quarantineOlderEpoch,
   readSyncEpoch,
   recordRetryableFailure,
+  releaseLegacyCreateChain,
   replaceServerSnapshot,
   saveLocalEntity,
   StaleLocalSnapshotError,
@@ -574,6 +575,25 @@ describe('localRepository Outbox isolation and state transitions', () => {
     ).rejects.toBeInstanceOf(LocalSyncMutationNotFoundError)
 
     expect(await getOutboxMutation(other.mutationId)).toEqual(other)
+  })
+
+  it('recovers an interrupted syncing row to pending for the next cycle', async () => {
+    const syncing = createBeanDeleteMutation(
+      userOne,
+      'bean-1',
+      'mutation-syncing',
+      { status: 'syncing', attemptCount: 1 },
+    )
+    await putOutbox(syncing)
+
+    await markMutationPending(userOne, syncing.mutationId)
+
+    expect(await getOutboxMutation(syncing.mutationId)).toMatchObject({
+      status: 'pending',
+      attemptCount: 1,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    })
   })
 
   it('acknowledges only exact owned envelopes', async () => {
@@ -1173,6 +1193,96 @@ describe('localRepository server snapshots and sync metadata', () => {
       }),
     ).rejects.toThrow('last synced')
     expect(await readSyncEpoch(userOne)).toBe(4)
+  })
+})
+
+describe('localRepository legacy create confirmation', () => {
+  beforeEach(async () => {
+    await deleteTestDatabase(syncDatabaseName)
+  })
+
+  afterEach(async () => {
+    await deleteTestDatabase(syncDatabaseName)
+  })
+
+  it('atomically releases the full bean chain and every referencing brew chain at the current epoch', async () => {
+    const attention = {
+      status: 'needs_attention' as const,
+      lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION',
+      lastErrorMessage: 'confirm',
+    }
+    const bean = createBean(userOne, 'local-bean-1', 'legacy')
+    const beanCreate = createBeanUpsertMutation(bean, 'bean-create', attention)
+    const beanDelete = createBeanDeleteMutation(userOne, bean.id, 'bean-delete', attention)
+    const brew = createBrewLog(userOne, 'local-brew-1')
+    brew.bean_id = bean.id
+    const brewCreate = createRawUpsertMutation(
+      userOne,
+      brew.id,
+      'brewLog',
+      'brew-create',
+      omitFields(brew, ['id', 'user_id', 'created_at', 'updated_at', 'deleted_at']),
+    )
+    Object.assign(brewCreate, attention)
+    const brewDelete = {
+      ...brewCreate,
+      mutationId: 'brew-delete',
+      operation: 'delete' as const,
+      payload: createDeletePayload(),
+    } as SyncMutation
+    const unrelated = createBeanDeleteMutation(userOne, 'other-bean', 'unrelated', attention)
+    for (const item of [beanCreate, beanDelete, brewCreate, brewDelete, unrelated]) await putOutbox(item)
+
+    await releaseLegacyCreateChain(userOne, 'brew-delete', [
+      'bean-create', 'bean-delete', 'brew-create', 'brew-delete',
+    ], 9)
+
+    const rows = await listOutbox(userOne)
+    for (const id of ['bean-create', 'bean-delete', 'brew-create', 'brew-delete']) {
+      expect(rows.find((row) => row.mutationId === id)).toMatchObject({
+        status: 'pending', baseSyncEpoch: 9,
+        lastErrorCode: null, lastErrorMessage: null,
+      })
+    }
+    expect(rows.find((row) => row.mutationId === 'unrelated')).toMatchObject(attention)
+  })
+
+  it('rejects concurrent chain or status changes without modifying any row', async () => {
+    const attention = {
+      status: 'needs_attention' as const,
+      lastErrorCode: 'LEGACY_CREATE_REQUIRES_CONFIRMATION',
+      lastErrorMessage: 'confirm',
+    }
+    const bean = createBean(userOne, 'local-bean-1', 'legacy')
+    const first = createBeanUpsertMutation(bean, 'bean-create', attention)
+    const changed = createBeanDeleteMutation(userOne, bean.id, 'bean-delete', {
+      ...attention,
+      status: 'pending',
+    })
+    await putOutbox(first)
+    await putOutbox(changed)
+
+    await expect(releaseLegacyCreateChain(
+      userOne,
+      'bean-create',
+      ['bean-create', 'bean-delete'],
+      4,
+    )).rejects.toMatchObject({ code: 'LEGACY_CREATE_CHAIN_CHANGED' })
+    expect(await listOutbox(userOne)).toEqual([first, changed])
+
+    await markMutationAttention(
+      userOne,
+      ['bean-delete'],
+      'LEGACY_CREATE_REQUIRES_CONFIRMATION',
+      'confirm',
+    )
+    await expect(releaseLegacyCreateChain(
+      userOne,
+      'bean-create',
+      ['bean-create'],
+      4,
+    )).rejects.toMatchObject({ code: 'LEGACY_CREATE_CHAIN_CHANGED' })
+    expect((await listOutbox(userOne)).every((row) => row.baseSyncEpoch === 1)).toBe(true)
   })
 })
 

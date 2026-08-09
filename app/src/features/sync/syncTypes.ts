@@ -131,6 +131,11 @@ export type ApplySyncResult = {
   serverTime: string
   results: Array<{
     mutationId: string
+    deviceId: string
+    entityType: SyncEntityType
+    entityId: string
+    operation: SyncOperation
+    committedAt: string
     status: 'applied' | 'duplicate'
   }>
 }
@@ -155,6 +160,12 @@ export type SyncStorage = {
     message: string,
   ): Promise<void>
   markMutationPending(userId: string, mutationId: string): Promise<void>
+  releaseLegacyCreateChain(
+    userId: string,
+    mutationId: string,
+    expectedMutationIds: string[],
+    currentEpoch: number,
+  ): Promise<void>
   discardMutationAndReplaceSnapshot(
     userId: string,
     mutationId: string,

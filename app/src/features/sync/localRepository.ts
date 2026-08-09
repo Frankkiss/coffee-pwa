@@ -50,6 +50,7 @@ export type LocalRepositoryTestOperation =
   | 'recordRetryableFailure'
   | 'markMutationAttention'
   | 'markMutationPending'
+  | 'releaseLegacyCreateChain'
   | 'discardMutationAndReplaceSnapshot'
   | 'quarantineOlderEpoch'
   | 'replaceServerSnapshot'
@@ -124,6 +125,15 @@ export class LocalSyncMutationNotFoundError extends Error {
   constructor(message = 'Owned local sync mutation was not found') {
     super(message)
     this.name = 'LocalSyncMutationNotFoundError'
+  }
+}
+
+export class LegacyCreateChainChangedError extends Error {
+  readonly code = 'LEGACY_CREATE_CHAIN_CHANGED'
+
+  constructor(message = 'Legacy create confirmation chain changed') {
+    super(message)
+    this.name = 'LegacyCreateChainChangedError'
   }
 }
 
@@ -217,6 +227,18 @@ export function createLocalRepository(
     ),
     markMutationPending: (userId: string, mutationId: string) =>
       markMutationPendingWithOptions(userId, mutationId, testOptions),
+    releaseLegacyCreateChain: (
+      userId: string,
+      mutationId: string,
+      expectedMutationIds: string[],
+      currentEpoch: number,
+    ) => releaseLegacyCreateChainWithOptions(
+      userId,
+      mutationId,
+      expectedMutationIds,
+      currentEpoch,
+      testOptions,
+    ),
     discardMutationAndReplaceSnapshot: (
       userId: string,
       mutationId: string,
@@ -374,6 +396,21 @@ export function markMutationAttention(
 
 export function markMutationPending(userId: string, mutationId: string) {
   return markMutationPendingWithOptions(userId, mutationId, defaultOptions)
+}
+
+export function releaseLegacyCreateChain(
+  userId: string,
+  mutationId: string,
+  expectedMutationIds: string[],
+  currentEpoch: number,
+) {
+  return releaseLegacyCreateChainWithOptions(
+    userId,
+    mutationId,
+    expectedMutationIds,
+    currentEpoch,
+    defaultOptions,
+  )
 }
 
 /** Accepts only a SyncSnapshot already fully validated by the Task 9 RPC boundary. */
@@ -659,7 +696,7 @@ function markMutationPendingWithOptions(
     [mutationId],
     'markMutationPending',
     (mutation) =>
-      mutation.status === 'needs_attention'
+      mutation.status === 'needs_attention' || mutation.status === 'syncing'
         ? {
             ...mutation,
             status: 'pending',
@@ -669,6 +706,129 @@ function markMutationPendingWithOptions(
         : null,
     options,
   )
+}
+
+async function releaseLegacyCreateChainWithOptions(
+  userId: string,
+  mutationId: string,
+  expectedMutationIds: string[],
+  currentEpoch: number,
+  options: LocalRepositoryTestOptions,
+) {
+  assertPositiveEpoch(currentEpoch)
+  const expected = [...new Set(expectedMutationIds)]
+  if (
+    expected.length !== expectedMutationIds.length ||
+    !expected.includes(mutationId)
+  ) {
+    throw new LegacyCreateChainChangedError()
+  }
+
+  await withDatabase((database) => {
+    const transaction = database.transaction(syncStoreNames.outbox, 'readwrite')
+    return waitForTransaction(transaction, (abort) => {
+      const store = transaction.objectStore(syncStoreNames.outbox)
+      const request = store.getAll()
+      request.onsuccess = () => {
+        try {
+          const mutations = (request.result as unknown[])
+            .map((row) => readOutboxEnvelope(row, userId))
+            .filter((row): row is StoredEnvelope<SyncMutation> => row !== null)
+          const target = mutations.find(
+            (row) => row.value.mutationId === mutationId,
+          )?.value
+          if (!target) throw new LegacyCreateChainChangedError()
+
+          let rootEntityType = target.entityType
+          let rootEntityId = target.entityId
+          if (target.entityType === 'brewLog') {
+            const rootBrewUpsert = mutations.find(
+              (row) => row.value.entityType === 'brewLog' &&
+                row.value.entityId === target.entityId &&
+                row.value.operation === 'upsert',
+            )?.value
+            const referencedBean = rootBrewUpsert
+              ? readReferencedBeanId(rootBrewUpsert)
+              : null
+            if (
+              referencedBean !== null &&
+              mutations.some((row) =>
+                row.value.entityType === 'bean' &&
+                row.value.entityId === referencedBean,
+              )
+            ) {
+              rootEntityType = 'bean'
+              rootEntityId = referencedBean
+            }
+          }
+          const relatedEntityKeys = new Set([
+            JSON.stringify([rootEntityType, rootEntityId]),
+          ])
+          if (rootEntityType === 'bean') {
+            for (const row of mutations) {
+              if (
+                row.value.entityType === 'brewLog' &&
+                row.value.operation === 'upsert' &&
+                readReferencedBeanId(row.value) === rootEntityId
+              ) {
+                relatedEntityKeys.add(
+                  JSON.stringify([row.value.entityType, row.value.entityId]),
+                )
+              }
+            }
+          }
+          const chain = mutations.filter((row) =>
+            relatedEntityKeys.has(
+              JSON.stringify([row.value.entityType, row.value.entityId]),
+            ),
+          )
+          const actualIds = chain.map((row) => row.value.mutationId)
+          if (!sameStringSet(actualIds, expected)) {
+            throw new LegacyCreateChainChangedError()
+          }
+          if (!chain.some((row) => row.value.operation === 'upsert')) {
+            throw new LegacyCreateChainChangedError()
+          }
+          for (const row of chain) {
+            if (
+              row.value.status !== 'needs_attention' ||
+              row.value.lastErrorCode !== 'LEGACY_CREATE_REQUIRES_CONFIRMATION'
+            ) {
+              throw new LegacyCreateChainChangedError()
+            }
+          }
+          for (const envelope of chain) {
+            store.put({
+              ...envelope,
+              value: {
+                ...envelope.value,
+                baseSyncEpoch: currentEpoch,
+                status: 'pending',
+                lastErrorCode: null,
+                lastErrorMessage: null,
+              },
+            } satisfies StoredEnvelope<SyncMutation>)
+          }
+          options.beforeCommit?.('releaseLegacyCreateChain')
+        } catch (error) {
+          abort(error)
+        }
+      }
+    })
+  })
+}
+
+function readReferencedBeanId(mutation: SyncMutation): string | null {
+  if (mutation.entityType !== 'brewLog' || mutation.operation !== 'upsert') {
+    return null
+  }
+  const payload = mutation.payload as Record<string, unknown>
+  return typeof payload.bean_id === 'string' ? payload.bean_id : null
+}
+
+function sameStringSet(left: string[], right: string[]) {
+  return left.length === right.length &&
+    left.every((value) => right.includes(value))
 }
 
 async function quarantineOlderEpochWithOptions(
