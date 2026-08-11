@@ -71,6 +71,25 @@ describe('beanRepository', () => {
     expect(getSyncEpoch).toHaveBeenCalledOnce()
   })
 
+  it('subscribes only to current-user bean changes and stops idempotently', async () => {
+    const local = createLocalRepository()
+    const repository = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(firstNow),
+    })
+    const changes: string[] = []
+    const unsubscribe = repository.subscribe(() => changes.push('bean'))
+    await repository.createBean(beanInput)
+    await createBeanRepository(local, {
+      userId: otherUserId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(firstNow),
+    }).createBean(beanInput)
+    expect(changes).toEqual(['bean'])
+
+    unsubscribe()
+    unsubscribe()
+    await repository.createBean({ ...beanInput, name: 'after unsubscribe' })
+    expect(changes).toEqual(['bean'])
+  })
+
   it('updates only an active current-user row and preserves its server fields', async () => {
     const local = createLocalRepository()
     let now = firstNow

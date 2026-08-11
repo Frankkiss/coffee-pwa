@@ -127,6 +127,7 @@ function SessionSyncProvider({
     if (suspensionController.isSuspended()) return
     let current = true
     let unsubscribeState: (() => void) | null = null
+    let unsubscribeEntityChanges: Array<() => void> = []
     const localRepository = createLocalRepository()
     const migrationController = new AbortController()
     let deviceId = ''
@@ -170,6 +171,10 @@ function SessionSyncProvider({
           now: () => new Date(),
         }
         const nextRepositories = createRepositories(localRepository, repositoryContext)
+        unsubscribeEntityChanges = [
+          nextRepositories.beans.subscribe(() => void refreshOutbox()),
+          nextRepositories.brewLogs.subscribe(() => void refreshOutbox()),
+        ]
         const manager = createSyncManager({
           userId,
           deviceId,
@@ -212,6 +217,8 @@ function SessionSyncProvider({
       current = false
       unsubscribeState?.()
       unsubscribeState = null
+      unsubscribeEntityChanges.forEach((unsubscribe) => unsubscribe())
+      unsubscribeEntityChanges = []
       generation.stop()
       managerRef.current = null
     }
@@ -285,6 +292,10 @@ export function useSyncRuntime() {
     throw new Error('useSyncRuntime 必须在已认证的 SyncProvider 内使用。')
   }
   return value
+}
+
+export function useOptionalSyncRuntime() {
+  return useContext(SyncRuntimeContext)
 }
 
 function createRepositories(

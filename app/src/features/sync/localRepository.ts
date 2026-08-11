@@ -69,6 +69,11 @@ export type LocalRepositoryTestOptions = {
 }
 
 export type LocalRepository = SyncStorage & {
+  subscribeEntityChanges(
+    userId: string,
+    storeName: LocalEntityStoreName,
+    listener: () => void,
+  ): () => void
   saveLocalEntity<Store extends MutableEntityStoreName>(
     storeName: Store,
     userId: string,
@@ -201,7 +206,38 @@ const defaultOptions: LocalRepositoryTestOptions = {}
 export function createLocalRepository(
   testOptions: LocalRepositoryTestOptions = {},
 ): LocalRepository {
+  const entityListeners = new Set<{
+    userId: string
+    storeName: LocalEntityStoreName
+    listener: () => void
+  }>()
+  const notifyEntityChange = (userId: string, storeName: LocalEntityStoreName) => {
+    for (const subscription of entityListeners) {
+      if (subscription.userId === userId && subscription.storeName === storeName) {
+        try {
+          subscription.listener()
+        } catch {
+          continue
+        }
+      }
+    }
+  }
+  const notifySnapshotChange = (userId: string) => {
+    for (const storeName of entityStoreNames) notifyEntityChange(userId, storeName)
+  }
+
   return {
+    subscribeEntityChanges(userId, storeName, listener) {
+      assertEntityStoreName(storeName)
+      const subscription = { userId, storeName, listener }
+      entityListeners.add(subscription)
+      let active = true
+      return () => {
+        if (!active) return
+        active = false
+        entityListeners.delete(subscription)
+      }
+    },
     saveLocalEntity: <Store extends MutableEntityStoreName>(
       storeName: Store,
       userId: string,
@@ -209,13 +245,8 @@ export function createLocalRepository(
       mutation: UpsertMutationForStore<Store>,
       precondition?: LocalEntityWritePrecondition,
     ) => saveLocalEntityWithOptions(
-      storeName,
-      userId,
-      entity,
-      mutation,
-      testOptions,
-      precondition,
-    ),
+      storeName, userId, entity, mutation, testOptions, precondition,
+    ).then(() => notifyEntityChange(userId, storeName)),
     softDeleteLocalEntity: <Store extends DeletableEntityStoreName>(
       storeName: Store,
       userId: string,
@@ -224,17 +255,15 @@ export function createLocalRepository(
       deletedAt?: string,
       precondition?: LocalEntityWritePrecondition,
     ) => softDeleteLocalEntityWithOptions(
-      storeName,
-      userId,
-      entity,
-      mutation,
-      testOptions,
-      deletedAt,
-      precondition,
-    ),
+      storeName, userId, entity, mutation, testOptions, deletedAt, precondition,
+    ).then((result) => {
+      notifyEntityChange(userId, storeName)
+      return result
+    }),
     listLocalEntities,
     replaceServerSnapshot: (userId: string, snapshot: SyncSnapshot) =>
-      replaceServerSnapshotWithOptions(userId, snapshot, testOptions),
+      replaceServerSnapshotWithOptions(userId, snapshot, testOptions)
+        .then(() => notifySnapshotChange(userId)),
     listOutbox,
     acknowledgeMutations: (userId: string, mutationIds: string[]) =>
       acknowledgeMutationsWithOptions(userId, mutationIds, testOptions),
@@ -243,11 +272,8 @@ export function createLocalRepository(
       mutationIds: string[],
       snapshot: SyncSnapshot,
     ) => acknowledgeMutationsAndReplaceSnapshotWithOptions(
-      userId,
-      mutationIds,
-      snapshot,
-      testOptions,
-    ),
+      userId, mutationIds, snapshot, testOptions,
+    ).then(() => notifySnapshotChange(userId)),
     markMutationsSyncing: (userId: string, mutationIds: string[]) =>
       markMutationsSyncingWithOptions(userId, mutationIds, testOptions),
     recordRetryableFailure: (
@@ -293,11 +319,8 @@ export function createLocalRepository(
       mutationId: string,
       snapshot: SyncSnapshot,
     ) => discardMutationAndReplaceSnapshotWithOptions(
-      userId,
-      mutationId,
-      snapshot,
-      testOptions,
-    ),
+      userId, mutationId, snapshot, testOptions,
+    ).then(() => notifySnapshotChange(userId)),
     quarantineOlderEpoch: (
       userId: string,
       currentEpoch: number,

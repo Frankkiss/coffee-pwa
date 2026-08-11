@@ -25,6 +25,9 @@ export function createBeanRepository(
   context: RepositoryContext,
 ) {
   return {
+    subscribe(listener: () => void) {
+      return localRepository.subscribeEntityChanges(context.userId, 'beans', listener)
+    },
     async listBeans() {
       return listActiveLocalEntities(localRepository, 'beans', context.userId)
     },

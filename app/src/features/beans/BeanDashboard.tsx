@@ -1,34 +1,20 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import type { BrewLog } from '../brews/brewTypes'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
-import { listBrewLogs } from '../brews/brewLogService'
-import {
-  buildOfflineCacheSnapshot,
-  readOfflineCache,
-  writeOfflineCache,
-} from '../offline/offlineCache'
-import {
-  createOfflinePendingMutation,
-  enqueueOfflineMutation,
-  isOfflineWriteFailure,
-  markOfflineMutationFailed,
-  readOfflineMutations,
-  removeOfflineMutation,
-} from '../offline/offlineQueue'
 import { SourceImportPanel } from '../sourceImports/SourceImportPanel'
+import { useOptionalSyncRuntime } from '../sync/SyncContext'
+import { filterBrewLogsForBean, getEntitySyncBadge } from '../sync/entitySyncPresentation'
 import { filterBeans } from './beanFilters'
 import {
   createBeanFormFromBean,
   createInitialBeanForm,
-  toBeanInsertPayload,
   toBeanUpdatePayload,
 } from './beanForm'
-import { createBean, listBeans, softDeleteBean, updateBean } from './beanService'
 import { BeanDetailPanel } from './BeanDetailPanel'
 import { BlendComponentEditor } from './BlendComponentEditor'
 import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from './beanOptions'
-import type { Bean, BeanFilters, BeanForm, BeanInsertPayload, BeanUpdatePayload } from './beanTypes'
+import type { Bean, BeanFilters, BeanForm } from './beanTypes'
 import './beans.css'
 
 type BeanDashboardProps = {
@@ -39,15 +25,15 @@ type BeanDashboardProps = {
     brewLogs: BrewLog[]
   }
 }
-
 type BeanSectionKey = 'sourceImport' | 'beanForm' | 'beanList' | 'brewLogs'
 
 export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardProps) {
   const isPreview = Boolean(previewRows)
+  const runtime = useOptionalSyncRuntime()
+  const beanRepository = runtime?.repositories?.beans ?? null
+  const brewLogRepository = runtime?.repositories?.brewLogs ?? null
   const [beans, setBeans] = useState<Bean[]>(() => previewRows?.beans ?? [])
-  const [detailBrewLogs, setDetailBrewLogs] = useState<BrewLog[]>(
-    () => previewRows?.brewLogs ?? [],
-  )
+  const [brewLogs, setBrewLogs] = useState<BrewLog[]>(() => previewRows?.brewLogs ?? [])
   const [form, setForm] = useState<BeanForm>(() => createInitialBeanForm())
   const [filters, setFilters] = useState<BeanFilters>({
     search: '',
@@ -56,7 +42,6 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
   })
   const [editingBeanId, setEditingBeanId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(!previewRows)
-  const [isBrewSummaryStale, setIsBrewSummaryStale] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [status, setStatus] = useState(
@@ -74,147 +59,61 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
   const selectedBean = selectedBeanId
     ? beans.find((bean) => bean.id === selectedBeanId) ?? null
     : null
-  const handleDetailBrewLogsChange = useCallback((logs: BrewLog[]) => {
-    setDetailBrewLogs(logs)
-    setIsBrewSummaryStale(false)
-  }, [])
 
-  const syncPendingBeanMutations = useCallback(async () => {
-    const mutations = await readOfflineMutations(session.user.id, 'bean')
-
-    if (mutations.length === 0) {
-      return false
-    }
-
-    let didSync = false
-
-    for (const mutation of mutations) {
-      try {
-        if (mutation.action === 'create') {
-          await createBean(supabase, mutation.payload as BeanInsertPayload)
-        } else if (mutation.action === 'update' && mutation.entityId) {
-          await updateBean(supabase, mutation.entityId, mutation.payload as BeanUpdatePayload)
-        } else if (mutation.action === 'delete' && mutation.entityId) {
-          await softDeleteBean(supabase, mutation.entityId)
-        }
-
-        await removeOfflineMutation(mutation.id)
-        didSync = true
-      } catch (err) {
-        await markOfflineMutationFailed(mutation.id, err)
-        throw err
-      }
-    }
-
-    return didSync
-  }, [session.user.id, supabase])
   useEffect(() => {
-    if (previewRows) {
-      return
-    }
-
-    let isMounted = true
-
-    async function loadBeans() {
+    if (!beanRepository) return
+    let current = true
+    let loadGeneration = 0
+    const loadBeans = async () => {
+      const generation = ++loadGeneration
       setIsLoading(true)
-      setError('')
-
       try {
-        await syncPendingBeanMutations()
-        const nextBeans = await listBeans(supabase)
-        if (isMounted) {
-          setBeans(nextBeans)
-          setStatus('')
-        }
-        await writeOfflineCache(
-          'beans',
-          buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-        )
+        const nextBeans = await beanRepository.listBeans()
+        if (current && generation === loadGeneration) setBeans(nextBeans)
       } catch (err) {
-        const cachedBeans = await readOfflineCache<Bean>('beans', session.user.id)
-
-        if (isMounted) {
-          if (cachedBeans) {
-            setBeans(cachedBeans)
-            setStatus('正在显示本机缓存的豆仓数据，新增和编辑仍需要联网。')
-          } else {
-            setError(err instanceof Error ? err.message : '读取豆仓失败')
-          }
+        if (current && generation === loadGeneration) {
+          setError(err instanceof Error ? err.message : '读取豆仓失败')
         }
       } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
+        if (current && generation === loadGeneration) setIsLoading(false)
       }
     }
-
-    loadBeans()
-
+    void loadBeans()
+    const unsubscribe = beanRepository.subscribe(() => void loadBeans())
     return () => {
-      isMounted = false
+      current = false
+      loadGeneration += 1
+      unsubscribe()
     }
-  }, [previewRows, session.user.id, supabase, syncPendingBeanMutations])
+  }, [beanRepository])
 
   useEffect(() => {
-    if (previewRows) {
-      return
-    }
-
-    function handleOnline() {
-      void syncPendingBeanMutations()
-        .then(async (didSync) => {
-          if (!didSync) {
-            return
-          }
-
-          const nextBeans = await listBeans(supabase)
-          setBeans(nextBeans)
-          await writeOfflineCache(
-            'beans',
-            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-          )
-          setStatus('本机待同步豆仓已提交到云端。')
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : '同步豆仓待提交数据失败')
-        })
-    }
-
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [previewRows, session.user.id, supabase, syncPendingBeanMutations])
-
-  useEffect(() => {
-    if (previewRows) {
-      return
-    }
-
-    let isMounted = true
-
-    async function loadDetailBrewLogs() {
+    if (!brewLogRepository) return
+    let current = true
+    let loadGeneration = 0
+    const loadBrewLogs = async () => {
+      const generation = ++loadGeneration
       try {
-        const logs = await listBrewLogs(supabase)
-
-        if (isMounted) {
-          setDetailBrewLogs(logs)
-          setIsBrewSummaryStale(false)
-        }
-      } catch {
-        const cachedLogs = await readOfflineCache<BrewLog>('brewLogs', session.user.id)
-
-        if (isMounted) {
-          setDetailBrewLogs(cachedLogs ?? [])
-          setIsBrewSummaryStale(!cachedLogs)
+        const logs = await brewLogRepository.listBrewLogs()
+        if (current && generation === loadGeneration) setBrewLogs(logs)
+      } catch (err) {
+        if (current && generation === loadGeneration) {
+          setError(err instanceof Error ? err.message : '读取冲煮记录失败')
         }
       }
     }
-
-    loadDetailBrewLogs()
-
+    void loadBrewLogs()
+    const unsubscribe = brewLogRepository.subscribe(() => void loadBrewLogs())
     return () => {
-      isMounted = false
+      current = false
+      loadGeneration += 1
+      unsubscribe()
     }
-  }, [previewRows, session.user.id, supabase])
+  }, [brewLogRepository])
+
+  function accelerateSync() {
+    if (runtime) void runtime.run().catch(() => undefined)
+  }
   function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -246,86 +145,20 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     setIsSaving(true)
 
     try {
+      if (!beanRepository) throw new Error('本地豆仓仍在初始化，请稍后再试。')
+      const payload = toBeanUpdatePayload(form)
       if (editingBeanId) {
-        const payload = toBeanUpdatePayload(form)
-        const bean = await updateBean(supabase, editingBeanId, payload)
-        setBeans((current) =>
-          current.map((currentBean) => (currentBean.id === bean.id ? bean : currentBean)),
-        )
+        await beanRepository.updateBean(editingBeanId, payload)
         setEditingBeanId(null)
-        setStatus('咖啡豆已更新。')
+        setStatus('咖啡豆已更新，正在等待同步。')
       } else {
-        const payload = toBeanInsertPayload(form, session.user.id)
-        const bean = await createBean(supabase, payload)
-        setBeans((current) => [bean, ...current])
-        setStatus('咖啡豆已保存到云端。')
+        await beanRepository.createBean(payload)
+        setStatus('咖啡豆已保存，正在等待同步。')
       }
-
       setForm(createInitialBeanForm())
+      accelerateSync()
     } catch (err) {
-      if (!isOfflineWriteFailure(err)) {
-        setError(err instanceof Error ? err.message : '保存咖啡豆失败')
-        return
-      }
-
-      try {
-        if (editingBeanId) {
-          const payload = toBeanUpdatePayload(form)
-
-          if (isLocalId(editingBeanId, 'bean')) {
-            await mergeIntoPendingCreate(session.user.id, 'bean', editingBeanId, payload)
-          } else {
-            await enqueueOfflineMutation(
-              createOfflinePendingMutation({
-                userId: session.user.id,
-                entity: 'bean',
-                action: 'update',
-                entityId: editingBeanId,
-                payload,
-              }),
-            )
-          }
-
-          setBeans((current) => {
-            const nextBeans = current.map((currentBean) =>
-              currentBean.id === editingBeanId
-                ? mergeBeanUpdate(currentBean, payload, new Date())
-                : currentBean,
-            )
-            void writeOfflineCache(
-              'beans',
-              buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-            )
-            return nextBeans
-          })
-          setEditingBeanId(null)
-        } else {
-          const payload = toBeanInsertPayload(form, session.user.id)
-          const localBean = createOptimisticBean(payload, createLocalId('bean'), new Date())
-          await enqueueOfflineMutation(
-            createOfflinePendingMutation({
-              userId: session.user.id,
-              entity: 'bean',
-              action: 'create',
-              entityId: localBean.id,
-              payload,
-            }),
-          )
-          setBeans((current) => {
-            const nextBeans = [localBean, ...current]
-            void writeOfflineCache(
-              'beans',
-              buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-            )
-            return nextBeans
-          })
-        }
-
-        setForm(createInitialBeanForm())
-        setStatus('已暂存到本机待同步队列，联网后会自动提交。')
-      } catch (queueError) {
-        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
-      }
+      setError(err instanceof Error ? err.message : '保存咖啡豆失败')
     } finally {
       setIsSaving(false)
     }
@@ -341,36 +174,9 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     setStatus('')
     setIsDeleting(true)
 
-    if (isLocalId(bean.id, 'bean')) {
-      try {
-        const mutations = await readOfflineMutations(session.user.id, 'bean')
-        await Promise.all(
-          mutations
-            .filter(
-              (mutation) => mutation.action === 'create' && mutation.entityId === bean.id,
-            )
-            .map((mutation) => removeOfflineMutation(mutation.id)),
-        )
-        setBeans((current) => {
-          const nextBeans = current.filter((currentBean) => currentBean.id !== bean.id)
-          void writeOfflineCache(
-            'beans',
-            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-          )
-          return nextBeans
-        })
-        setStatus('本机待同步新增已取消。')
-      } catch (queueError) {
-        setError(queueError instanceof Error ? queueError.message : '取消本机待同步新增失败')
-      } finally {
-        setIsDeleting(false)
-      }
-      return
-    }
-
     try {
-      await softDeleteBean(supabase, bean.id)
-      setBeans((current) => current.filter((currentBean) => currentBean.id !== bean.id))
+      if (!beanRepository) throw new Error('本地豆仓仍在初始化，请稍后再试。')
+      await beanRepository.deleteBean(bean.id)
       if (selectedBeanId === bean.id) {
         setSelectedBeanId(null)
       }
@@ -379,43 +185,10 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
         handleCancelEdit()
       }
 
-      setStatus('咖啡豆已删除。')
+      setStatus('咖啡豆已删除，正在等待同步。')
+      accelerateSync()
     } catch (err) {
-      if (!isOfflineWriteFailure(err)) {
-        setError(err instanceof Error ? err.message : '删除咖啡豆失败')
-        return
-      }
-
-      try {
-        await enqueueOfflineMutation(
-          createOfflinePendingMutation({
-            userId: session.user.id,
-            entity: 'bean',
-            action: 'delete',
-            entityId: bean.id,
-          }),
-        )
-        setBeans((current) => {
-          const nextBeans = current.filter((currentBean) => currentBean.id !== bean.id)
-          void writeOfflineCache(
-            'beans',
-            buildOfflineCacheSnapshot(nextBeans, session.user.id, new Date()),
-          )
-          return nextBeans
-        })
-
-        if (selectedBeanId === bean.id) {
-          setSelectedBeanId(null)
-        }
-
-        if (editingBeanId === bean.id) {
-          handleCancelEdit()
-        }
-
-        setStatus('删除操作已暂存到本机待同步队列，联网后会自动提交。')
-      } catch (queueError) {
-        setError(queueError instanceof Error ? queueError.message : '写入本机待同步队列失败')
-      }
+      setError(err instanceof Error ? err.message : '删除咖啡豆失败')
     } finally {
       setIsDeleting(false)
     }
@@ -440,8 +213,8 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
       {selectedBean ? (
         <BeanDetailPanel
           bean={selectedBean}
-          brewLogs={detailBrewLogs}
-          isBrewSummaryStale={isBrewSummaryStale}
+          brewLogs={filterBrewLogsForBean(brewLogs, selectedBean.id)}
+          isBrewSummaryStale={false}
           onBack={() => setSelectedBeanId(null)}
           onEdit={handleEdit}
         />
@@ -459,8 +232,9 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
                 session={session}
                 supabase={supabase}
                 onBeanCreated={(bean) => {
-                  setBeans((current) => [bean, ...current])
+                  void bean
                   setExpandedSections((current) => ({ ...current, beanList: true }))
+                  accelerateSync()
                 }}
               />
             )}
@@ -722,9 +496,16 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
                           '信息待补充'}
                       </p>
                     </div>
-                    <span className="bean-card__badge">
-                      {bean.roast_level || (bean.bean_type === 'blend' ? '拼配' : '单品')}
-                    </span>
+                    <div className="bean-card__badges">
+                      <span className="bean-card__badge">
+                        {bean.roast_level || (bean.bean_type === 'blend' ? '拼配' : '单品')}
+                      </span>
+                      {getEntitySyncBadge(runtime?.statusByEntityId[bean.id]) ? (
+                        <span className="entity-sync-badge">
+                          {getEntitySyncBadge(runtime?.statusByEntityId[bean.id])}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   {bean.flavor_tags.length > 0 ? (
                     <div className="bean-tags">
@@ -768,9 +549,7 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
             ) : (
               <BrewLogPanel
                 beans={beans}
-                session={session}
-                supabase={supabase}
-                onBrewLogsChange={handleDetailBrewLogsChange}
+                brewLogs={brewLogs}
               />
             )}
           </CollapsibleSection>
@@ -779,7 +558,6 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     </section>
   )
 }
-
 type CollapsibleSectionProps = {
   children: ReactNode
   isOpen: boolean
@@ -809,81 +587,4 @@ function CollapsibleSection({
       {isOpen ? <div className="bean-section__content">{children}</div> : null}
     </section>
   )
-}
-
-function createOptimisticBean(payload: BeanInsertPayload, id: string, now: Date): Bean {
-  const timestamp = now.toISOString()
-
-  return {
-    id,
-    user_id: payload.user_id,
-    name: payload.name,
-    roaster: payload.roaster,
-    origin: payload.origin,
-    farm_or_station: payload.farm_or_station,
-    process: payload.process,
-    variety: payload.variety,
-    altitude_meters: payload.altitude_meters,
-    roast_date: payload.roast_date,
-    roast_level: payload.roast_level,
-    flavor_tags: payload.flavor_tags,
-    flavor_notes: payload.flavor_notes,
-    net_weight_grams: payload.net_weight_grams,
-    price: payload.price,
-    purchase_date: payload.purchase_date,
-    source_url: payload.source_url,
-    image_url: null,
-    bean_type: payload.bean_type,
-    blend_components: payload.blend_components,
-    blend_notes: payload.blend_notes,
-    notes: payload.notes,
-    created_at: timestamp,
-    updated_at: timestamp,
-    deleted_at: null,
-    schema_version: 1,
-  }
-}
-
-function mergeBeanUpdate(bean: Bean, payload: BeanUpdatePayload, now: Date): Bean {
-  return {
-    ...bean,
-    ...payload,
-    updated_at: now.toISOString(),
-  }
-}
-
-async function mergeIntoPendingCreate(
-  userId: string,
-  entity: 'bean',
-  entityId: string,
-  payload: BeanUpdatePayload,
-) {
-  const mutations = await readOfflineMutations(userId, entity)
-  const createMutation = mutations.find(
-    (mutation) => mutation.action === 'create' && mutation.entityId === entityId,
-  )
-
-  if (!createMutation) {
-    throw new Error('没有找到对应的本机待同步新增记录。')
-  }
-
-  await enqueueOfflineMutation({
-    ...createMutation,
-    payload: {
-      ...(createMutation.payload as BeanInsertPayload),
-      ...payload,
-    },
-  })
-}
-
-function isLocalId(id: string, prefix: string) {
-  return id.startsWith(`local-${prefix}-`)
-}
-
-function createLocalId(prefix: string) {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return `local-${prefix}-${crypto.randomUUID()}`
-  }
-
-  return `local-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

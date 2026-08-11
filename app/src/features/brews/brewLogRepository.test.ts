@@ -52,6 +52,46 @@ describe('brewLogRepository', () => {
     expect(outbox[0].payload).toEqual({ ...input, schema_version: 1 })
   })
 
+  it('subscribes only to current-user brew changes', async () => {
+    const local = createLocalRepository()
+    const repository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(nowIso),
+    })
+    const changes: string[] = []
+    const unsubscribe = repository.subscribe(() => changes.push('brew'))
+    await createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(nowIso),
+    }).createBean(beanInput)
+    await repository.createBrewLog(input)
+    expect(changes).toEqual(['brew'])
+    unsubscribe()
+  })
+
+  it('keeps one permanent bean relationship after offline edits compress for sending', async () => {
+    const local = createLocalRepository()
+    let now = '2026-08-09T01:00:00.000Z'
+    const beanRepository = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(now),
+    })
+    const brewRepository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(now),
+    })
+    const bean = await beanRepository.createBean(beanInput)
+    now = '2026-08-09T01:00:01.000Z'
+    const brew = await brewRepository.createBrewLog({ ...input, bean_id: bean.id })
+    now = '2026-08-09T01:00:02.000Z'
+    await beanRepository.updateBean(bean.id, { ...beanInput, name: 'Offline edited bean' })
+    now = '2026-08-09T01:00:03.000Z'
+    await brewRepository.updateBrewLog(brew.id, { ...input, bean_id: bean.id, notes: 'offline edit' })
+
+    expect(bean.id).not.toMatch(/^local-/)
+    const selections = selectSendableMutationBatch(await local.listOutbox(userId))
+    expect(selections).toHaveLength(2)
+    expect(selections.map(({ mutation }) => mutation.entityType)).toEqual(['bean', 'brewLog'])
+    expect(selections[1].mutation.payload).toMatchObject({ bean_id: bean.id, notes: 'offline edit' })
+    expect(selections.every(({ mutation }) => mutation.operation === 'upsert')).toBe(true)
+  })
+
   it('sends a newly created bean before its brew despite a cross-entity clock rollback', async () => {
     const local = createLocalRepository()
     const beanRepository = createBeanRepository(local, {

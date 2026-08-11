@@ -835,6 +835,27 @@
   white-space: nowrap;
 }
 
+.bean-card__badges {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 0.34rem;
+}
+
+.entity-sync-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 0.34rem;
+  padding: 0.2rem 0.48rem;
+  border: 1px solid rgba(139, 75, 54, 0.22);
+  border-radius: var(--radius-pill);
+  color: var(--color-coffee-dark);
+  background: rgba(255, 244, 220, 0.92);
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
 .bean-card--ledger .bean-tags {
   gap: 0.34rem;
 }
@@ -882,6 +903,10 @@
 @media (max-width: 380px) {
   .bean-card__heading {
     grid-template-columns: 1fr;
+  }
+
+  .bean-card__badges {
+    align-items: flex-start;
   }
 
   .bean-card__badge {

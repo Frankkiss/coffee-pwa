@@ -85,6 +85,66 @@ describe('localRepository atomic entity writes', () => {
     expect(await listOutbox(userOne)).toEqual([mutation])
   })
 
+  it('publishes a matching entity change only after commit and unsubscribes idempotently', async () => {
+    const local = createLocalRepository()
+    const observed: string[] = []
+    const unsubscribe = local.subscribeEntityChanges(userOne, 'beans', () => {
+      observed.push('beans')
+    })
+    local.subscribeEntityChanges(userOne, 'brewLogs', () => observed.push('brews'))
+    local.subscribeEntityChanges(userTwo, 'beans', () => observed.push('other-user'))
+    const bean = createBean(userOne, 'bean-subscription', 'local edit')
+
+    const save = local.saveLocalEntity(
+      'beans', userOne, bean, createBeanUpsertMutation(bean, 'mutation-subscription'),
+    )
+    expect(observed).toEqual([])
+    await save
+    expect(observed).toEqual(['beans'])
+
+    unsubscribe()
+    unsubscribe()
+    const edited = { ...bean, name: 'edited', updated_at: '2026-08-08T10:00:01.000Z' }
+    await local.saveLocalEntity(
+      'beans', userOne, edited, createBeanUpsertMutation(edited, 'mutation-after-unsubscribe'),
+    )
+    expect(observed).toEqual(['beans'])
+  })
+
+  it('does not publish an entity change when the transaction aborts', async () => {
+    const local = createLocalRepository({
+      beforeCommit(operation) {
+        if (operation === 'saveLocalEntity') throw new Error('abort before commit')
+      },
+    })
+    const observed: string[] = []
+    local.subscribeEntityChanges(userOne, 'beans', () => observed.push('beans'))
+    const bean = createBean(userOne, 'bean-aborted-subscription', 'local edit')
+
+    await expect(local.saveLocalEntity(
+      'beans', userOne, bean, createBeanUpsertMutation(bean, 'mutation-aborted-subscription'),
+    )).rejects.toThrow('abort before commit')
+
+    expect(observed).toEqual([])
+  })
+
+  it('does not turn a committed save into a failure when one listener throws', async () => {
+    const local = createLocalRepository()
+    const observed: string[] = []
+    local.subscribeEntityChanges(userOne, 'beans', () => {
+      throw new Error('broken listener')
+    })
+    local.subscribeEntityChanges(userOne, 'beans', () => observed.push('healthy'))
+    const bean = createBean(userOne, 'bean-listener-failure', 'committed')
+
+    await expect(local.saveLocalEntity(
+      'beans', userOne, bean, createBeanUpsertMutation(bean, 'mutation-listener-failure'),
+    )).resolves.toBeUndefined()
+
+    expect(observed).toEqual(['healthy'])
+    expect(await local.listLocalEntities('beans', userOne)).toEqual([bean])
+  })
+
   it('atomically rejects a missing precondition when the entity already exists', async () => {
     const original = createBean(userOne, 'bean-missing-check', 'original')
     await saveLocalEntity(
