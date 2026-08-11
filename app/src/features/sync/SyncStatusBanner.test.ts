@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { performAttentionAction } from './syncStatusActions'
+import {
+  performAttentionAction,
+  runGuardedAttentionAction,
+} from './syncStatusActions'
+import { createAttentionActionGuard } from './syncAttentionModel'
 
 describe('performAttentionAction', () => {
   it('does not confirm a legacy create during the first retry', async () => {
@@ -42,5 +46,36 @@ describe('performAttentionAction', () => {
     finish()
     await operation
     expect(completed).toBe(true)
+  })
+})
+
+describe('runGuardedAttentionAction', () => {
+  it('does not let a slow A result overwrite a newer B action', async () => {
+    let finishA!: () => void
+    let finishB!: () => void
+    const retryMutation = vi.fn((mutationId: string) => new Promise<{ status: 'retried' }>((resolve) => {
+      const finish = () => resolve({ status: 'retried' })
+      if (mutationId === 'A') finishA = finish
+      else finishB = finish
+    }))
+    const guard = createAttentionActionGuard()
+    const committed: string[] = []
+    const actionA = runGuardedAttentionAction({
+      guard, itemKey: 'key-A', action: 'retry', mutationId: 'A',
+      actions: { retryMutation, discardMutation: vi.fn() },
+      onResult: () => committed.push('A'), onError: vi.fn(), onSettled: vi.fn(),
+    })
+    const actionB = runGuardedAttentionAction({
+      guard, itemKey: 'key-B', action: 'retry', mutationId: 'B',
+      actions: { retryMutation, discardMutation: vi.fn() },
+      onResult: () => committed.push('B'), onError: vi.fn(), onSettled: vi.fn(),
+    })
+
+    finishB()
+    await actionB
+    finishA()
+    await actionA
+
+    expect(committed).toEqual(['B'])
   })
 })

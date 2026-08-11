@@ -113,6 +113,7 @@ function SessionSyncProvider({
     let current = true
     let unsubscribeState: (() => void) | null = null
     const localRepository = createLocalRepository()
+    const migrationController = new AbortController()
     let deviceId = ''
 
     const refreshOutbox = async () => {
@@ -137,7 +138,13 @@ function SessionSyncProvider({
         deviceId = readOrCreateDeviceId(window.localStorage)
         const epoch = await localRepository.readSyncEpoch(userId)
         if (!current) return
-        await migrateLegacyOfflineData(userId, deviceId, epoch)
+        await migrateLegacyOfflineData(
+          userId,
+          deviceId,
+          epoch,
+          {},
+          migrationController.signal,
+        )
       },
       createManager: () => {
         const api = createSyncApi(supabase)
@@ -165,6 +172,7 @@ function SessionSyncProvider({
         if (current) setRepositories(nextRepositories)
         return manager
       },
+      cancelMigration: () => migrationController.abort(),
       onReady: (readyManager) => {
         if (!current) return
         managerRef.current = readyManager
@@ -179,6 +187,7 @@ function SessionSyncProvider({
       },
       onError: (error) => {
         if (!current) return
+        if (isMigrationCancellation(error)) return
         setInitializationError(toSafeInitializationMessage(error))
         setState({ kind: 'needs_attention', pendingCount: 0, attentionCount: 1 })
       },
@@ -299,4 +308,9 @@ function toSafeInitializationMessage(error: unknown) {
     return '此浏览器暂时无法使用本地安全存储；没有清除任何本地数据。'
   }
   return '本地同步暂时无法启动；没有清除任何本地数据。'
+}
+
+function isMigrationCancellation(error: unknown) {
+  return typeof error === 'object' && error !== null &&
+    'code' in error && error.code === 'LEGACY_MIGRATION_CANCELLED'
 }

@@ -5,6 +5,7 @@ export type EntitySyncStatus = 'synced' | 'pending' | 'needs_attention'
 type RuntimeGenerationOptions<Manager extends { start(): void; stop(): void }> = {
   migrate: () => Promise<unknown>
   createManager: () => Manager
+  cancelMigration?: () => void
   onReady: (manager: Manager) => void
   onError: (error: unknown) => void
 }
@@ -39,6 +40,7 @@ export function createRuntimeGeneration<
     stop() {
       if (!active) return
       active = false
+      options.cancelMigration?.()
       const current = manager
       manager = null
       current?.stop()

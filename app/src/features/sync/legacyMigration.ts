@@ -169,6 +169,7 @@ type TransactionAbort = (error: unknown) => void
 
 export type LegacyMigrationTestOptions = {
   beforeCommit?: () => void
+  beforeWrite?: () => void
 }
 
 export class LegacyMigrationError extends Error {
@@ -177,6 +178,7 @@ export class LegacyMigrationError extends Error {
     | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
     | 'LEGACY_MIGRATION_RECOVERY_REQUIRED'
     | 'LEGACY_MIGRATION_SOURCE_CHANGED'
+    | 'LEGACY_MIGRATION_CANCELLED'
 
   constructor(
     message: string,
@@ -184,7 +186,8 @@ export class LegacyMigrationError extends Error {
       | 'LEGACY_MIGRATION_FAILED'
       | 'LEGACY_MIGRATION_UPGRADE_REQUIRED'
       | 'LEGACY_MIGRATION_RECOVERY_REQUIRED'
-      | 'LEGACY_MIGRATION_SOURCE_CHANGED' = 'LEGACY_MIGRATION_FAILED',
+      | 'LEGACY_MIGRATION_SOURCE_CHANGED'
+      | 'LEGACY_MIGRATION_CANCELLED' = 'LEGACY_MIGRATION_FAILED',
   ) {
     super(message)
     this.name = 'LegacyMigrationError'
@@ -196,18 +199,24 @@ export async function migrateLegacyOfflineData(
   userId: string,
   deviceId: string,
   syncEpoch: number,
-  testOptions: LegacyMigrationTestOptions = {},
+  optionsOrSignal: LegacyMigrationTestOptions | AbortSignal = {},
+  signalOverride?: AbortSignal,
 ): Promise<LegacyMigrationResult> {
   assertUuid(userId, 'user id')
+  const testOptions = isAbortSignal(optionsOrSignal) ? {} : optionsOrSignal
+  const signal = isAbortSignal(optionsOrSignal) ? optionsOrSignal : signalOverride
+  assertMigrationActive(signal)
 
   const database = await openSyncDatabase()
   try {
+    assertMigrationActive(signal)
     return await runMigrationTransaction(
       database,
       userId,
       deviceId,
       syncEpoch,
       testOptions,
+      signal,
     )
   } finally {
     database.close()
@@ -269,8 +278,13 @@ function runMigrationTransaction(
   deviceId: string,
   syncEpoch: number,
   testOptions: LegacyMigrationTestOptions,
+  signal?: AbortSignal,
 ) {
   return new Promise<LegacyMigrationResult>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(migrationCancelled())
+      return
+    }
     const transaction = database.transaction(
       [
         legacyStoreNames.snapshots,
@@ -286,6 +300,10 @@ function runMigrationTransaction(
     let failure: Error | DOMException | undefined
     let settled = false
 
+    const cleanupAbortListener = () => {
+      signal?.removeEventListener('abort', handleSignalAbort)
+    }
+
     const abort: TransactionAbort = (error) => {
       if (failure === undefined) {
         failure = normalizeError(error)
@@ -295,14 +313,19 @@ function runMigrationTransaction(
       } catch {
         if (!settled) {
           settled = true
+          cleanupAbortListener()
           reject(failure)
         }
       }
     }
 
+    const handleSignalAbort = () => abort(migrationCancelled())
+    signal?.addEventListener('abort', handleSignalAbort, { once: true })
+
     transaction.oncomplete = () => {
       if (settled) return
       settled = true
+      cleanupAbortListener()
       if (result === undefined) {
         reject(failure ?? new LegacyMigrationError('Legacy migration produced no result'))
       } else {
@@ -317,6 +340,7 @@ function runMigrationTransaction(
     transaction.onabort = () => {
       if (settled) return
       settled = true
+      cleanupAbortListener()
       reject(
         failure ??
           transaction.error ??
@@ -332,6 +356,7 @@ function runMigrationTransaction(
       abort(metaRequest.error ?? new LegacyMigrationError('Migration metadata read failed'))
     metaRequest.onsuccess = () => {
       try {
+        assertMigrationActive(signal)
         const completed = readCompletedMigration(metaRequest.result, userId, metaKey)
         if (completed === null) {
           assertUuid(deviceId, 'device id')
@@ -344,6 +369,7 @@ function runMigrationTransaction(
           syncEpoch,
           metaKey,
           testOptions,
+          signal,
           completed,
           (completedResult) => {
             result = completedResult
@@ -364,6 +390,7 @@ function scheduleMigrationReads(
   syncEpoch: number,
   metaKey: string,
   testOptions: LegacyMigrationTestOptions,
+  signal: AbortSignal | undefined,
   storedCompleted: LegacyMigrationResult | null,
   setResult: (result: LegacyMigrationResult) => void,
   abort: TransactionAbort,
@@ -388,6 +415,7 @@ function scheduleMigrationReads(
     remaining -= 1
     if (remaining !== 0) return
     try {
+      assertMigrationActive(signal)
       const sourceRevision = createLegacySourceFingerprint(
         userId,
         requests.beanSnapshot.result,
@@ -427,6 +455,7 @@ function scheduleMigrationReads(
         metaKey,
         completed,
         testOptions,
+        signal,
         abort,
       )
       setResult(completed.result)
@@ -591,25 +620,32 @@ function writeMigration(
   metaKey: string,
   migration: ReturnType<typeof prepareMigration>,
   testOptions: LegacyMigrationTestOptions,
+  signal: AbortSignal | undefined,
   abort: TransactionAbort,
 ) {
   try {
+    testOptions.beforeWrite?.()
+    assertMigrationActive(signal)
     const beanStore = transaction.objectStore(syncStoreNames.beans)
     const brewStore = transaction.objectStore(syncStoreNames.brewLogs)
     const outboxStore = transaction.objectStore(syncStoreNames.outbox)
     for (const bean of migration.beans) {
+      assertMigrationActive(signal)
       beanStore.put(createEntityEnvelope(userId, bean))
     }
     for (const brewLog of migration.brewLogs) {
+      assertMigrationActive(signal)
       brewStore.put(createEntityEnvelope(userId, brewLog))
     }
     for (const mutation of migration.mutations) {
+      assertMigrationActive(signal)
       outboxStore.put({
         key: mutation.mutationId,
         userId,
         value: mutation,
       } satisfies StoredEnvelope<SyncMutation>)
     }
+    assertMigrationActive(signal)
     transaction.objectStore(syncStoreNames.migrationMeta).put({
       key: metaKey,
       userId,
@@ -619,6 +655,24 @@ function writeMigration(
   } catch (error) {
     abort(error)
   }
+}
+
+function assertMigrationActive(signal?: AbortSignal) {
+  if (signal?.aborted) throw migrationCancelled()
+}
+
+function migrationCancelled() {
+  return new LegacyMigrationError(
+    'Legacy migration cancelled',
+    'LEGACY_MIGRATION_CANCELLED',
+  )
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof value === 'object' && value !== null &&
+    typeof (value as AbortSignal).aborted === 'boolean' &&
+    typeof (value as AbortSignal).addEventListener === 'function' &&
+    typeof (value as AbortSignal).removeEventListener === 'function'
 }
 
 function buildMigratedEntities(

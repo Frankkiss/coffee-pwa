@@ -1468,6 +1468,40 @@ describe('legacy offline migration', () => {
     expect(await readLegacySources()).toEqual(beforeSources)
   })
 
+  it('aborts an active migration before writes and preserves every source and target store', async () => {
+    const bean = legacyBean(userOne, localBeanId, 'abort source')
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean])],
+    ], [
+      legacyMutation(
+        'create-abort',
+        userOne,
+        'bean',
+        'create',
+        localBeanId,
+        beanCreatePayload(userOne, bean.name),
+      ),
+    ])
+    const beforeSources = await readLegacySources()
+    const controller = new AbortController()
+
+    await expect(migrateLegacyOfflineData(
+      userOne,
+      deviceId,
+      1,
+      { beforeWrite: () => controller.abort() },
+      controller.signal,
+    )).rejects.toMatchObject({ code: 'LEGACY_MIGRATION_CANCELLED' })
+
+    expect(await readTargetRows()).toEqual({
+      beans: [],
+      brewLogs: [],
+      outbox: [],
+      migrationMeta: [],
+    })
+    expect(await readLegacySources()).toEqual(beforeSources)
+  })
+
   it('rejects target conflicts without overwriting current-user v3 data', async () => {
     const source = legacyBean(userOne, localBeanId, 'legacy source')
     await seedVersionTwoDatabase([

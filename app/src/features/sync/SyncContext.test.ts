@@ -85,6 +85,26 @@ describe('createRuntimeGeneration', () => {
     expect(manager.stop).toHaveBeenCalledOnce()
   })
 
+  it('aborts migration before stopping an already-created manager', async () => {
+    const order: string[] = []
+    const manager = {
+      start: vi.fn(),
+      stop: vi.fn(() => { order.push('manager-stop') }),
+    }
+    const generation = createRuntimeGeneration({
+      migrate: vi.fn().mockResolvedValue(undefined),
+      createManager: () => manager,
+      cancelMigration: () => { order.push('migration-abort') },
+      onReady: vi.fn(),
+      onError: vi.fn(),
+    })
+    await generation.start()
+
+    generation.stop()
+
+    expect(order).toEqual(['migration-abort', 'manager-stop'])
+  })
+
   it('publishes migration failures without constructing a manager', async () => {
     const error = new Error('IndexedDB unavailable')
     const onError = vi.fn()
