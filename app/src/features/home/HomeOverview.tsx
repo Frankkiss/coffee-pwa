@@ -5,11 +5,14 @@ import {
   buildBackupReminder,
   readBackupReminderMeta,
 } from '../backup/backupReminder'
-import type { Bean } from '../beans/beanTypes'
-import type { BrewLog } from '../brews/brewTypes'
 import type { SyncState } from '../sync/syncTypes'
 import { useOptionalSyncRuntime } from '../sync/SyncContext'
 import { buildHomeOverview } from './homeOverviewModel'
+import {
+  createOwnedHomeRows,
+  selectHomeRowsForOwner,
+  type HomeRows,
+} from './homeRowsModel'
 import './home.css'
 
 type HomeOverviewProps = {
@@ -20,11 +23,6 @@ type HomeOverviewProps = {
   authStatus?: string
   previewRows?: HomeRows
   syncState: SyncState
-}
-
-type HomeRows = {
-  beans: Bean[]
-  brewLogs: BrewLog[]
 }
 
 export type HomeNavigationTarget =
@@ -80,7 +78,7 @@ export function HomeOverview({
   const brewLogRepository = runtime?.repositories?.brewLogs ?? null
   const settingsRepository = runtime?.repositories?.userSettings ?? null
   const [backupReminderDays, setBackupReminderDays] = useState(7)
-  const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
+  const [ownedRows, setOwnedRows] = useState(() => createOwnedHomeRows(null))
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [error, setError] = useState('')
@@ -98,7 +96,7 @@ export function HomeOverview({
     async function loadRows() {
       const generation = ++loadGeneration
       if (previewRows) {
-        setRows(previewRows)
+        setOwnedRows(createOwnedHomeRows(session.user.id, previewRows))
         setError('')
         setIsLoading(false)
         return
@@ -116,7 +114,7 @@ export function HomeOverview({
         ])
 
         if (isMounted && generation === loadGeneration) {
-          setRows({ beans, brewLogs })
+          setOwnedRows(createOwnedHomeRows(session.user.id, { beans, brewLogs }))
         }
       } catch (err) {
         if (isMounted && generation === loadGeneration) {
@@ -142,7 +140,7 @@ export function HomeOverview({
       loadGeneration += 1
       unsubscribers.forEach((unsubscribe) => unsubscribe())
     }
-  }, [beanRepository, brewLogRepository, previewRows])
+  }, [beanRepository, brewLogRepository, previewRows, session.user.id])
 
   useEffect(() => {
     function handleOnline() {
@@ -186,6 +184,7 @@ export function HomeOverview({
     }
   }, [settingsRepository])
 
+  const rows = selectHomeRowsForOwner(ownedRows, session.user.id)
   const overview = useMemo(
     () =>
       buildHomeOverview({
