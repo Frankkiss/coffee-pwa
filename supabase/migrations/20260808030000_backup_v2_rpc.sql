@@ -1,5 +1,51 @@
 create extension if not exists pgcrypto with schema extensions;
 
+create or replace function private.javascript_utf16_sort_key(p_value text)
+returns bytea
+language plpgsql
+immutable
+strict
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  v_result bytea := '\x'::bytea;
+  v_code_point integer;
+  v_offset integer;
+  v_high_surrogate integer;
+  v_low_surrogate integer;
+  v_index integer;
+begin
+  for v_index in 1..pg_catalog.char_length(p_value)
+  loop
+    v_code_point := pg_catalog.ascii(
+      pg_catalog.substr(p_value, v_index, 1)
+    );
+
+    if v_code_point <= 65535 then
+      v_result := v_result || pg_catalog.decode(
+        pg_catalog.lpad(pg_catalog.to_hex(v_code_point), 4, '0'),
+        'hex'
+      );
+    else
+      v_offset := v_code_point - 65536;
+      v_high_surrogate := 55296 + (v_offset >> 10);
+      v_low_surrogate := 56320 + (v_offset & 1023);
+      v_result := v_result
+        || pg_catalog.decode(
+          pg_catalog.lpad(pg_catalog.to_hex(v_high_surrogate), 4, '0'),
+          'hex'
+        )
+        || pg_catalog.decode(
+          pg_catalog.lpad(pg_catalog.to_hex(v_low_surrogate), 4, '0'),
+          'hex'
+        );
+    end if;
+  end loop;
+
+  return v_result;
+end;
+$$;
+
 create or replace function public.canonical_jsonb_text(p_value jsonb)
 returns text
 language plpgsql
@@ -66,7 +112,7 @@ begin
           pg_catalog.to_jsonb(entries.key)::text
             || ':'
             || public.canonical_jsonb_text(entries.value),
-          ',' order by entries.key collate "C"
+          ',' order by private.javascript_utf16_sort_key(entries.key)
         ),
         ''
       ) || '}'
@@ -308,6 +354,8 @@ end;
 $$;
 
 revoke execute on function public.canonical_jsonb_text(jsonb)
+from public, anon, authenticated;
+revoke execute on function private.javascript_utf16_sort_key(text)
 from public, anon, authenticated;
 revoke execute on function public.export_backup_v2(text, text)
 from public, anon;

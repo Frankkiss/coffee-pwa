@@ -27,7 +27,10 @@ select ok(
         pg_catalog.acldefault('f', procedures.proowner)
       )
     ) as privileges
-    where procedures.oid = 'public.canonical_jsonb_text(jsonb)'::regprocedure
+    where procedures.oid in (
+        'public.canonical_jsonb_text(jsonb)'::regprocedure,
+        'private.javascript_utf16_sort_key(text)'::regprocedure
+      )
       and privileges.privilege_type = 'EXECUTE'
       and privileges.grantee in (
         0,
@@ -35,7 +38,7 @@ select ok(
         (select oid from pg_catalog.pg_roles where rolname = 'authenticated')
       )
   ),
-  'canonical JSON helper is not directly executable by client roles'
+  'canonical JSON helpers are not directly executable by client roles'
 );
 select ok(
   not has_function_privilege(
@@ -115,6 +118,11 @@ select is(
   public.canonical_jsonb_text('{"b":2,"a":{"d":4,"c":3}}'::jsonb),
   public.canonical_jsonb_text('{"a":{"c":3,"d":4},"b":2}'::jsonb),
   'canonical JSON ignores object insertion order'
+);
+select is(
+  public.canonical_jsonb_text('{"":2,"😀":1}'::jsonb),
+  '{"😀":1,"":2}',
+  'canonical JSON sorts supplementary-plane keys by JavaScript UTF-16 order'
 );
 select throws_ok(
   $$select public.canonical_jsonb_text('{"value":0.0000001}'::jsonb)$$,
