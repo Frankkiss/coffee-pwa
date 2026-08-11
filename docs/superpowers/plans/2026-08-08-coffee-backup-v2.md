@@ -304,9 +304,20 @@ For full rollback, compute updates and active current rows absent from backup th
 If the manifest has `sourceSchemaVersion: 1`, accept only `safe_merge`, inspect only the three listed `authoritativeSections`, and return
 `fullRollbackEligible: false`. Reject any v1-derived envelope that declares other authoritative sections.
 
+The function runs as one read-only statement against one MVCC snapshot and acquires the same per-user advisory transaction lock as sync. It must
+strictly validate authentication, exact root/manifest/data/row keys, canonical numeric values, counts, checksum, duplicate IDs and relations. The
+response contains exactly the seven logical section keys; every count object contains exactly `total`, `new`, `existing`, `softDeleted`,
+`willUpdate`, and `willDelete`. A preview must leave all business rows, sync epoch/state and backup export metadata unchanged. Native v2 envelopes
+must not contain v1 eligibility fields. A v1-derived envelope must declare exactly `sourceSchemaVersion: 1`, `fullRollbackEligible: false`, and a
+unique subset of the three allowed authoritative sections; all non-authoritative transport sections remain empty. Ownership is always interpreted
+as `auth.uid()` and rows belonging to another user are neither visible nor counted.
+
 - [ ] **Step 3: Implement client API and view model**
 
-`backupRestoreApi.ts` wraps `preview_restore_v2`, `restore_backup_v2`, `export_backup_v2`, and `record_backup_download`. `backupPreviewModel.ts` converts server counts to Chinese display rows without changing semantics.
+For this task, `backupRestoreApi.ts` wraps only the RPCs that exist after Task 4: `preview_restore_v2`, `export_backup_v2`, and
+`record_backup_download`. It validates exact request and response contracts at runtime and rejects unknown server fields. Add the
+`restore_backup_v2` wrapper only in Task 5, after the corresponding RPC exists, so the client cannot expose a misleading restore action.
+`backupPreviewModel.ts` converts all six server count semantics to Chinese display rows without combining or renaming meanings.
 
 - [ ] **Step 4: Run SQL and client tests**
 
