@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import type { Bean } from '../beans/beanTypes'
-import type { BrewLog } from '../brews/brewTypes'
-import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
+import { useSyncRuntime } from '../sync/SyncContext'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
 } from './recommendationTypes'
 import {
   createRecommendationForBean,
-  listSavedRecommendations,
   loadRuleRecommendationData,
   requestAiRecommendation,
   saveRecommendation,
@@ -29,13 +26,13 @@ type RecommendationPanelProps = {
   supabase: SupabaseClient
 }
 
-type RecommendationData = {
-  beans: Bean[]
-  brewLogs: BrewLog[]
-  templates: BrewTemplate[]
-}
+type RecommendationData = Awaited<ReturnType<typeof loadRuleRecommendationData>>
 
 export function RecommendationPanel({ session, supabase }: RecommendationPanelProps) {
+  const runtime = useSyncRuntime()
+  const repositories = runtime.repositories
+  const recommendationRepository = repositories?.recommendations ?? null
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [data, setData] = useState<RecommendationData>({
     beans: [],
     brewLogs: [],
@@ -58,74 +55,107 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
   const [savedError, setSavedError] = useState('')
 
   useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+
+  useEffect(() => {
     let isMounted = true
 
+    let loadGeneration = 0
     async function loadData() {
+      const generation = ++loadGeneration
       setIsLoading(true)
       setError('')
 
       try {
-        const nextData = await loadRuleRecommendationData(supabase)
+        if (!repositories) return
+        const nextData = await loadRuleRecommendationData(repositories)
 
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setData(nextData)
           setSelectedBeanId((current) => current || nextData.beans[0]?.id || '')
         }
       } catch (err) {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setError(err instanceof Error ? err.message : '读取推荐数据失败')
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setIsLoading(false)
         }
       }
     }
 
-    loadData()
+    if (!repositories) return
+    void loadData()
+    const unsubscribes = [
+      repositories.beans.subscribe(() => void loadData()),
+      repositories.brewLogs.subscribe(() => void loadData()),
+      repositories.brewTemplates.subscribe(() => void loadData()),
+    ]
 
     return () => {
       isMounted = false
+      loadGeneration += 1
+      unsubscribes.forEach((unsubscribe) => unsubscribe())
     }
-  }, [supabase])
+  }, [repositories])
 
   useEffect(() => {
     let isMounted = true
+    let loadGeneration = 0
 
     async function loadSaved() {
+      const generation = ++loadGeneration
       setIsLoadingSaved(true)
       setSavedError('')
 
       try {
-        const rows = await listSavedRecommendations(supabase)
+        if (!recommendationRepository) return
+        const rows = await recommendationRepository.listRecommendations()
 
-        if (isMounted) {
-          setSavedRecommendations(toSavedRecommendationCards(rows))
+        if (isMounted && generation === loadGeneration) {
+          setSavedRecommendations(toSavedRecommendationCards(rows).slice(0, 5))
         }
       } catch (err) {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setSavedError(err instanceof Error ? err.message : '读取已保存推荐失败')
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setIsLoadingSaved(false)
         }
       }
     }
 
-    loadSaved()
+    if (!recommendationRepository) return
+    void loadSaved()
+    const unsubscribe = recommendationRepository.subscribe(() => void loadSaved())
 
     return () => {
       isMounted = false
+      loadGeneration += 1
+      unsubscribe()
     }
-  }, [supabase])
+  }, [recommendationRepository])
 
   async function refreshSavedRecommendations() {
-    const rows = await listSavedRecommendations(supabase)
-    setSavedRecommendations(toSavedRecommendationCards(rows))
+    if (!recommendationRepository) return
+    const rows = await recommendationRepository.listRecommendations()
+    setSavedRecommendations(toSavedRecommendationCards(rows).slice(0, 5))
   }
 
   async function handleGenerate() {
+    if (!isOnline) {
+      setError('AI 推荐需要联网；已有推荐仍可离线查看。')
+      return
+    }
     setError('')
     setStatus('')
     setRuleRecommendation(null)
@@ -158,7 +188,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
   }
 
   async function handleSaveRecommendation() {
-    if (!ruleRecommendation) {
+    if (!ruleRecommendation || !isOnline) {
       return
     }
 
@@ -175,6 +205,12 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
           aiRecommendation,
         }),
       )
+      try {
+        await runtime.run()
+      } catch {
+        setStatus('推荐已在线保存；本机列表会在同步恢复后刷新。')
+        return
+      }
       await refreshSavedRecommendations()
       setStatus('已保存为推荐记录。')
     } catch (err) {
@@ -185,11 +221,18 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
   }
 
   async function handleToggleSavedAccepted(recommendation: SavedRecommendationCard) {
+    if (!isOnline) return
     setSavedError('')
     setUpdatingSavedId(recommendation.id)
 
     try {
       await updateSavedRecommendationAccepted(supabase, recommendation.id, !recommendation.accepted)
+      try {
+        await runtime.run()
+      } catch {
+        setSavedError('在线状态已更新；本机列表会在同步恢复后刷新。')
+        return
+      }
       await refreshSavedRecommendations()
     } catch (err) {
       setSavedError(err instanceof Error ? err.message : '更新推荐状态失败')
@@ -199,6 +242,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
   }
 
   async function handleDeleteSavedRecommendation(recommendation: SavedRecommendationCard) {
+    if (!isOnline) return
     const confirmed = window.confirm(`确定删除「${recommendation.targetName}」的这条推荐吗？数据会软删除。`)
 
     if (!confirmed) {
@@ -210,6 +254,12 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
 
     try {
       await softDeleteSavedRecommendation(supabase, recommendation.id)
+      try {
+        await runtime.run()
+      } catch {
+        setSavedError('在线删除已完成；本机列表会在同步恢复后刷新。')
+        return
+      }
       await refreshSavedRecommendations()
       setExpandedSavedId((current) => (current === recommendation.id ? null : current))
     } catch (err) {
@@ -251,10 +301,16 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
             </select>
           </label>
 
-          <button type="button" onClick={handleGenerate} disabled={isGenerating}>
+          <button type="button" onClick={handleGenerate} disabled={isGenerating || !isOnline}>
             {isGenerating ? '生成中' : '生成推荐'}
           </button>
         </div>
+      ) : null}
+
+      {!isOnline ? (
+        <p className="recommendation-empty" role="status">
+          当前离线：已有推荐可以查看；AI 生成、来源解析和推荐状态修改需要联网。
+        </p>
       ) : null}
 
       {ruleRecommendation ? (
@@ -362,7 +418,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
             <strong>保存为推荐记录</strong>
             <p>用于回看和对比。</p>
           </div>
-          <button type="button" onClick={handleSaveRecommendation} disabled={isSaving}>
+          <button type="button" onClick={handleSaveRecommendation} disabled={isSaving || !isOnline}>
             {isSaving ? '保存中' : '保存本次推荐'}
           </button>
         </div>
@@ -407,7 +463,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
               </button>
               <button
                 type="button"
-                disabled={updatingSavedId === recommendation.id}
+                disabled={!isOnline || updatingSavedId === recommendation.id}
                 onClick={() => handleToggleSavedAccepted(recommendation)}
               >
                 {recommendation.accepted ? '取消采纳' : '标记采纳'}
@@ -415,7 +471,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
               <button
                 type="button"
                 className="recommendation-danger-button"
-                disabled={updatingSavedId === recommendation.id}
+                disabled={!isOnline || updatingSavedId === recommendation.id}
                 onClick={() => handleDeleteSavedRecommendation(recommendation)}
               >
                 删除

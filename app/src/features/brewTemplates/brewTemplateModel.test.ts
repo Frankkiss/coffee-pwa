@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyUserTemplateOverrides,
   createBrewTemplateFormFromTemplate,
+  toBrewTemplateWriteInput,
   toBrewTemplateFromRow,
   toUserBrewTemplatePayload,
 } from './brewTemplateModel'
@@ -94,6 +95,18 @@ describe('brew template model', () => {
     })
     expect(payload.pour_steps).toHaveLength(1)
     expect(payload.suitable_for).toEqual(['水洗', '浅烘'])
+  })
+
+  it('creates a local repository input without ownership fields', () => {
+    const input = toBrewTemplateWriteInput(
+      createBrewTemplateFormFromTemplate(template),
+      template.id,
+    )
+    expect(input).toMatchObject({
+      name: 'V60 三段式',
+      copied_from_template_id: 'system-v60',
+    })
+    expect(input).not.toHaveProperty('user_id')
   })
 
   it('uses a copied user template as the editable replacement for its built-in source', () => {

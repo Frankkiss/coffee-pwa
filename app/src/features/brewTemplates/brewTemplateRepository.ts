@@ -12,6 +12,9 @@ type BrewTemplateMutation = Extract<SyncMutation, { entityType: 'brewTemplate' }
 
 export function createBrewTemplateRepository(localRepository: LocalRepository, context: RepositoryContext) {
   return {
+    subscribe(listener: () => void) {
+      return localRepository.subscribeEntityChanges(context.userId, 'brewTemplates', listener)
+    },
     async listBrewTemplates() {
       return listActiveLocalEntities(localRepository, 'brewTemplates', context.userId)
     },

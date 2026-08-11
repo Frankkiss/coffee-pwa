@@ -7,7 +7,7 @@ import {
 
 describe('backup reminder', () => {
   it('asks for a backup when no previous export is recorded', () => {
-    expect(buildBackupReminder(null, new Date('2026-06-15T00:00:00Z'))).toMatchObject({
+    expect(buildBackupReminder(null, new Date('2026-06-15T00:00:00Z'), 14)).toMatchObject({
       tone: 'warning',
       title: '尚未创建本地备份',
       fileName: null,
@@ -20,6 +20,7 @@ describe('backup reminder', () => {
       buildBackupReminder(
         { exportedAt: '2026-06-12T00:00:00.000Z', fileName: 'coffee-backup-2026-06-12.json' },
         new Date('2026-06-15T00:00:00Z'),
+        7,
       ),
     ).toMatchObject({
       tone: 'ok',
@@ -34,6 +35,7 @@ describe('backup reminder', () => {
       buildBackupReminder(
         { exportedAt: '2026-06-01T00:00:00.000Z', fileName: 'coffee-backup-2026-06-01.json' },
         new Date('2026-06-15T00:00:00Z'),
+        7,
       ),
     ).toMatchObject({
       tone: 'warning',

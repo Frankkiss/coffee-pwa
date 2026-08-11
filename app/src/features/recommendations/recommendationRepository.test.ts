@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
 import { createLocalRepository } from '../sync/localRepository'
 import { syncDatabaseName } from '../sync/syncDatabase'
@@ -31,6 +31,16 @@ describe('recommendationRepository', () => {
   beforeEach(async () => deleteTestDatabase(syncDatabaseName))
   afterEach(async () => deleteTestDatabase(syncDatabaseName))
 
+  it('notifies current-user subscribers when the saved cache changes', async () => {
+    const local = createLocalRepository()
+    const repository = createRecommendationRepository(local, context)
+    const listener = vi.fn()
+    const unsubscribe = repository.subscribe(listener)
+    await local.replaceServerSnapshot(userId, snapshot([recommendation(userId)]))
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
+  })
+
   it('exposes only current-user local list/get reads and never enqueues', async () => {
     const local = createLocalRepository()
     const owned = recommendation(userId)
@@ -42,7 +52,7 @@ describe('recommendationRepository', () => {
     expect(await repository.listRecommendations()).toEqual([owned])
     expect(await repository.getRecommendation(owned.id)).toEqual(owned)
     expect(await repository.getRecommendation(foreign.id)).toBeNull()
-    expect(Object.keys(repository).sort()).toEqual(['getRecommendation', 'listRecommendations'])
+    expect(Object.keys(repository).sort()).toEqual(['getRecommendation', 'listRecommendations', 'subscribe'])
     expect('createRecommendation' in repository).toBe(false)
     expect('updateRecommendation' in repository).toBe(false)
     expect('deleteRecommendation' in repository).toBe(false)

@@ -16,6 +16,9 @@ export function createUserSettingsRepository(localRepository: LocalRepository, c
   }
 
   return {
+    subscribe(listener: () => void) {
+      return localRepository.subscribeEntityChanges(context.userId, 'userSettings', listener)
+    },
     listUserSettings,
     async getUserSettings() {
       return (await listUserSettings())[0] ?? null

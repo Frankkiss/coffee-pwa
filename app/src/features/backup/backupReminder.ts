@@ -13,7 +13,6 @@ export type BackupReminderView = {
 
 export const backupReminderStorageKey = 'kaday:last-json-backup'
 
-const staleAfterDays = 7
 const dayInMs = 24 * 60 * 60 * 1000
 
 export function readBackupReminderMeta(storage: Storage): BackupReminderMeta | null {
@@ -41,6 +40,7 @@ export function readBackupReminderMeta(storage: Storage): BackupReminderMeta | n
   }
 }
 
+/** @deprecated Plan 2 will replace this legacy display fallback with server export metadata. */
 export function writeBackupReminderMeta(storage: Storage, meta: BackupReminderMeta) {
   storage.setItem(backupReminderStorageKey, JSON.stringify(meta))
 }
@@ -48,6 +48,7 @@ export function writeBackupReminderMeta(storage: Storage, meta: BackupReminderMe
 export function buildBackupReminder(
   meta: BackupReminderMeta | null,
   now: Date,
+  backupReminderDays: number,
 ): BackupReminderView {
   if (!meta) {
     return {
@@ -65,7 +66,7 @@ export function buildBackupReminder(
     Math.floor((now.getTime() - exportedAt.getTime()) / dayInMs),
   )
 
-  if (daysSinceExport > staleAfterDays) {
+  if (daysSinceExport > backupReminderDays) {
     return {
       tone: 'warning',
       title: '建议导出一次备份',

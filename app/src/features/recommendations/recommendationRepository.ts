@@ -17,6 +17,13 @@ export function createRecommendationRepository(
   }
 
   return {
+    subscribe(listener: () => void) {
+      return localRepository.subscribeEntityChanges(
+        context.userId,
+        'aiRecommendations',
+        listener,
+      )
+    },
     listRecommendations,
     async getRecommendation(entityId: string) {
       return (await listRecommendations()).find((row) => row.id === entityId) ?? null

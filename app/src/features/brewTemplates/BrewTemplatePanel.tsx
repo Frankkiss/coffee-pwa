@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import {
   filterBrewTemplates,
   formatTemplateTime,
@@ -10,16 +9,13 @@ import {
   applyUserTemplateOverrides,
   createBrewTemplateFormFromTemplate,
   createEmptyBrewTemplateForm,
+  toBrewTemplateFromRow,
+  toBrewTemplateWriteInput,
   type BrewTemplateForm,
 } from './brewTemplateModel'
-import {
-  buildUserBrewTemplatePayload,
-  createUserBrewTemplate,
-  listUserBrewTemplates,
-  softDeleteUserBrewTemplate,
-  updateUserBrewTemplate,
-} from './brewTemplateService'
 import { brewTemplates } from './brewTemplates'
+import { useSyncRuntime } from '../sync/SyncContext'
+import { getEntitySyncBadge } from '../sync/entitySyncPresentation'
 import type {
   BrewTemplate,
   BrewTemplateCategory,
@@ -44,17 +40,14 @@ const categoryLabels: Record<BrewTemplateCategory, string> = {
   'champion-reference': '冠军参考',
 }
 
-type BrewTemplatePanelProps = {
-  session: Session
-  supabase: SupabaseClient
-}
-
 type EditingState =
   | { mode: 'create'; template: null; copiedFromTemplateId: null }
   | { mode: 'copy'; template: BrewTemplate; copiedFromTemplateId: string }
   | { mode: 'edit'; template: BrewTemplate; copiedFromTemplateId: string | null }
 
-export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps) {
+export function BrewTemplatePanel() {
+  const runtime = useSyncRuntime()
+  const repository = runtime.repositories?.brewTemplates ?? null
   const [filters, setFilters] = useState<BrewTemplateFilters>({
     brewer: '',
     flavor: '',
@@ -73,33 +66,40 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
   useEffect(() => {
     let isMounted = true
 
+    let loadGeneration = 0
     async function loadTemplates() {
+      const generation = ++loadGeneration
       setIsLoading(true)
       setError('')
 
       try {
-        const templates = await listUserBrewTemplates(supabase)
+        if (!repository) return
+        const templates = (await repository.listBrewTemplates()).map(toBrewTemplateFromRow)
 
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setUserTemplates(templates)
         }
       } catch (err) {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setError(err instanceof Error ? err.message : '读取自定义模板失败')
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setIsLoading(false)
         }
       }
     }
 
-    loadTemplates()
+    if (!repository) return
+    void loadTemplates()
+    const unsubscribe = repository.subscribe(() => void loadTemplates())
 
     return () => {
       isMounted = false
+      loadGeneration += 1
+      unsubscribe()
     }
-  }, [supabase])
+  }, [repository])
 
   const allTemplates = useMemo(() => {
     const systemTemplates = brewTemplates.map((template) => ({
@@ -172,15 +172,16 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
     setError('')
 
     try {
-      const payload = buildUserBrewTemplatePayload(
+      if (!repository) throw new Error('本地模板仍在初始化，请稍后再试。')
+      const input = toBrewTemplateWriteInput(
         form,
-        session.user.id,
         editingState.copiedFromTemplateId,
       )
-      const saved =
+      const savedRow =
         editingState.mode === 'edit'
-          ? await updateUserBrewTemplate(supabase, editingState.template.id, payload)
-          : await createUserBrewTemplate(supabase, payload)
+          ? await repository.updateBrewTemplate(editingState.template.id, input)
+          : await repository.createBrewTemplate(input)
+      const saved = toBrewTemplateFromRow(savedRow)
 
       setUserTemplates((current) => {
         if (editingState.mode === 'edit') {
@@ -193,11 +194,12 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
       setForm(createEmptyBrewTemplateForm())
       setStatus(
         editingState.mode === 'edit'
-          ? '模板已覆盖保存。'
+          ? '模板已更新，正在等待同步。'
           : editingState.mode === 'copy'
-            ? '模板微调已保存，并会替代原系统模板显示。'
-            : '模板已保存。',
+            ? '模板微调已保存到本机，并会替代原系统模板显示。'
+            : '模板已保存到本机，正在等待同步。',
       )
+      void runtime.run().catch(() => undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存模板失败')
     } finally {
@@ -214,9 +216,11 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
     setError('')
 
     try {
-      await softDeleteUserBrewTemplate(supabase, template.id)
+      if (!repository) throw new Error('本地模板仍在初始化，请稍后再试。')
+      await repository.deleteBrewTemplate(template.id)
       setUserTemplates((current) => current.filter((item) => item.id !== template.id))
-      setStatus('模板已删除。')
+      setStatus('模板已删除，正在等待同步。')
+      void runtime.run().catch(() => undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除模板失败')
     }
@@ -329,6 +333,7 @@ export function BrewTemplatePanel({ session, supabase }: BrewTemplatePanelProps)
             onDelete={() => handleDelete(template)}
             onEdit={() => startEdit(template)}
             onToggle={() => toggleTemplate(template.id)}
+            syncBadge={template.source === 'user' ? getEntitySyncBadge(runtime.statusByEntityId[template.id]) : null}
           />
         ))}
       </div>
@@ -661,6 +666,7 @@ type TemplateCardProps = {
   onCopy: () => void
   onEdit: () => void
   onDelete: () => void
+  syncBadge: string | null
 }
 
 function TemplateCard({
@@ -670,6 +676,7 @@ function TemplateCard({
   onCopy,
   onEdit,
   onDelete,
+  syncBadge,
 }: TemplateCardProps) {
   const isUserTemplate = template.source === 'user'
 
@@ -694,6 +701,7 @@ function TemplateCard({
 
       <div className="brew-template-card__metrics">
         <span>{isUserTemplate ? '我的模板' : '系统模板'}</span>
+        {syncBadge ? <span>{syncBadge}</span> : null}
         <span>{template.doseGrams}g 粉</span>
         <span>{template.waterGrams}g 水</span>
         <span>{template.ratio}</span>

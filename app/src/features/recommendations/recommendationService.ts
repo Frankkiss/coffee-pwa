@@ -1,28 +1,37 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { listBeans } from '../beans/beanService'
-import { listBrewLogs } from '../brews/brewLogService'
+import type { createBeanRepository } from '../beans/beanRepository'
+import type { createBrewLogRepository } from '../brews/brewLogRepository'
+import type { createBrewTemplateRepository } from '../brewTemplates/brewTemplateRepository'
+import { toBrewTemplateFromRow } from '../brewTemplates/brewTemplateModel'
 import { brewTemplates } from '../brewTemplates/brewTemplates'
-import { listUserBrewTemplates } from '../brewTemplates/brewTemplateService'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
 } from './recommendationTypes'
 import { generateRuleRecommendation } from './ruleRecommendation'
 import type { SavedRecommendationPayload } from './savedRecommendation'
-import type { SavedRecommendationDisplayRow } from './savedRecommendationList'
 import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 
-export async function loadRuleRecommendationData(supabase: SupabaseClient) {
+type RuleRecommendationRepositories = {
+  beans: Pick<ReturnType<typeof createBeanRepository>, 'listBeans'>
+  brewLogs: Pick<ReturnType<typeof createBrewLogRepository>, 'listBrewLogs'>
+  brewTemplates: Pick<ReturnType<typeof createBrewTemplateRepository>, 'listBrewTemplates'>
+}
+
+export async function loadRuleRecommendationData(repositories: RuleRecommendationRepositories) {
   const [beans, brewLogs, userTemplates] = await Promise.all([
-    listBeans(supabase),
-    listBrewLogs(supabase),
-    listUserBrewTemplates(supabase),
+    repositories.beans.listBeans(),
+    repositories.brewLogs.listBrewLogs(),
+    repositories.brewTemplates.listBrewTemplates(),
   ])
 
   return {
     beans,
     brewLogs,
-    templates: [...brewTemplates, ...userTemplates],
+    templates: [
+      ...brewTemplates,
+      ...userTemplates.map(toBrewTemplateFromRow),
+    ],
   }
 }
 
@@ -83,23 +92,6 @@ export async function saveRecommendation(
   }
 
   return data
-}
-
-export async function listSavedRecommendations(supabase: SupabaseClient) {
-  const { data, error } = await supabase
-    .from('ai_recommendations')
-    .select(
-      'id, bean_id, input_context, recommendation, model_name, accepted, created_at',
-    )
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(5)
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data ?? []) as SavedRecommendationDisplayRow[]
 }
 
 export async function updateSavedRecommendationAccepted(

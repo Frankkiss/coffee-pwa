@@ -39,8 +39,13 @@ const RecommendationPanel = lazy(() =>
     default: module.RecommendationPanel,
   })),
 )
+const UserSettingsPanel = lazy(() =>
+  import('../settings/UserSettingsPanel').then((module) => ({
+    default: module.UserSettingsPanel,
+  })),
+)
 
-type AppView = 'home' | HomeNavigationTarget
+type AppView = 'home' | HomeNavigationTarget | 'settings'
 type AuthMode = 'password-login' | 'signup' | 'magic-link' | 'reset-request'
 
 const appNavItems: Array<{ view: AppView; label: string; mark: string }> = [
@@ -48,6 +53,7 @@ const appNavItems: Array<{ view: AppView; label: string; mark: string }> = [
   { view: 'beans', label: '豆仓与冲煮', mark: '豆' },
   { view: 'brewTemplates', label: '冲煮模板', mark: '模' },
   { view: 'recommendations', label: '冲煮推荐', mark: '荐' },
+  { view: 'settings', label: '使用设置', mark: '设' },
   { view: 'backup', label: '备份', mark: '存' },
 ]
 
@@ -635,13 +641,16 @@ function AuthenticatedApp({
       )
     }
     if (activeView === 'brewTemplates') {
-      return <BrewTemplatePanel session={session} supabase={authenticatedSupabase} />
+      return <BrewTemplatePanel />
     }
     if (activeView === 'beans') {
       return <BeanDashboard session={session} supabase={authenticatedSupabase} />
     }
     if (activeView === 'recommendations') {
       return <RecommendationPanel session={session} supabase={authenticatedSupabase} />
+    }
+    if (activeView === 'settings') {
+      return <UserSettingsPanel userId={session.user.id} />
     }
     return <BackupPanel session={session} supabase={authenticatedSupabase} />
   }

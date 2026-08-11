@@ -10,6 +10,7 @@ import type { Bean } from '../beans/beanTypes'
 import { listBrewLogs } from '../brews/brewLogService'
 import type { BrewLog } from '../brews/brewTypes'
 import type { SyncState } from '../sync/syncTypes'
+import { useOptionalSyncRuntime } from '../sync/SyncContext'
 import {
   buildOfflineCacheSnapshot,
   readOfflineCache,
@@ -83,6 +84,9 @@ export function HomeOverview({
   previewRows,
   syncState,
 }: HomeOverviewProps) {
+  const runtime = useOptionalSyncRuntime()
+  const settingsRepository = runtime?.repositories?.userSettings ?? null
+  const [backupReminderDays, setBackupReminderDays] = useState(7)
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
@@ -181,6 +185,30 @@ export function HomeOverview({
     }
   }, [])
 
+  useEffect(() => {
+    if (!settingsRepository) return
+    let current = true
+    let loadGeneration = 0
+    const load = async () => {
+      const generation = ++loadGeneration
+      try {
+        const settings = await settingsRepository.getUserSettings()
+        if (current && generation === loadGeneration) {
+          setBackupReminderDays(settings?.backup_reminder_days ?? 7)
+        }
+      } catch {
+        if (current && generation === loadGeneration) setBackupReminderDays(7)
+      }
+    }
+    void load()
+    const unsubscribe = settingsRepository.subscribe(() => void load())
+    return () => {
+      current = false
+      loadGeneration += 1
+      unsubscribe()
+    }
+  }, [settingsRepository])
+
   const overview = useMemo(
     () =>
       buildHomeOverview({
@@ -189,11 +217,12 @@ export function HomeOverview({
         backupReminder: buildBackupReminder(
           readBackupReminderMeta(window.localStorage),
           new Date(),
+          backupReminderDays,
         ),
         email: session.user.email,
         syncState,
       }),
-    [rows.beans, rows.brewLogs, session.user.email, syncState],
+    [backupReminderDays, rows.beans, rows.brewLogs, session.user.email, syncState],
   )
   const [beanStat, brewStat, recommendationStat] = overview.stats
   const recommendationPreview = overview.recommendationPreview

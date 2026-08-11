@@ -6,6 +6,7 @@ import type {
   UserBrewTemplatePayload,
   UserBrewTemplateRow,
 } from './brewTemplateTypes'
+import type { BrewTemplateWriteInput } from './brewTemplateRepository'
 
 export type BrewTemplateForm = {
   name: string
@@ -160,6 +161,16 @@ export function toUserBrewTemplatePayload(
     is_champion_reference: form.isChampionReference,
     copied_from_template_id: copiedFromTemplateId,
   }
+}
+
+export function toBrewTemplateWriteInput(
+  form: BrewTemplateForm,
+  copiedFromTemplateId: string | null = null,
+): BrewTemplateWriteInput {
+  const payload = toUserBrewTemplatePayload(form, '', copiedFromTemplateId)
+  const { user_id: _ownership, ...input } = payload
+  void _ownership
+  return input
 }
 
 export function splitTextList(text: string) {

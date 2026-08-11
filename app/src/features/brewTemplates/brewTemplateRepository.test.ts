@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
 import { createLocalRepository } from '../sync/localRepository'
 import { syncDatabaseName } from '../sync/syncDatabase'
@@ -23,6 +23,16 @@ const input: BrewTemplateWriteInput = {
 describe('brewTemplateRepository', () => {
   beforeEach(async () => deleteTestDatabase(syncDatabaseName))
   afterEach(async () => deleteTestDatabase(syncDatabaseName))
+
+  it('notifies current-user subscribers after a committed template write', async () => {
+    const local = createLocalRepository()
+    const repository = createBrewTemplateRepository(local, { userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(nowIso) })
+    const listener = vi.fn()
+    const unsubscribe = repository.subscribe(listener)
+    await repository.createBrewTemplate(input)
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
+  })
 
   it('creates and lists a complete template row with enums, steps, and one full upsert', async () => {
     const local = createLocalRepository()

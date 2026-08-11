@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import {
   buildBackupImportPayloads,
@@ -19,6 +19,7 @@ import {
 } from './backupService'
 import { buildBeansCsv, buildBrewLogsCsv, createCsvFileName } from './csvExport'
 import type { BackupDocument, BackupImportPreview } from './backupTypes'
+import { useSyncRuntime } from '../sync/SyncContext'
 import {
   buildBackupReminder,
   readBackupReminderMeta,
@@ -33,6 +34,9 @@ type BackupPanelProps = {
 }
 
 export function BackupPanel({ session, supabase }: BackupPanelProps) {
+  const runtime = useSyncRuntime()
+  const settingsRepository = runtime.repositories?.userSettings ?? null
+  const [backupReminderDays, setBackupReminderDays] = useState(7)
   const [isExporting, setIsExporting] = useState(false)
   const [isExportingBeansCsv, setIsExportingBeansCsv] = useState(false)
   const [isExportingBrewLogsCsv, setIsExportingBrewLogsCsv] = useState(false)
@@ -50,6 +54,30 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     )
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!settingsRepository) return
+    let current = true
+    let loadGeneration = 0
+    const load = async () => {
+      const generation = ++loadGeneration
+      try {
+        const settings = await settingsRepository.getUserSettings()
+        if (current && generation === loadGeneration) {
+          setBackupReminderDays(settings?.backup_reminder_days ?? 7)
+        }
+      } catch {
+        if (current && generation === loadGeneration) setBackupReminderDays(7)
+      }
+    }
+    void load()
+    const unsubscribe = settingsRepository.subscribe(() => void load())
+    return () => {
+      current = false
+      loadGeneration += 1
+      unsubscribe()
+    }
+  }, [settingsRepository])
 
   async function handleExport() {
     setIsExporting(true)
@@ -222,7 +250,11 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     (importPreview?.importable.beans ?? 0) +
     (importPreview?.importable.brewLogs ?? 0) +
     (importPreview?.importable.brewTemplates ?? 0)
-  const backupReminder = buildBackupReminder(backupReminderMeta, new Date())
+  const backupReminder = buildBackupReminder(
+    backupReminderMeta,
+    new Date(),
+    backupReminderDays,
+  )
 
   return (
     <section id="backup" className="backup-panel" aria-labelledby="backup-title">

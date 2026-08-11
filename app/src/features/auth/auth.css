@@ -31,7 +31,7 @@
   bottom: max(0.75rem, env(safe-area-inset-bottom));
   left: 50%;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.38rem;
   width: min(calc(100% - 1rem), 28rem);
   margin: 0 auto;

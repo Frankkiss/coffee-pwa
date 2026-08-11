@@ -1,0 +1,95 @@
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 6rem;
+  color: var(--ink, #2d211c);
+}
+
+.settings-panel__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid rgba(77, 52, 40, 0.18);
+}
+
+.settings-panel__header p,
+.settings-panel__header h2,
+.settings-panel__intro,
+.settings-panel__muted,
+.settings-panel__status,
+.settings-panel__error { margin: 0; }
+
+.settings-panel__header p {
+  color: #8a6756;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-panel__header span {
+  color: #6f5548;
+  font-size: 0.78rem;
+}
+
+.settings-panel__intro,
+.settings-panel__muted { color: #735d51; }
+
+.settings-form { display: grid; gap: 0.9rem; }
+
+.settings-form label {
+  display: grid;
+  gap: 0.38rem;
+  font-weight: 650;
+}
+
+.settings-form label > span {
+  color: #80695c;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.settings-form input,
+.settings-form select,
+.settings-form textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  border: 1px solid rgba(77, 52, 40, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(255, 252, 246, 0.84);
+  color: inherit;
+  font: inherit;
+  padding: 0.72rem 0.8rem;
+}
+
+.settings-form textarea { resize: vertical; }
+
+.settings-form button {
+  min-height: 2.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: #5c3c2c;
+  color: #fffaf3;
+  font: inherit;
+  font-weight: 700;
+}
+
+.settings-form :focus-visible {
+  outline: 3px solid rgba(161, 107, 68, 0.35);
+  outline-offset: 2px;
+}
+
+.settings-panel__status { color: #466744; }
+.settings-panel__error { color: #9b352f; }
+
+@media (min-width: 42rem) {
+  .settings-panel { padding-top: 1.5rem; }
+  .settings-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-form button,
+  .settings-panel__status,
+  .settings-panel__error { grid-column: 1 / -1; }
+}
