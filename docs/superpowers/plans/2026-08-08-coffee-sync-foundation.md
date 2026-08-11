@@ -1728,6 +1728,10 @@ Create `syncStatusModel.ts` and export `toSyncStatusView(state: SyncState)` with
 starts it, and stops it on user/session change. Export `useSyncRuntime()` returning repositories, state, `run`, `pendingCount`,
 `attentionItems`, and `statusByEntityId`. Each entity status is `synced`, `pending`, or `needs_attention`.
 
+Pass a per-generation `AbortSignal` into `migrateLegacyOfflineData`. Cleanup aborts migration before stopping the manager. Migration must abort its
+active IndexedDB transaction and check the signal before every queued write/meta update; cancellation rolls back v3/meta, preserves all legacy data,
+does not publish attention, and never permits a late promise to start the old manager.
+
 - [ ] **Step 3: Wrap authenticated views**
 
 In `AuthPanel.tsx`, wrap the authenticated app layout with:
@@ -1756,6 +1760,12 @@ remain non-destructive and show their count.
 For `LEGACY_CREATE_REQUIRES_CONFIRMATION`, the banner must explain that an earlier create may already exist in the cloud, show the cloud-snapshot
 comparison supplied by Task 9, and require an explicit retry confirmation. Only that confirmation may create or release a current-epoch
 mutation; the generic retry button must not silently make the quarantined legacy row sendable.
+
+Every banner action uses a monotonically increasing UI generation token plus a stable attention-item key. Item switches, same-ID state/error/attempt/
+epoch changes, unmount, and newer actions invalidate old preview/loading/error writes. Build local and cloud comparison views through strict safe DTOs;
+never render full payloads, notes, source URLs, IDs, tokens, SQL, or raw `lastErrorMessage`. If required local summaries are absent or multiple local
+legacy beans are not distinguishable, show “无法安全比较”, omit the confirm button, and retain discard. Error text comes only from a stable-code local
+whitelist; unknown errors use a generic actionable message and may expose only the non-sensitive code.
 
 - [ ] **Step 5: Add sign-out protection**
 

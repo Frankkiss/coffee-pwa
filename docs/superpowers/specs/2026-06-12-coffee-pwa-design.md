@@ -325,6 +325,19 @@ typed array、undefined 与特殊 number，并用引用 ID 支持循环/共享�
 恢复失败语义拒绝，completed fast path 必须返回 `LEGACY_MIGRATION_SOURCE_CHANGED`。强化该门禁与前置嵌套字段校验后，
 current `migrationVersion` 提升到 `10`，旧 v9 completion 继续走 upgrade-required。
 
+legacy 迁移必须接受可选 `AbortSignal`。composition root 在登出、切换账号、session generation 变化或 StrictMode cleanup 时先
+abort 旧 generation，再停止其 SyncManager。IndexedDB 迁移事务建立后必须监听 abort 并调用 `transaction.abort()`；每轮读取完成、
+排队写入实体/Outbox 和写 migration meta 前都要检查 signal。取消使用稳定本地取消错误，不发布 `needs_attention`，必须移除监听器，
+且事务回滚后 v2、v3 与 migration meta 保持原样。旧 migration promise 无论何时完成，都不得启动 manager 或发布状态。
+
+legacy create 的确认预览只能显示安全比较摘要。客户端从当前 attention mutation 中按实体类型挑选最少字段：咖啡豆仅名称、烘焙商、
+产地、烘焙日；冲煮仅方法、冲煮时间与不含 UUID 的关联豆摘要；模板仅名称；设置仅单位。不得显示备注、来源 URL、完整 payload、
+数据库 ID、token 或其他敏感字段。云端候选也只能使用同一类安全 DTO。缺少可区分摘要，或同一预览中的本地 legacy 咖啡豆不能彼此
+区分时，界面显示“无法安全比较”，禁止确认重新上传，但仍允许放弃并恢复。
+
+同步失败文案不得直接显示 `lastErrorMessage`。界面只按稳定 error code 映射本地白名单中文说明；未知 RPC、Postgres 或原始服务端消息
+统一显示可行动的通用说明，并可单独复制非敏感 code。SQL、URL、备注、payload、实体 ID 与 mutation ID 禁止进入 DOM。
+
 ### 轻量备份
 
 默认备份为版本化轻量 JSON 文件，包含全部用户可见文字数据：豆子、冲煮记录、自定义模板、AI 推荐、
@@ -392,6 +405,8 @@ schemaVersion
 
 第一版不实现字段级冲突合并。多个设备均可新增和编辑，以最后成功提交到 Supabase 的完整记录为准；
 界面必须显示待同步数量、最后同步时间和需要处理的失败记录。
+attention 操作还必须使用 UI generation token 和稳定 item key（至少包含 mutationId、error code、status、attempt count 与 base epoch）。
+切换条目、同 ID 状态变化、组件卸载或更新操作开始时必须使旧 token/预览失效；慢请求不得覆盖更新请求，过期预览不得用于确认。
 
 ## AI 设计
 
