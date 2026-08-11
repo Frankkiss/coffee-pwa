@@ -163,6 +163,10 @@ ownership、主键、服务器时间戳和软删除字段。
 
 任何一步失败都不得出现“界面已保存但队列没有记录”的状态。
 
+统一本地 Repository 提供按 `userId` 和实体存储类型过滤的变更订阅。通知只能在包含实体与 Outbox 的事务成功提交后发布；
+事务失败、回滚或中止时不得发布。取消订阅必须幂等，账号切换后旧用户的通知不得进入新用户页面。页面通过该订阅重新读取本地合成视图，
+不得轮询 IndexedDB，也不得自行维护第二份同步队列。
+
 本地 envelope 也属于不可信持久化输入。Outbox 读取必须把记录明确分类为 `missing`、`foreign`、`valid` 或
 `corrupt-owned`，不能把所有校验失败都当作“其他账号记录”静默过滤。只要 envelope `userId`、value 内的
 `userId`、key 对应的目标 mutation 三者任一指向当前用户，而其余 ownership、key、形状或规范时间字段不一致，

@@ -1811,6 +1811,10 @@ git commit -m "feat: expose global sync state"
 
 Add a test that creates a bean offline, creates a brew referencing it, edits both, and asserts the final Outbox contains one bean `upsert` followed by one brew `upsert` with the same UUID in `bean_id`.
 
+Add subscription regressions proving that entity listeners run only after a successful transaction commit, receive only their matching `userId` and entity store,
+produce zero notifications on failure/abort, never leak an old user's events after an account switch, and can be unsubscribed idempotently. Pages must subscribe and
+re-read the repository view; they must not poll IndexedDB.
+
 - [ ] **Step 2: Remove page-owned synchronization callbacks**
 
 In both panels remove imports from `offlineCache`, `offlineQueue`, and direct CRUD services. Delete `syncPendingBeanMutations`, `syncPendingBrewLogMutations`, `mergeIntoPendingCreate`, local temporary ID builders, and online-event sync effects.
