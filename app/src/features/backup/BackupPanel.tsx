@@ -18,7 +18,7 @@ import {
   type ExistingBackupIds,
 } from './backupService'
 import { buildBeansCsv, buildBrewLogsCsv, createCsvFileName } from './csvExport'
-import type { BackupDocument, BackupImportPreview } from './backupTypes'
+import type { BackupImportPreview, ParsedBackupDocument } from './backupTypes'
 import { useSyncRuntime } from '../sync/SyncContext'
 import {
   buildBackupReminder,
@@ -42,7 +42,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const [isExportingBrewLogsCsv, setIsExportingBrewLogsCsv] = useState(false)
   const [isReadingImport, setIsReadingImport] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
-  const [importBackup, setImportBackup] = useState<BackupDocument | null>(null)
+  const [importBackup, setImportBackup] = useState<ParsedBackupDocument | null>(null)
   const [importPreview, setImportPreview] =
     useState<BackupImportPreview | null>(null)
   const [existingIds, setExistingIds] = useState<ExistingBackupIds | null>(null)
@@ -181,9 +181,9 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
     try {
       const jsonText = await file.text()
-      const backup = parseBackupDocument(jsonText)
+      const backup = await parseBackupDocument(jsonText)
       const nextExistingIds = await fetchExistingBackupIds(supabase)
-      const preview = createBackupImportPreview(backup, nextExistingIds)
+      const preview = createBackupImportPreview(backup.document, nextExistingIds)
 
       setImportBackup(backup)
       setExistingIds(nextExistingIds)
@@ -224,7 +224,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       )
 
       const payloads = buildBackupImportPayloads(
-        importBackup,
+        importBackup.document,
         importPreview,
         session.user.id,
         {

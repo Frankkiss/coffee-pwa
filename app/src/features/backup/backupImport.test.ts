@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
-import type { BackupDocument } from './backupTypes'
+import type { BackupDocument, BackupV2Document } from './backupTypes'
+import { sha256Hex } from './backupChecksum'
 import {
   buildBackupImportPayloads,
   createBackupImportPreview,
@@ -10,8 +11,8 @@ import {
 } from './backupImport'
 
 const bean = {
-  id: 'bean-1',
-  user_id: 'old-user',
+  id: '11111111-1111-4111-8111-111111111111',
+  user_id: '33333333-3333-4333-8333-333333333333',
   name: 'Ethiopia Test',
   roaster: null,
   origin: 'Ethiopia',
@@ -36,9 +37,9 @@ const bean = {
 } satisfies Bean
 
 const brewLog = {
-  id: 'brew-1',
-  user_id: 'old-user',
-  bean_id: 'bean-1',
+  id: '22222222-2222-4222-8222-222222222222',
+  user_id: '33333333-3333-4333-8333-333333333333',
+  bean_id: '11111111-1111-4111-8111-111111111111',
   brewed_at: '2026-06-12T02:00:00.000Z',
   method: 'V60',
   dripper: null,
@@ -68,8 +69,8 @@ const brewLog = {
 } satisfies BrewLog
 
 const brewTemplate = {
-  id: 'template-1',
-  user_id: 'old-user',
+  id: '44444444-4444-4444-8444-444444444444',
+  user_id: '33333333-3333-4333-8333-333333333333',
   name: '我的 V60',
   category: 'daily-pourover',
   difficulty: 'easy',
@@ -105,7 +106,7 @@ function createBackupDocument(
   return {
     schemaVersion: 1,
     exportedAt: '2026-06-12T03:00:00.000Z',
-    userId: 'old-user',
+    userId: '33333333-3333-4333-8333-333333333333',
     includesImages: false,
     recordCounts: {
       beans: beans.length,
@@ -118,32 +119,153 @@ function createBackupDocument(
   }
 }
 
-describe('backup import', () => {
-  it('parses a version 1 backup document', () => {
-    const parsed = parseBackupDocument(JSON.stringify(createBackupDocument()))
+async function createV2Document(
+  overrides: Partial<BackupV2Document['data']> = {},
+): Promise<BackupV2Document> {
+  const data: BackupV2Document['data'] = {
+    profile: null,
+    userSettings: null,
+    beans: [],
+    brewLogs: [],
+    brewTemplates: [],
+    aiRecommendations: [],
+    sourceImports: [],
+    ...overrides,
+  }
+  return {
+    schemaVersion: 2,
+    manifest: {
+      exportedAt: '2026-08-08T00:00:00.000Z',
+      appVersion: 'test',
+      backupMode: 'lightweight',
+      recordCounts: {
+        profile: data.profile ? 1 : 0,
+        userSettings: data.userSettings ? 1 : 0,
+        beans: data.beans.length,
+        brewLogs: data.brewLogs.length,
+        brewTemplates: data.brewTemplates.length,
+        aiRecommendations: data.aiRecommendations.length,
+        sourceImports: data.sourceImports.length,
+      },
+      checksumAlgorithm: 'SHA-256',
+      checksum: await sha256Hex(data),
+      images: [],
+      warnings: [],
+    },
+    data,
+  }
+}
 
-    expect(parsed.schemaVersion).toBe(1)
-    expect(parsed.data.beans[0].id).toBe('bean-1')
-    expect(parsed.data.brewLogs[0].id).toBe('brew-1')
+describe('backup import', () => {
+  it('parses v1 only for safe merge', async () => {
+    const parsed = await parseBackupDocument(JSON.stringify(createBackupDocument()))
+
+    expect(parsed.sourceVersion).toBe(1)
+    expect(parsed.fullRollbackEligible).toBe(false)
+    expect(parsed.document.data.beans[0].id).toBe(bean.id)
   })
 
-  it('rejects invalid backup JSON', () => {
-    expect(() => parseBackupDocument('{"schemaVersion":2}')).toThrow(
-      '备份文件格式不正确',
-    )
+  it('rejects invalid backup JSON asynchronously', async () => {
+    await expect(parseBackupDocument('{"schemaVersion":2}')).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('parses a complete v2 document only after checksum verification', async () => {
+    const data = { profile: null, userSettings: null, beans: [], brewLogs: [], brewTemplates: [], aiRecommendations: [], sourceImports: [] }
+    const document: BackupV2Document = {
+      schemaVersion: 2,
+      manifest: {
+        exportedAt: '2026-08-08T00:00:00.000Z', appVersion: 'test', backupMode: 'lightweight',
+        recordCounts: { profile: 0, userSettings: 0, beans: 0, brewLogs: 0, brewTemplates: 0, aiRecommendations: 0, sourceImports: 0 },
+        checksumAlgorithm: 'SHA-256', checksum: await sha256Hex(data), images: [], warnings: [],
+      },
+      data,
+    }
+
+    const parsed = await parseBackupDocument(JSON.stringify(document))
+    expect(parsed).toMatchObject({ sourceVersion: 2, fullRollbackEligible: true })
+
+    document.manifest.checksum = '0'.repeat(64)
+    await expect(parseBackupDocument(JSON.stringify(document))).rejects.toMatchObject({
+      code: 'BACKUP_CHECKSUM_MISMATCH',
+      message: '备份校验失败，文件可能已损坏或被修改',
+    })
+  })
+
+  it('rejects v2 duplicate ids, invalid bean relations, and unknown row fields', async () => {
+    const duplicate = await createV2Document({ beans: [bean, { ...bean }] })
+    await expect(parseBackupDocument(JSON.stringify(duplicate))).rejects.toThrow('备份文件格式不正确')
+
+    const orphan = await createV2Document({ beans: [bean], brewLogs: [{ ...brewLog, bean_id: '55555555-5555-4555-8555-555555555555' }] })
+    await expect(parseBackupDocument(JSON.stringify(orphan))).rejects.toThrow('备份文件格式不正确')
+
+    const unknownField = await createV2Document({ beans: [{ ...bean, rollback: true } as typeof bean] })
+    await expect(parseBackupDocument(JSON.stringify(unknownField))).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('rejects image manifest entries that refer to beans absent from the backup', async () => {
+    const document = await createV2Document()
+    document.manifest.images = [{
+      entityType: 'bean',
+      entityId: bean.id,
+      originalUrl: 'https://example.test/bean.jpg',
+      archivePath: null,
+      mediaType: null,
+      byteLength: 0,
+      checksum: null,
+      status: 'missing',
+      errorCode: 'NOT_INCLUDED',
+    }]
+
+    await expect(parseBackupDocument(JSON.stringify(document))).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('rejects unknown rollback claims, count mismatches, and duplicate ids', async () => {
+    const unknownClaim = { ...createBackupDocument(), fullRollbackEligible: true }
+    await expect(parseBackupDocument(JSON.stringify(unknownClaim))).rejects.toThrow('备份文件格式不正确')
+
+    const wrongCount = createBackupDocument()
+    wrongCount.recordCounts.beans = 9
+    await expect(parseBackupDocument(JSON.stringify(wrongCount))).rejects.toThrow('备份文件格式不正确')
+
+    const duplicate = createBackupDocument([bean, { ...bean }])
+    duplicate.recordCounts.beans = 2
+    await expect(parseBackupDocument(JSON.stringify(duplicate))).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('reports orphaned v1 brews as invalid and excludes them', async () => {
+    const orphan = { ...brewLog, bean_id: '55555555-5555-4555-8555-555555555555' }
+    const parsed = await parseBackupDocument(JSON.stringify(createBackupDocument([], [orphan])))
+
+    expect(parsed.invalidRelations).toEqual([{
+      entityType: 'brewLog', entityId: brewLog.id, field: 'bean_id', value: orphan.bean_id,
+    }])
+    expect(parsed.importable.brewLogs).toBe(0)
+    expect(parsed.document.data.brewLogs).toEqual([])
+  })
+
+  it('never silently converts an unavailable bean relation to null', () => {
+    const backup = createBackupDocument([], [{ ...brewLog, bean_id: '55555555-5555-4555-8555-555555555555' }])
+    const preview = createBackupImportPreview(backup, {
+      beanIds: new Set<string>(), brewLogIds: new Set<string>(),
+    })
+    const payloads = buildBackupImportPayloads(backup, preview, 'current-user', {
+      existingBeanIds: new Set<string>(),
+    })
+
+    expect(payloads.brewLogs).toEqual([])
   })
 
   it('previews importable and duplicate rows by id', () => {
     const preview = createBackupImportPreview(createBackupDocument(), {
-      beanIds: new Set(['bean-1']),
+      beanIds: new Set([bean.id]),
       brewLogIds: new Set<string>(),
     })
 
     expect(preview.total).toEqual({ beans: 1, brewLogs: 1, brewTemplates: 0 })
     expect(preview.duplicates).toEqual({ beans: 1, brewLogs: 0, brewTemplates: 0 })
     expect(preview.importable).toEqual({ beans: 0, brewLogs: 1, brewTemplates: 0 })
-    expect(preview.importableBeanIds.has('bean-1')).toBe(false)
-    expect(preview.importableBrewLogIds.has('brew-1')).toBe(true)
+    expect(preview.importableBeanIds.has(bean.id)).toBe(false)
+    expect(preview.importableBrewLogIds.has(brewLog.id)).toBe(true)
   })
 
   it('rewrites imported rows to the current user and keeps valid bean links', () => {
@@ -157,30 +279,11 @@ describe('backup import', () => {
       existingBeanIds: new Set<string>(),
     })
 
-    expect(payloads.beans[0].id).toBe('bean-1')
+    expect(payloads.beans[0].id).toBe(bean.id)
     expect(payloads.beans[0].user_id).toBe('current-user')
-    expect(payloads.brewLogs[0].id).toBe('brew-1')
+    expect(payloads.brewLogs[0].id).toBe(brewLog.id)
     expect(payloads.brewLogs[0].user_id).toBe('current-user')
-    expect(payloads.brewLogs[0].bean_id).toBe('bean-1')
-  })
-
-  it('nulls a brew log bean link when the referenced bean is unavailable', () => {
-    const orphanedBrewLog = {
-      ...brewLog,
-      bean_id: 'missing-bean',
-    } satisfies BrewLog
-    const backup = createBackupDocument([], [orphanedBrewLog])
-    const preview = createBackupImportPreview(backup, {
-      beanIds: new Set<string>(),
-      brewLogIds: new Set<string>(),
-    })
-
-    const payloads = buildBackupImportPayloads(backup, preview, 'current-user', {
-      existingBeanIds: new Set<string>(),
-    })
-
-    expect(payloads.beans).toHaveLength(0)
-    expect(payloads.brewLogs[0].bean_id).toBeNull()
+    expect(payloads.brewLogs[0].bean_id).toBe(bean.id)
   })
 
   it('rewrites imported custom templates to the current user', () => {
@@ -207,7 +310,7 @@ describe('backup import', () => {
       existingBeanIds: new Set<string>(),
     })
 
-    expect(payloads.brewTemplates[0].id).toBe('template-1')
+    expect(payloads.brewTemplates[0].id).toBe(brewTemplate.id)
     expect(payloads.brewTemplates[0].user_id).toBe('current-user')
     expect(payloads.brewTemplates[0].deleted_at).toBeNull()
   })

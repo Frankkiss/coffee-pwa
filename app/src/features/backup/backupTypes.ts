@@ -80,21 +80,39 @@ export type MigratedV1SafeMergeDocument = BackupV2Document & {
   manifest: BackupV2Manifest & {
     sourceSchemaVersion: 1
     fullRollbackEligible: false
-    authoritativeSections: ['beans', 'brewLogs', 'brewTemplates']
+    authoritativeSections: Array<'beans' | 'brewLogs' | 'brewTemplates'>
+  }
+}
+
+export type BackupInvalidRelation = {
+  entityType: 'brewLog' | 'aiRecommendation'
+  entityId: string
+  field: 'bean_id'
+  value: string
+}
+
+type ParsedBackupSummary = {
+  invalidRelations: BackupInvalidRelation[]
+  importable: {
+    beans: number
+    brewLogs: number
+    brewTemplates: number
+    aiRecommendations: number
+    sourceImports: number
   }
 }
 
 export type ParsedBackupDocument =
-  | {
+  | (ParsedBackupSummary & {
       sourceVersion: 1
       document: MigratedV1SafeMergeDocument
       fullRollbackEligible: false
-    }
-  | {
+    })
+  | (ParsedBackupSummary & {
       sourceVersion: 2
       document: BackupV2Document
       fullRollbackEligible: true
-    }
+    })
 
 export type BuildBackupDocumentInput = {
   userId: string
