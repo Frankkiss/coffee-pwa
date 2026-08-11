@@ -32,6 +32,28 @@ describe('backup checksum', () => {
     )
   })
 
+  it('sorts supplementary-plane object keys in JavaScript UTF-16 order', () => {
+    expect(canonicalJson({ '': 2, '😀': 1 })).toBe('{"😀":1,"":2}')
+  })
+
+  it.each([
+    ['unsafe integer', 9_007_199_254_740_992],
+    ['exponent-boundary decimal', 0.0000001],
+    ['precision-collapsing decimal', 0.1234567890123456],
+    ['positive exponent boundary', 1e21],
+  ])('rejects server-incompatible %s values', (_label, value) => {
+    expect(() => canonicalJson({ value })).toThrow(/protocol JSON/i)
+  })
+
+  it.each([
+    ['largest safe integer', 9_007_199_254_740_991],
+    ['smallest fixed-form positive decimal', 0.000001],
+    ['fifteen-significant-digit decimal', 0.123456789012345],
+    ['ordinary decimal', 1.5],
+  ])('accepts shared canonical number boundary %s', (_label, value) => {
+    expect(canonicalJson({ value })).toBe(`{"value":${JSON.stringify(value)}}`)
+  })
+
   it.each([
     ['NaN', Number.NaN],
     ['positive infinity', Number.POSITIVE_INFINITY],

@@ -124,6 +124,13 @@ select is(
   '{"😀":1,"":2}',
   'canonical JSON sorts supplementary-plane keys by JavaScript UTF-16 order'
 );
+select is(
+  public.canonical_jsonb_text(
+    '{"safeInteger":9007199254740991,"smallDecimal":0.000001,"fifteenDigits":0.123456789012345,"ordinary":1.5}'::jsonb
+  ),
+  '{"fifteenDigits":0.123456789012345,"ordinary":1.5,"safeInteger":9007199254740991,"smallDecimal":0.000001}',
+  'canonical JSON accepts the shared browser numeric boundaries'
+);
 select throws_ok(
   $$select public.canonical_jsonb_text('{"value":0.0000001}'::jsonb)$$,
   '22023', 'BACKUP_NUMBER_NOT_CANONICAL',

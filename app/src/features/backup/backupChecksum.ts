@@ -38,10 +38,7 @@ function serializeProtocolJson(value: unknown, ancestors: Set<object>): string {
   }
 
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
-      throw protocolJsonError()
-    }
-    return JSON.stringify(value)
+    return serializeProtocolNumber(value)
   }
 
   if (typeof value !== 'object') {
@@ -106,6 +103,34 @@ function serializeProtocolJson(value: unknown, ancestors: Set<object>): string {
   } finally {
     ancestors.delete(value)
   }
+}
+
+function serializeProtocolNumber(value: number) {
+  if (!Number.isFinite(value)) {
+    throw protocolJsonError()
+  }
+
+  const absolute = Math.abs(value)
+
+  if (Number.isInteger(value)) {
+    if (!Number.isSafeInteger(value)) {
+      throw protocolJsonError()
+    }
+  } else {
+    if ((absolute !== 0 && absolute < 0.000001) || absolute >= 1e21) {
+      throw protocolJsonError()
+    }
+
+    const digits = JSON.stringify(value)
+      .replace(/[^0-9]/g, '')
+      .replace(/^0+/, '')
+
+    if (digits.length > 15) {
+      throw protocolJsonError()
+    }
+  }
+
+  return JSON.stringify(value)
 }
 
 function isArrayIndex(key: string, length: number) {
