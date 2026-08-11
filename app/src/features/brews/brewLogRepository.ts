@@ -16,7 +16,12 @@ export function createBrewLogRepository(localRepository: LocalRepository, contex
       return localRepository.subscribeEntityChanges(context.userId, 'brewLogs', listener)
     },
     async listBrewLogs() {
-      return listActiveLocalEntities(localRepository, 'brewLogs', context.userId)
+      const brewLogs = await listActiveLocalEntities(localRepository, 'brewLogs', context.userId)
+      return brewLogs.toSorted(
+        (left, right) =>
+          Date.parse(right.brewed_at) - Date.parse(left.brewed_at) ||
+          left.id.localeCompare(right.id),
+      )
     },
     async createBrewLog(input: BrewLogWriteInput) {
       const inputSnapshot = snapshotRepositoryInput(input)

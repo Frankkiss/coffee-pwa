@@ -67,6 +67,46 @@ describe('brewLogRepository', () => {
     unsubscribe()
   })
 
+  it('lists local brews newest-first with a stable id tie-breaker', async () => {
+    const local = createLocalRepository()
+    let now = nowIso
+    const repository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(now),
+    })
+    await repository.createBrewLog({ ...input, brewed_at: nowIso, notes: 'older' })
+    now = laterIso
+    await repository.createBrewLog({ ...input, brewed_at: laterIso, notes: 'newer-a' })
+    await repository.createBrewLog({ ...input, brewed_at: laterIso, notes: 'newer-b' })
+
+    const rows = await repository.listBrewLogs()
+    expect(rows.map((row) => row.brewed_at)).toEqual([laterIso, laterIso, nowIso])
+    expect(rows.slice(0, 2).map((row) => row.id)).toEqual(
+      rows.slice(0, 2).map((row) => row.id).toSorted(),
+    )
+  })
+
+  it('keeps newest-first brew ordering after a server snapshot refresh', async () => {
+    const local = createLocalRepository()
+    const row = (id: string, brewedAt: string): BrewLog => ({
+      ...input, id, user_id: userId, brewed_at: brewedAt,
+      created_at: brewedAt, updated_at: brewedAt, deleted_at: null, schema_version: 1,
+    })
+    const sameA = row('30000000-0000-4000-8000-000000000011', laterIso)
+    const older = row('30000000-0000-4000-8000-000000000010', nowIso)
+    const sameB = row('30000000-0000-4000-8000-000000000012', laterIso)
+    await local.replaceServerSnapshot(userId, {
+      syncEpoch: 1, serverTime: laterIso, beans: [], brewLogs: [sameB, older, sameA],
+      brewTemplates: [], userSettings: null, aiRecommendations: [],
+    })
+    const repository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(laterIso),
+    })
+
+    expect((await repository.listBrewLogs()).map((item) => item.id)).toEqual([
+      sameA.id, sameB.id, older.id,
+    ])
+  })
+
   it('keeps one permanent bean relationship after offline edits compress for sending', async () => {
     const local = createLocalRepository()
     let now = '2026-08-09T01:00:00.000Z'

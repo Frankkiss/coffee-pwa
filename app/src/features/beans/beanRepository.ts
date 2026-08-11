@@ -29,7 +29,12 @@ export function createBeanRepository(
       return localRepository.subscribeEntityChanges(context.userId, 'beans', listener)
     },
     async listBeans() {
-      return listActiveLocalEntities(localRepository, 'beans', context.userId)
+      const beans = await listActiveLocalEntities(localRepository, 'beans', context.userId)
+      return beans.toSorted(
+        (left, right) =>
+          Date.parse(right.created_at) - Date.parse(left.created_at) ||
+          left.id.localeCompare(right.id),
+      )
     },
 
     async createBean(input: BeanUpdatePayload) {

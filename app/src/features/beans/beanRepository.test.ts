@@ -3,7 +3,7 @@ import { deleteTestDatabase } from '../../test/setupIndexedDb'
 import { createLocalRepository } from '../sync/localRepository'
 import { selectSendableMutationBatch } from '../sync/outboxModel'
 import { syncDatabaseName } from '../sync/syncDatabase'
-import type { BeanUpdatePayload } from './beanTypes'
+import type { BeanUpdatePayload, ServerBeanRow } from './beanTypes'
 import { createBeanRepository } from './beanRepository'
 
 const userId = '00000000-0000-4000-8000-000000000001'
@@ -88,6 +88,46 @@ describe('beanRepository', () => {
     unsubscribe()
     await repository.createBean({ ...beanInput, name: 'after unsubscribe' })
     expect(changes).toEqual(['bean'])
+  })
+
+  it('lists local creates newest-first with a stable id tie-breaker', async () => {
+    const local = createLocalRepository()
+    let now = firstNow
+    const repository = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(now),
+    })
+    await repository.createBean({ ...beanInput, name: 'older' })
+    now = secondNow
+    await repository.createBean({ ...beanInput, name: 'newer-a' })
+    await repository.createBean({ ...beanInput, name: 'newer-b' })
+
+    const rows = await repository.listBeans()
+    expect(rows.map((row) => row.created_at)).toEqual([secondNow, secondNow, firstNow])
+    expect(rows.slice(0, 2).map((row) => row.id)).toEqual(
+      rows.slice(0, 2).map((row) => row.id).toSorted(),
+    )
+  })
+
+  it('keeps newest-first ordering after a server snapshot refresh', async () => {
+    const local = createLocalRepository()
+    const row = (id: string, createdAt: string): ServerBeanRow => ({
+      ...beanInput, id, user_id: userId, image_url: null,
+      created_at: createdAt, updated_at: createdAt, deleted_at: null, schema_version: 1,
+    })
+    const sameA = row('20000000-0000-4000-8000-000000000011', secondNow)
+    const older = row('20000000-0000-4000-8000-000000000010', firstNow)
+    const sameB = row('20000000-0000-4000-8000-000000000012', secondNow)
+    await local.replaceServerSnapshot(userId, {
+      syncEpoch: 1, serverTime: secondNow, beans: [sameB, older, sameA],
+      brewLogs: [], brewTemplates: [], userSettings: null, aiRecommendations: [],
+    })
+    const repository = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1, now: () => new Date(secondNow),
+    })
+
+    expect((await repository.listBeans()).map((item) => item.id)).toEqual([
+      sameA.id, sameB.id, older.id,
+    ])
   })
 
   it('updates only an active current-user row and preserves its server fields', async () => {
