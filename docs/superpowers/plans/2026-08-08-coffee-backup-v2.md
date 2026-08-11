@@ -178,6 +178,11 @@ Add an immutable `public.canonical_jsonb_text(jsonb)` helper that recursively so
 scalar representations, and inserts no insignificant whitespace. Add shared fixtures containing Chinese text, escaped characters, decimals,
 nulls, arrays, and reordered object keys. Assert PostgreSQL output exactly equals the browser `canonicalJson` output for every fixture.
 
+PostgreSQL `jsonb` preserves decimal spellings that JavaScript may normalize or emit in exponent form. The shared protocol therefore accepts
+only finite JSON numbers whose canonical decimal text is stable in both runtimes (no exponent-form boundary, unsafe integer, trailing fractional
+zero, or precision-collapsing decimal). `canonical_jsonb_text` must reject an incompatible numeric value instead of emitting a checksum the
+browser cannot verify. Cover accepted decimals and rejected numeric edge cases explicitly.
+
 Revoke function execution from `anon`; it contains no user data access but remains an internal backup helper.
 
 - [ ] **Step 4: Implement `export_backup_v2`**
@@ -213,7 +218,7 @@ Enable `pgcrypto` if needed. Grant execute only to authenticated users.
 
 - [ ] **Step 5: Add a separate success-recording RPC**
 
-Add `record_backup_download(p_file_name text, p_backup_mode text, p_record_counts jsonb)`. It inserts `backup_exports` only after the browser confirms the download was initiated, ignores client `user_id`, and returns the server timestamp. Validate mode and file-name length.
+Add `record_backup_download(p_file_name text, p_backup_mode text, p_record_counts jsonb)`. It inserts `backup_exports` only after the browser confirms the download was initiated, ignores client `user_id`, and returns the server timestamp. Require the exact filename pattern for the selected mode, accept only `lightweight` or `complete`, and require exactly the seven non-negative integer v2 record-count keys with `profile` and `userSettings` limited to zero or one. Reject unknown or missing count keys.
 
 - [ ] **Step 6: Run SQL tests and commit**
 
