@@ -1,5 +1,5 @@
-import type { LocalRepository } from '../sync/localRepository'
-import { listActiveLocalEntities, prepareRepositoryWrite, requireActiveLocalEntity, type RepositoryContext } from '../sync/repositoryContext'
+import type { LocalEntityWritePrecondition, LocalRepository } from '../sync/localRepository'
+import { createMonotonicProvisionalTimestamp, listActiveLocalEntities, prepareRepositoryWrite, requireActiveLocalEntity, snapshotRepositoryInput, type RepositoryContext } from '../sync/repositoryContext'
 import { createDeletePayload, createEntityId, type BrewLogUpsertPayload, type SyncMutation } from '../sync/syncTypes'
 import type { BrewLog } from './brewTypes'
 
@@ -16,36 +16,54 @@ export function createBrewLogRepository(localRepository: LocalRepository, contex
       return listActiveLocalEntities(localRepository, 'brewLogs', context.userId)
     },
     async createBrewLog(input: BrewLogWriteInput) {
+      const inputSnapshot = snapshotRepositoryInput(input)
       const write = await prepareRepositoryWrite(context)
       const entity: BrewLog = {
-        ...input, id: createEntityId(), user_id: context.userId,
+        ...inputSnapshot, id: createEntityId(), user_id: context.userId,
         created_at: write.queuedAt, updated_at: write.queuedAt,
         deleted_at: null, schema_version: 1,
       }
-      await saveBrewLog(localRepository, entity, write)
+      await saveBrewLog(localRepository, entity, write, { kind: 'missing' })
       return entity
     },
     async updateBrewLog(entityId: string, input: BrewLogWriteInput) {
+      const inputSnapshot = snapshotRepositoryInput(input)
       const current = await requireActiveLocalEntity(localRepository, 'brewLogs', context.userId, entityId, 'brew log')
-      const write = await prepareRepositoryWrite(context)
+      const write = await prepareRepositoryWrite(
+        context,
+        (now) => createMonotonicProvisionalTimestamp(now, current.updated_at),
+      )
       const entity: BrewLog = {
-        ...current, ...input, id: current.id, user_id: context.userId,
+        ...current, ...inputSnapshot, id: current.id, user_id: context.userId,
         created_at: current.created_at, updated_at: write.queuedAt,
         deleted_at: null, schema_version: current.schema_version,
       }
-      await saveBrewLog(localRepository, entity, write)
+      await saveBrewLog(localRepository, entity, write, {
+        kind: 'active', expectedUpdatedAt: current.updated_at,
+      })
       return entity
     },
     async deleteBrewLog(entityId: string) {
       const current = await requireActiveLocalEntity(localRepository, 'brewLogs', context.userId, entityId, 'brew log')
-      const write = await prepareRepositoryWrite(context)
+      const write = await prepareRepositoryWrite(
+        context,
+        (now) => createMonotonicProvisionalTimestamp(now, current.updated_at),
+      )
       const mutation: BrewLogMutation = { ...write, entityId, entityType: 'brewLog', operation: 'delete', payload: createDeletePayload() }
-      return localRepository.softDeleteLocalEntity('brewLogs', context.userId, current, mutation, write.queuedAt)
+      return localRepository.softDeleteLocalEntity(
+        'brewLogs', context.userId, current, mutation, write.queuedAt,
+        { kind: 'active', expectedUpdatedAt: current.updated_at },
+      )
     },
   }
 }
 
-async function saveBrewLog(localRepository: LocalRepository, entity: BrewLog, write: Awaited<ReturnType<typeof prepareRepositoryWrite>>) {
+async function saveBrewLog(
+  localRepository: LocalRepository,
+  entity: BrewLog,
+  write: Awaited<ReturnType<typeof prepareRepositoryWrite>>,
+  precondition: LocalEntityWritePrecondition,
+) {
   const payload: BrewLogUpsertPayload = {
     bean_id: entity.bean_id, brewed_at: entity.brewed_at, method: entity.method,
     dripper: entity.dripper, filter_paper: entity.filter_paper, grinder: entity.grinder,
@@ -58,5 +76,7 @@ async function saveBrewLog(localRepository: LocalRepository, entity: BrewLog, wr
     is_pinned_recipe: entity.is_pinned_recipe, notes: entity.notes, schema_version: entity.schema_version,
   }
   const mutation: BrewLogMutation = { ...write, entityId: entity.id, entityType: 'brewLog', operation: 'upsert', payload }
-  await localRepository.saveLocalEntity('brewLogs', entity.user_id, entity, mutation)
+  await localRepository.saveLocalEntity(
+    'brewLogs', entity.user_id, entity, mutation, precondition,
+  )
 }

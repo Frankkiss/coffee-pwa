@@ -54,4 +54,25 @@ describe('userSettingsRepository', () => {
     expect(await local.listLocalEntities('userSettings', userId)).toEqual([])
     expect(await local.listOutbox(userId)).toEqual([])
   })
+
+  it('rejects a second create without changing the original row or Outbox', async () => {
+    const local = createLocalRepository()
+    let now = nowIso
+    const repository = createUserSettingsRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(now),
+    })
+    const original = await repository.createUserSettings(input)
+    const originalOutbox = await local.listOutbox(userId)
+    now = laterIso
+
+    await expect(
+      repository.createUserSettings({ ...input, backup_reminder_days: 99 }),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await repository.getUserSettings()).toEqual(original)
+    expect(await local.listOutbox(userId)).toEqual(originalOutbox)
+  })
 })

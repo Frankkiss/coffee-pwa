@@ -17,8 +17,60 @@ export class LocalEntityNotFoundError extends Error {
   }
 }
 
-export async function prepareRepositoryWrite(context: RepositoryContext) {
-  const queuedAt = context.now().toISOString()
+export class LocalTimestampProgressionError extends Error {
+  readonly code = 'LOCAL_TIMESTAMP_PROGRESSION_FAILED'
+
+  constructor() {
+    super('Unable to create a strictly later local entity timestamp')
+    this.name = 'LocalTimestampProgressionError'
+  }
+}
+
+export function snapshotRepositoryInput<Input>(input: Input): Input {
+  return structuredClone(input)
+}
+
+export function createMonotonicProvisionalTimestamp(
+  now: Date,
+  currentUpdatedAt: string,
+) {
+  const nowMilliseconds = now.getTime()
+  const currentMilliseconds = Date.parse(currentUpdatedAt)
+  if (
+    !Number.isFinite(nowMilliseconds) ||
+    !isTimezoneQualifiedIsoTime(currentUpdatedAt) ||
+    !Number.isFinite(currentMilliseconds)
+  ) {
+    throw new LocalTimestampProgressionError()
+  }
+
+  const nextMilliseconds = Math.max(
+    nowMilliseconds,
+    currentMilliseconds + 1,
+  )
+  try {
+    const result = new Date(nextMilliseconds).toISOString()
+    if (!isTimezoneQualifiedIsoTime(result)) {
+      throw new LocalTimestampProgressionError()
+    }
+    return result
+  } catch {
+    throw new LocalTimestampProgressionError()
+  }
+}
+
+function isTimezoneQualifiedIsoTime(value: string) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(
+    value,
+  )
+}
+
+export async function prepareRepositoryWrite(
+  context: RepositoryContext,
+  resolveQueuedAt: (now: Date) => string = (now) => now.toISOString(),
+) {
+  const now = context.now()
+  const queuedAt = resolveQueuedAt(now)
   const baseSyncEpoch = await context.getSyncEpoch()
 
   return {

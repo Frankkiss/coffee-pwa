@@ -33,6 +33,10 @@ export type DeletableEntityStoreName = Exclude<
   'userSettings'
 >
 
+export type LocalEntityWritePrecondition =
+  | { kind: 'missing' }
+  | { kind: 'active'; expectedUpdatedAt: string }
+
 type MutationForStore<Store extends MutableEntityStoreName> = SyncMutation & {
   entityType: EntityTypeByStore[Store]
 }
@@ -70,6 +74,7 @@ export type LocalRepository = SyncStorage & {
     userId: string,
     entity: EntityByStore[Store],
     mutation: UpsertMutationForStore<Store>,
+    precondition?: LocalEntityWritePrecondition,
   ): Promise<void>
   softDeleteLocalEntity<Store extends DeletableEntityStoreName>(
     storeName: Store,
@@ -77,6 +82,7 @@ export type LocalRepository = SyncStorage & {
     entity: EntityByStore[Store],
     mutation: DeleteMutationForStore<Store>,
     deletedAt?: string,
+    precondition?: LocalEntityWritePrecondition,
   ): Promise<EntityByStore[Store]>
   listLocalEntities<Store extends LocalEntityStoreName>(
     storeName: Store,
@@ -140,6 +146,15 @@ export class LocalSyncMutationStateError extends Error {
   }
 }
 
+export class LocalEntityPreconditionError extends Error {
+  readonly code = 'LOCAL_ENTITY_PRECONDITION_FAILED'
+
+  constructor(message = 'Local entity write precondition failed') {
+    super(message)
+    this.name = 'LocalEntityPreconditionError'
+  }
+}
+
 export class LegacyCreateChainChangedError extends Error {
   readonly code = 'LEGACY_CREATE_CHAIN_CHANGED'
 
@@ -192,13 +207,22 @@ export function createLocalRepository(
       userId: string,
       entity: EntityByStore[Store],
       mutation: UpsertMutationForStore<Store>,
-    ) => saveLocalEntityWithOptions(storeName, userId, entity, mutation, testOptions),
+      precondition?: LocalEntityWritePrecondition,
+    ) => saveLocalEntityWithOptions(
+      storeName,
+      userId,
+      entity,
+      mutation,
+      testOptions,
+      precondition,
+    ),
     softDeleteLocalEntity: <Store extends DeletableEntityStoreName>(
       storeName: Store,
       userId: string,
       entity: EntityByStore[Store],
       mutation: DeleteMutationForStore<Store>,
       deletedAt?: string,
+      precondition?: LocalEntityWritePrecondition,
     ) => softDeleteLocalEntityWithOptions(
       storeName,
       userId,
@@ -206,6 +230,7 @@ export function createLocalRepository(
       mutation,
       testOptions,
       deletedAt,
+      precondition,
     ),
     listLocalEntities,
     replaceServerSnapshot: (userId: string, snapshot: SyncSnapshot) =>
@@ -298,6 +323,7 @@ export function saveLocalEntity<Store extends MutableEntityStoreName>(
   userId: string,
   entity: EntityByStore[Store],
   mutation: UpsertMutationForStore<Store>,
+  precondition?: LocalEntityWritePrecondition,
 ) {
   return saveLocalEntityWithOptions(
     storeName,
@@ -305,6 +331,7 @@ export function saveLocalEntity<Store extends MutableEntityStoreName>(
     entity,
     mutation,
     defaultOptions,
+    precondition,
   )
 }
 
@@ -316,6 +343,7 @@ export function softDeleteLocalEntity<
   entity: EntityByStore[Store],
   mutation: DeleteMutationForStore<Store>,
   deletedAt?: string,
+  precondition?: LocalEntityWritePrecondition,
 ) {
   return softDeleteLocalEntityWithOptions(
     storeName,
@@ -324,6 +352,7 @@ export function softDeleteLocalEntity<
     mutation,
     defaultOptions,
     deletedAt,
+    precondition,
   )
 }
 
@@ -523,10 +552,22 @@ async function saveLocalEntityWithOptions<Store extends MutableEntityStoreName>(
   entity: EntityByStore[Store],
   mutation: UpsertMutationForStore<Store>,
   options: LocalRepositoryTestOptions,
+  precondition?: LocalEntityWritePrecondition,
 ) {
   assertMutableStoreName(storeName)
   assertOwnedEntity(storeName, userId, entity)
   assertNewMutation(storeName, userId, entity, mutation, 'upsert')
+  assertEntityWritePreconditionShape(precondition)
+  const writeGraph = structuredClone({ entity, mutation, precondition })
+  assertOwnedEntity(storeName, userId, writeGraph.entity)
+  assertNewMutation(
+    storeName,
+    userId,
+    writeGraph.entity,
+    writeGraph.mutation,
+    'upsert',
+  )
+  assertEntityWritePreconditionShape(writeGraph.precondition)
 
   await withDatabase((database) => {
     const transaction = database.transaction(
@@ -534,15 +575,16 @@ async function saveLocalEntityWithOptions<Store extends MutableEntityStoreName>(
       'readwrite',
     )
     return waitForTransaction(transaction, (abort) => {
-      scheduleEntityAndOutboxWrite(
+      schedulePreconditionedEntityAndOutboxWrite(
         transaction,
         storeName,
         userId,
-        entity,
-        mutation,
+        writeGraph.entity,
+        writeGraph.mutation,
         'saveLocalEntity',
         options,
         abort,
+        writeGraph.precondition,
       )
     })
   })
@@ -557,10 +599,12 @@ async function softDeleteLocalEntityWithOptions<
   mutation: DeleteMutationForStore<Store>,
   options: LocalRepositoryTestOptions,
   requestedDeletedAt?: string,
+  precondition?: LocalEntityWritePrecondition,
 ): Promise<EntityByStore[Store]> {
   assertDeletableStoreName(storeName)
   assertOwnedEntity(storeName, userId, entity)
   assertNewMutation(storeName, userId, entity, mutation, 'delete')
+  assertEntityWritePreconditionShape(precondition)
   const deletedAt =
     requestedDeletedAt ?? (options.now ?? (() => new Date()))().toISOString()
   if (!isIsoTime(deletedAt)) {
@@ -571,6 +615,20 @@ async function softDeleteLocalEntityWithOptions<
     deleted_at: deletedAt,
     updated_at: deletedAt,
   } as EntityByStore[Store]
+  const writeGraph = structuredClone({
+    entity: tombstone,
+    mutation,
+    precondition,
+  })
+  assertOwnedEntity(storeName, userId, writeGraph.entity)
+  assertNewMutation(
+    storeName,
+    userId,
+    writeGraph.entity,
+    writeGraph.mutation,
+    'delete',
+  )
+  assertEntityWritePreconditionShape(writeGraph.precondition)
 
   await withDatabase((database) => {
     const transaction = database.transaction(
@@ -578,20 +636,78 @@ async function softDeleteLocalEntityWithOptions<
       'readwrite',
     )
     return waitForTransaction(transaction, (abort) => {
-      scheduleEntityAndOutboxWrite(
+      schedulePreconditionedEntityAndOutboxWrite(
         transaction,
         storeName,
         userId,
-        tombstone,
-        mutation,
+        writeGraph.entity,
+        writeGraph.mutation,
         'softDeleteLocalEntity',
         options,
         abort,
+        writeGraph.precondition,
       )
     })
   })
 
-  return tombstone
+  return writeGraph.entity
+}
+
+function schedulePreconditionedEntityAndOutboxWrite<
+  Store extends MutableEntityStoreName,
+>(
+  transaction: IDBTransaction,
+  storeName: Store,
+  userId: string,
+  entity: EntityByStore[Store],
+  mutation: MutationForStore<Store>,
+  operation: 'saveLocalEntity' | 'softDeleteLocalEntity',
+  options: LocalRepositoryTestOptions,
+  abort: TransactionAbort,
+  precondition?: LocalEntityWritePrecondition,
+) {
+  if (precondition === undefined) {
+    scheduleEntityAndOutboxWrite(
+      transaction,
+      storeName,
+      userId,
+      entity,
+      mutation,
+      operation,
+      options,
+      abort,
+    )
+    return
+  }
+
+  const stableId = getStableEntityId(storeName, entity)
+  const request = transaction
+    .objectStore(storeName)
+    .get(entityKey(userId, stableId))
+  request.onsuccess = () => {
+    try {
+      assertEntityWritePrecondition(
+        storeName,
+        userId,
+        request.result as unknown,
+        entity,
+        mutation,
+        precondition,
+      )
+      scheduleEntityAndOutboxWrite(
+        transaction,
+        storeName,
+        userId,
+        entity,
+        mutation,
+        operation,
+        options,
+        abort,
+      )
+    } catch (error) {
+      abort(error)
+    }
+  }
 }
 
 function scheduleEntityAndOutboxWrite<Store extends MutableEntityStoreName>(
@@ -1347,6 +1463,83 @@ function assertDeletableStoreName(
     value !== syncStoreNames.brewTemplates
   ) {
     throw new Error(`Unsupported deletable entity store: ${value}`)
+  }
+}
+
+function assertEntityWritePreconditionShape(
+  precondition: LocalEntityWritePrecondition | undefined,
+) {
+  if (precondition === undefined) {
+    return
+  }
+  if (
+    !isPlainRecord(precondition) ||
+    (precondition.kind === 'missing'
+      ? !hasExactKeys(precondition, ['kind'])
+      : precondition.kind !== 'active' ||
+        !hasExactKeys(precondition, ['kind', 'expectedUpdatedAt']) ||
+        !isIsoTime(precondition.expectedUpdatedAt))
+  ) {
+    throw new Error('Invalid local entity write precondition')
+  }
+}
+
+function assertEntityWritePrecondition<Store extends MutableEntityStoreName>(
+  storeName: Store,
+  userId: string,
+  row: unknown,
+  entity: EntityByStore[Store],
+  mutation: MutationForStore<Store>,
+  precondition: LocalEntityWritePrecondition,
+) {
+  const classification = classifyEntityEnvelope(storeName, row, userId)
+  if (classification.kind === 'corrupt-owned') {
+    throw new LocalSyncDataCorruptionError(
+      `Corrupt current-user entity envelope in ${storeName}`,
+    )
+  }
+  if (
+    !isIsoTime(entity.updated_at) ||
+    compareCanonicalInstants(mutation.queuedAt, entity.updated_at) !== 0
+  ) {
+    throw new LocalEntityPreconditionError(
+      'Mutation queue time must match local entity version',
+    )
+  }
+  if (
+    'deleted_at' in entity &&
+    entity.deleted_at !== null &&
+    (!isIsoTime(entity.deleted_at) ||
+      compareCanonicalInstants(entity.deleted_at, entity.updated_at) !== 0)
+  ) {
+    throw new LocalEntityPreconditionError(
+      'Delete tombstone timestamps must match',
+    )
+  }
+  if (precondition.kind === 'missing') {
+    if (classification.kind !== 'missing') {
+      throw new LocalEntityPreconditionError('Local entity already exists')
+    }
+    return
+  }
+  if (classification.kind !== 'valid') {
+    throw new LocalEntityPreconditionError('Active local entity was not found')
+  }
+
+  const current = classification.envelope.value
+  if ('deleted_at' in current && current.deleted_at !== null) {
+    throw new LocalEntityPreconditionError('Local entity is soft-deleted')
+  }
+  if (current.updated_at !== precondition.expectedUpdatedAt) {
+    throw new LocalEntityPreconditionError('Local entity version changed')
+  }
+  if (
+    !isIsoTime(entity.updated_at) ||
+    compareCanonicalInstants(entity.updated_at, current.updated_at) <= 0
+  ) {
+    throw new LocalEntityPreconditionError(
+      'Local entity version must advance',
+    )
   }
 }
 

@@ -299,7 +299,7 @@ describe('compactMutations', () => {
     ])
   })
 
-  it('keeps an early brew before delete and later bean recovery without a cycle', () => {
+  it('orders a recovered bean before an earlier matching brew without a cycle', () => {
     const earlyBrew = mutation('early-brew', {
       entityId: 'brew-before-delete',
       entityType: 'brewLog',
@@ -343,10 +343,136 @@ describe('compactMutations', () => {
         unrelated,
       ]).map((item) => item.mutationId),
     ).toEqual([
-      'early-brew',
       'bean-delete',
       'later-recovery',
+      'early-brew',
       'unrelated-after-recovery',
+    ])
+  })
+
+  it('orders an upsert-delete-upsert-delete chain around all matching brews', () => {
+    const initialBean = mutation('initial-bean', {
+      entityId: 'bean-restored-twice',
+      queuedAt: '2026-08-08T10:00:00.000001Z',
+    })
+    const initialDelete = mutation('initial-delete', {
+      entityId: 'bean-restored-twice',
+      operation: 'delete',
+      queuedAt: '2026-08-08T10:00:00.000002Z',
+    })
+    const barrier = mutation('recovery-barrier', {
+      entityId: 'attention-template-recovery',
+      entityType: 'brewTemplate',
+      operation: 'delete',
+      status: 'needs_attention',
+      queuedAt: '2026-08-08T10:00:00.000003Z',
+    })
+    const latestBean = mutation('latest-bean', {
+      entityId: 'bean-restored-twice',
+      queuedAt: '2026-08-08T10:00:00.000004Z',
+    })
+    const latestDelete = mutation('latest-delete', {
+      entityId: 'bean-restored-twice',
+      operation: 'delete',
+      queuedAt: '2026-08-08T10:00:00.000005Z',
+    })
+    const brew = mutation('brew-after-latest-recovery', {
+      entityId: 'brew-after-latest-recovery',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-restored-twice', schema_version: 1 },
+      queuedAt: '2026-08-08T10:00:00.000006Z',
+    })
+
+    const selections = selectSendableMutationBatch([
+      initialBean,
+      initialDelete,
+      barrier,
+      latestBean,
+      latestDelete,
+      brew,
+    ])
+
+    expect(selections.map((item) => item.mutation.mutationId)).toEqual([
+      'initial-bean',
+      'initial-delete',
+      'latest-bean',
+      'brew-after-latest-recovery',
+      'latest-delete',
+    ])
+    expect(selections.flatMap((item) => item.coveredMutationIds)).toEqual([
+      'initial-bean',
+      'initial-delete',
+      'latest-bean',
+      'brew-after-latest-recovery',
+      'latest-delete',
+    ])
+  })
+
+  it('does not link a later brew back to a delete before bean recovery', () => {
+    const historicalDelete = mutation('historical-delete', {
+      entityId: 'bean-recovered',
+      operation: 'delete',
+      queuedAt: '2026-08-08T10:00:00.000001Z',
+    })
+    const firstBarrier = mutation('first-barrier', {
+      entityId: 'attention-template-1',
+      entityType: 'brewTemplate',
+      operation: 'delete',
+      status: 'needs_attention',
+      queuedAt: '2026-08-08T10:00:00.000002Z',
+    })
+    const firstBrew = mutation('first-brew', {
+      entityId: 'brew-recovered',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-recovered', schema_version: 1 },
+      queuedAt: '2026-08-08T10:00:00.000003Z',
+    })
+    const recoveredBean = mutation('recovered-bean', {
+      entityId: 'bean-recovered',
+      queuedAt: '2026-08-08T10:00:00.000004Z',
+    })
+    const currentDelete = mutation('current-delete', {
+      entityId: 'bean-recovered',
+      operation: 'delete',
+      queuedAt: '2026-08-08T10:00:00.000005Z',
+    })
+    const secondBarrier = mutation('second-barrier', {
+      entityId: 'attention-template-2',
+      entityType: 'brewTemplate',
+      operation: 'delete',
+      status: 'needs_attention',
+      queuedAt: '2026-08-08T10:00:00.000006Z',
+    })
+    const latestBrew = mutation('latest-brew', {
+      entityId: 'brew-recovered',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-recovered', schema_version: 1 },
+      queuedAt: '2026-08-08T10:00:00.000007Z',
+    })
+
+    const selections = selectSendableMutationBatch([
+      historicalDelete,
+      firstBarrier,
+      firstBrew,
+      recoveredBean,
+      currentDelete,
+      secondBarrier,
+      latestBrew,
+    ])
+
+    expect(selections.map((item) => item.mutation.mutationId)).toEqual([
+      'historical-delete',
+      'recovered-bean',
+      'first-brew',
+      'latest-brew',
+      'current-delete',
+    ])
+    expect(selections.flatMap((item) => item.coveredMutationIds)).toEqual([
+      'historical-delete',
+      'recovered-bean',
+      'first-brew',
+      'latest-brew',
+      'current-delete',
     ])
   })
 
@@ -479,6 +605,71 @@ describe('orderMutations', () => {
     ])
   })
 
+  it('orders a referenced bean before a clock-reordered brew from reverse input', () => {
+    const dependentBrew = mutation('dependent-brew', {
+      entityId: 'brew-dependent',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-referenced', schema_version: 1 },
+      queuedAt: '2020-01-01T00:00:00.000Z',
+    })
+    const referencedBean = mutation('referenced-bean', {
+      entityId: 'bean-referenced',
+      queuedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    const selections = selectSendableMutationBatch([
+      dependentBrew,
+      referencedBean,
+    ])
+
+    expect(selections.map((item) => item.mutation.mutationId)).toEqual([
+      'referenced-bean',
+      'dependent-brew',
+    ])
+    expect(selections.map((item) => item.coveredMutationIds)).toEqual([
+      ['referenced-bean'],
+      ['dependent-brew'],
+    ])
+  })
+
+  it('keeps normal bean then brew input dependency order', () => {
+    const referencedBean = mutation('referenced-bean', {
+      entityId: 'bean-referenced',
+      queuedAt: '2026-01-01T00:00:00.000Z',
+    })
+    const dependentBrew = mutation('dependent-brew', {
+      entityId: 'brew-dependent',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-referenced', schema_version: 1 },
+      queuedAt: '2026-01-01T00:00:01.000Z',
+    })
+
+    expect(
+      selectSendableMutationBatch([referencedBean, dependentBrew]).map(
+        (item) => item.mutation.mutationId,
+      ),
+    ).toEqual(['referenced-bean', 'dependent-brew'])
+  })
+
+  it('does not invent a dependency when no matching bean upsert exists', () => {
+    const brew = mutation('brew-with-cloud-bean', {
+      entityId: 'brew-dependent',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-already-in-cloud', schema_version: 1 },
+      queuedAt: '2020-01-01T00:00:00.000Z',
+    })
+    const unrelatedBean = mutation('unrelated-bean', {
+      entityId: 'another-bean',
+      queuedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(
+      selectSendableMutationBatch([brew, unrelatedBean]).map(
+        (item) => item.mutation.mutationId,
+      ),
+    ).toEqual(['brew-with-cloud-bean', 'unrelated-bean'])
+  })
+
   it('compares RFC 3339 fractional seconds without losing microseconds', () => {
     const later = mutation('a-later', {
       entityId: 'entity-later',
@@ -579,6 +770,57 @@ describe('orderMutations', () => {
         (item) => item.mutationId,
       ),
     ).toEqual(['bean-upsert', 'brew-upsert', 'bean-delete'])
+  })
+
+  it('orders a brew before its clock-reordered bean delete from reverse input', () => {
+    const beanDelete = mutation('bean-delete', {
+      entityId: 'bean-1',
+      operation: 'delete',
+      queuedAt: '2026-01-01T00:00:00.000Z',
+    })
+    const brewUpsert = mutation('brew-upsert', {
+      entityId: 'brew-1',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-1', schema_version: 1 },
+      queuedAt: '2030-01-01T00:00:00.000Z',
+    })
+
+    const selections = selectSendableMutationBatch([beanDelete, brewUpsert])
+
+    expect(selections.map((item) => item.mutation.mutationId)).toEqual([
+      'brew-upsert',
+      'bean-delete',
+    ])
+    expect(selections.map((item) => item.coveredMutationIds)).toEqual([
+      ['brew-upsert'],
+      ['bean-delete'],
+    ])
+  })
+
+  it('keeps multiple referencing brews before one bean delete', () => {
+    const firstBrew = mutation('first-brew', {
+      entityId: 'brew-1',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-1', schema_version: 1 },
+      queuedAt: '2030-01-01T00:00:00.000Z',
+    })
+    const beanDelete = mutation('bean-delete', {
+      entityId: 'bean-1',
+      operation: 'delete',
+      queuedAt: '2031-01-01T00:00:00.000Z',
+    })
+    const secondBrew = mutation('second-brew', {
+      entityId: 'brew-2',
+      entityType: 'brewLog',
+      payload: { bean_id: 'bean-1', schema_version: 1 },
+      queuedAt: '2032-01-01T00:00:00.000Z',
+    })
+
+    expect(
+      selectSendableMutationBatch([firstBrew, beanDelete, secondBrew]).map(
+        (item) => item.mutation.mutationId,
+      ),
+    ).toEqual(['first-brew', 'second-brew', 'bean-delete'])
   })
 })
 

@@ -225,6 +225,23 @@ DeepSeek API Key 不能放在前端代码、浏览器本地存储或公开配置
 update 被陈旧完整 row 覆盖。用户设置以 `userId` 为稳定实体 ID，create 同样只允许缺失，已有设置必须走 update 并保留原
 `created_at`。
 
+为保证 `updated_at` 可作为本地 CAS 版本，成功的 update/delete 必须产生严格晚于事务内当前行 `updated_at` 的 provisional
+时间戳，即取 `max(context.now(), current.updated_at + 1ms)` 并输出 strict ISO。即使多个操作落在同一毫秒或设备时钟回拨，首个
+成功写入也必须改变版本；无法生成合法的下一版本时稳定拒绝且零写。本地实体仓库在事务内除匹配 `expectedUpdatedAt` 外，还要
+强制新实体（delete 时包括 tombstone 的 `updated_at`/`deleted_at`）满足该单调条件，不能只依赖业务 Repository 正确调用 helper。
+同一次 Task 10 写入的 mutation `queuedAt` 必须复用该实体的 provisional `updated_at`，不得再次读取 raw 本地时钟；create 的
+`created_at`、`updated_at` 与 `queuedAt` 相同，update/delete 的 `queuedAt` 与上述单调时间为同一 instant。这样设备时钟回拨时
+`listOutbox` 仍保持同实体 create→update/delete 因果顺序，发送阶段压缩不会错误保留旧 payload。本地实体仓库对所有带原子
+前置条件的写入强制 `mutation.queuedAt` 与新实体 `updated_at` 为同一 instant；delete 还必须满足 tombstone 的
+`deleted_at`、`updated_at`、`queuedAt` 三者为同一 instant，任一不符稳定拒绝且零写。
+跨实体依赖不得假设本地时钟排序等同于创建顺序：Task 7 必须从完整的压缩节点集合识别 Brew upsert 所引用的 Bean upsert，
+建立 Bean→Brew 拓扑边后再按时间稳定排序。设备时钟回拨导致 Brew 排在 Bean 前时仍须先发送 Bean；没有对应本地 Bean
+upsert 时不得伪造依赖，且既有 Bean delete/recovery 顺序不得形成环或丢失 `coveredMutationIds`。
+同理，所有引用该 Bean 状态的 Brew upsert 必须先于相关 Bean delete 发送，不得要求 delete 在墙钟或输入顺序中位于 Brew
+之后。Bean 自身压缩节点的同实体顺序是可靠因果链：若链中存在 upsert，以最后一个 upsert 作为唯一恢复基点，统一建立
+`历史 delete → latest Bean upsert → 全部 matching Brew upsert → latest-upsert 后的 Bean delete`；恢复前的历史 delete 不得
+反向连边。若完全没有 Bean upsert，则全部 matching Brew 必须先于该链中的全部 Bean delete，以保持无环且不丢 coverage。
+
 本地实体仓库必须在验证 entity、mutation 与事务前置条件后、第一次 `await` 或打开 IndexedDB 前，对整个待写对象图执行
 同步 structured-clone 快照；实体、mutation、payload 及嵌套数组/对象随后都只使用该快照。调用方在 promise 已发起后继续
 修改共享引用，不能改变最终实体或 Outbox 内容，也不能绕过 wire validator。

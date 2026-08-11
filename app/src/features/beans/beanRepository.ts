@@ -1,8 +1,13 @@
-import type { LocalRepository } from '../sync/localRepository'
+import type {
+  LocalEntityWritePrecondition,
+  LocalRepository,
+} from '../sync/localRepository'
 import {
+  createMonotonicProvisionalTimestamp,
   listActiveLocalEntities,
   prepareRepositoryWrite,
   requireActiveLocalEntity,
+  snapshotRepositoryInput,
   type RepositoryContext,
 } from '../sync/repositoryContext'
 import {
@@ -25,10 +30,11 @@ export function createBeanRepository(
     },
 
     async createBean(input: BeanUpdatePayload) {
+      const inputSnapshot = snapshotRepositoryInput(input)
       const id = createEntityId()
       const write = await prepareRepositoryWrite(context)
       const entity: ServerBeanRow = {
-        ...input,
+        ...inputSnapshot,
         id,
         user_id: context.userId,
         image_url: null,
@@ -37,18 +43,22 @@ export function createBeanRepository(
         deleted_at: null,
         schema_version: 1,
       }
-      await saveBean(localRepository, entity, write)
+      await saveBean(localRepository, entity, write, { kind: 'missing' })
       return entity
     },
 
     async updateBean(entityId: string, input: BeanUpdatePayload) {
+      const inputSnapshot = snapshotRepositoryInput(input)
       const current = await requireActiveLocalEntity(
         localRepository, 'beans', context.userId, entityId, 'bean',
       )
-      const write = await prepareRepositoryWrite(context)
+      const write = await prepareRepositoryWrite(
+        context,
+        (now) => createMonotonicProvisionalTimestamp(now, current.updated_at),
+      )
       const entity: ServerBeanRow = {
         ...current,
-        ...input,
+        ...inputSnapshot,
         id: current.id,
         user_id: context.userId,
         image_url: current.image_url,
@@ -57,7 +67,10 @@ export function createBeanRepository(
         deleted_at: null,
         schema_version: current.schema_version,
       }
-      await saveBean(localRepository, entity, write)
+      await saveBean(localRepository, entity, write, {
+        kind: 'active',
+        expectedUpdatedAt: current.updated_at,
+      })
       return entity
     },
 
@@ -65,7 +78,10 @@ export function createBeanRepository(
       const current = await requireActiveLocalEntity(
         localRepository, 'beans', context.userId, entityId, 'bean',
       )
-      const write = await prepareRepositoryWrite(context)
+      const write = await prepareRepositoryWrite(
+        context,
+        (now) => createMonotonicProvisionalTimestamp(now, current.updated_at),
+      )
       const mutation: BeanMutation = {
         ...write,
         entityId,
@@ -74,7 +90,12 @@ export function createBeanRepository(
         payload: createDeletePayload(),
       }
       return localRepository.softDeleteLocalEntity(
-        'beans', context.userId, current, mutation, write.queuedAt,
+        'beans',
+        context.userId,
+        current,
+        mutation,
+        write.queuedAt,
+        { kind: 'active', expectedUpdatedAt: current.updated_at },
       )
     },
   }
@@ -84,6 +105,7 @@ async function saveBean(
   localRepository: LocalRepository,
   entity: ServerBeanRow,
   write: Awaited<ReturnType<typeof prepareRepositoryWrite>>,
+  precondition: LocalEntityWritePrecondition,
 ) {
   const payload: BeanUpsertPayload = {
     name: entity.name,
@@ -115,5 +137,11 @@ async function saveBean(
     operation: 'upsert',
     payload,
   }
-  await localRepository.saveLocalEntity('beans', entity.user_id, entity, mutation)
+  await localRepository.saveLocalEntity(
+    'beans',
+    entity.user_id,
+    entity,
+    mutation,
+    precondition,
+  )
 }

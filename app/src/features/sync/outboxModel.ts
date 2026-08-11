@@ -383,12 +383,12 @@ function stableTopologicalOrder<Entry extends IndexedMutation>(
       continue
     }
     const beanMutations = beanMutationsById.get(beanId) ?? []
-    const latestPriorBeanMutation = beanMutations
-      .filter((beanMutation) => beanMutation.index < entry.index)
+    const latestBeanUpsert = beanMutations
+      .filter((beanMutation) => beanMutation.mutation.operation === 'upsert')
       .at(-1)
-    if (latestPriorBeanMutation?.mutation.operation === 'upsert') {
+    if (latestBeanUpsert) {
       addDependency(
-        latestPriorBeanMutation,
+        latestBeanUpsert,
         entry,
         adjacency,
         indegree,
@@ -397,7 +397,8 @@ function stableTopologicalOrder<Entry extends IndexedMutation>(
     for (const beanMutation of beanMutations) {
       if (
         beanMutation.mutation.operation === 'delete' &&
-        beanMutation.index > entry.index
+        (latestBeanUpsert === undefined ||
+          beanMutation.index > latestBeanUpsert.index)
       ) {
         addDependency(entry, beanMutation, adjacency, indegree)
       }

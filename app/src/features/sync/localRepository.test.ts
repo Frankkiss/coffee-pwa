@@ -85,6 +85,162 @@ describe('localRepository atomic entity writes', () => {
     expect(await listOutbox(userOne)).toEqual([mutation])
   })
 
+  it('atomically rejects a missing precondition when the entity already exists', async () => {
+    const original = createBean(userOne, 'bean-missing-check', 'original')
+    await saveLocalEntity(
+      'beans',
+      userOne,
+      original,
+      createBeanUpsertMutation(original, 'mutation-original'),
+    )
+    const beforeOutbox = await listOutbox(userOne)
+    const replacement = {
+      ...original,
+      name: 'must not overwrite',
+      updated_at: fixedNow,
+    }
+
+    await expect(
+      saveLocalEntity(
+        'beans',
+        userOne,
+        replacement,
+        createBeanUpsertMutation(replacement, 'mutation-replacement'),
+        { kind: 'missing' },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await listOutbox(userOne)).toEqual(beforeOutbox)
+  })
+
+  it('atomically rejects an active precondition with a stale updated_at', async () => {
+    const original = createBean(userOne, 'bean-version-check', 'original')
+    await saveLocalEntity(
+      'beans',
+      userOne,
+      original,
+      createBeanUpsertMutation(original, 'mutation-original'),
+    )
+    const beforeOutbox = await listOutbox(userOne)
+    const replacement = {
+      ...original,
+      name: 'stale edit',
+      updated_at: fixedNow,
+    }
+
+    await expect(
+      saveLocalEntity(
+        'beans',
+        userOne,
+        replacement,
+        createBeanUpsertMutation(replacement, 'mutation-stale'),
+        {
+          kind: 'active',
+          expectedUpdatedAt: '2020-01-01T00:00:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await listOutbox(userOne)).toEqual(beforeOutbox)
+  })
+
+  it('rejects an active upsert that does not advance updated_at', async () => {
+    const original = createBean(userOne, 'bean-monotonic-upsert', 'original')
+    await saveLocalEntity(
+      'beans',
+      userOne,
+      original,
+      createBeanUpsertMutation(original, 'mutation-original'),
+    )
+    const beforeOutbox = await listOutbox(userOne)
+    const replacement = { ...original, name: 'same version' }
+
+    await expect(
+      saveLocalEntity(
+        'beans',
+        userOne,
+        replacement,
+        createBeanUpsertMutation(replacement, 'mutation-same-version'),
+        { kind: 'active', expectedUpdatedAt: original.updated_at },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await listOutbox(userOne)).toEqual(beforeOutbox)
+  })
+
+  it('rejects a delete tombstone that does not advance updated_at', async () => {
+    const original = createBean(userOne, 'bean-monotonic-delete', 'original')
+    await saveLocalEntity(
+      'beans',
+      userOne,
+      original,
+      createBeanUpsertMutation(original, 'mutation-original'),
+    )
+    const beforeOutbox = await listOutbox(userOne)
+
+    await expect(
+      softDeleteLocalEntity(
+        'beans',
+        userOne,
+        original,
+        createBeanDeleteMutation(userOne, original.id, 'mutation-delete'),
+        original.updated_at,
+        { kind: 'active', expectedUpdatedAt: original.updated_at },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await listOutbox(userOne)).toEqual(beforeOutbox)
+  })
+
+  it('rejects a preconditioned create whose queuedAt differs from updated_at', async () => {
+    const bean = createBean(userOne, 'bean-create-queue-version', 'create')
+    const mutation = createBeanUpsertMutation(bean, 'mutation-create')
+    expect(mutation.queuedAt).not.toBe(bean.updated_at)
+
+    await expect(
+      saveLocalEntity(
+        'beans',
+        userOne,
+        bean,
+        mutation,
+        { kind: 'missing' },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([])
+    expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('rejects a preconditioned delete whose queuedAt differs from tombstone time', async () => {
+    const original = createBean(userOne, 'bean-delete-queue-version', 'original')
+    await saveLocalEntity(
+      'beans',
+      userOne,
+      original,
+      createBeanUpsertMutation(original, 'mutation-original'),
+    )
+    const beforeOutbox = await listOutbox(userOne)
+    const deletedAt = '2026-08-08T11:00:00.000Z'
+
+    await expect(
+      softDeleteLocalEntity(
+        'beans',
+        userOne,
+        original,
+        createBeanDeleteMutation(userOne, original.id, 'mutation-delete'),
+        deletedAt,
+        { kind: 'active', expectedUpdatedAt: original.updated_at },
+      ),
+    ).rejects.toMatchObject({ code: 'LOCAL_ENTITY_PRECONDITION_FAILED' })
+
+    expect(await listLocalEntities('beans', userOne)).toEqual([original])
+    expect(await listOutbox(userOne)).toEqual(beforeOutbox)
+  })
+
   it('rejects cross-user, wrong-entity, wrong-store, and mismatched payload writes', async () => {
     const bean = createBean(userOne, 'bean-1', 'local edit')
     const mutation = createBeanUpsertMutation(bean, 'mutation-1')
@@ -168,6 +324,44 @@ describe('localRepository atomic entity writes', () => {
 
     expect(await listLocalEntities('beans', userOne)).toEqual([])
     expect(await listOutbox(userOne)).toEqual([])
+  })
+
+  it('snapshots the complete write graph before opening IndexedDB', async () => {
+    const bean = createBean(userOne, 'bean-snapshot', 'original')
+    bean.blend_components = [{
+      origin: 'Ethiopia',
+      process: 'washed',
+      variety: '74110',
+      percentage: null,
+      role: '',
+      notes: '',
+    }]
+    const mutation = createBeanUpsertMutation(bean, 'mutation-snapshot')
+
+    const pending = saveLocalEntity('beans', userOne, bean, mutation)
+    Object.assign(bean.blend_components[0], {
+      origin: 'mutated',
+      unknown_field: 'must-not-be-stored',
+    })
+    Object.assign(mutation.payload.blend_components[0], {
+      origin: 'mutated payload',
+      unknown_field: 'must-not-be-stored',
+    })
+
+    await pending
+    const stored = (await listLocalEntities('beans', userOne))[0]
+    expect(stored.blend_components[0].origin).toBe('Ethiopia')
+    expect(stored.blend_components[0]).not.toHaveProperty('unknown_field')
+    const queued = (await listOutbox(userOne))[0]
+    if (queued.entityType !== 'bean' || queued.operation !== 'upsert') {
+      throw new Error('Expected a bean upsert mutation')
+    }
+    expect(queued.payload).toMatchObject({
+      blend_components: [{ origin: 'Ethiopia' }],
+    })
+    expect(queued.payload.blend_components[0]).not.toHaveProperty(
+      'unknown_field',
+    )
   })
 
   it('cannot overwrite another user Outbox row when a mutation id collides', async () => {

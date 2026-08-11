@@ -1211,7 +1211,13 @@ a new batch.
 Compare canonical RFC 3339 timestamps without losing sub-millisecond precision and use priority `bean = 0`, `brewTemplate = 1`,
 `userSettings = 1`, `brewLog = 2` only as an equal-time tie-breaker before `mutationId`. Apply true bean-to-referencing-brew dependencies and
 same-entity input order as stable topological constraints over that base order: same-entity operations may not reverse, while unrelated
-mutations retain time order. Cap retry delay at
+mutations retain time order. Derive Bean→Brew edges from the complete compacted node set rather than requiring the Bean upsert to occur earlier
+in clock-sorted input; reverse-clock input still sends the matching Bean first, while missing matches create no dependency and delete/recovery
+chains remain acyclic with complete coverage. Likewise derive Brew→Bean-delete edges without requiring the delete to appear later in wall-clock
+input. Treat each Bean's compacted same-entity chain as the reliable causal order: when any Bean upsert exists, use the chain's latest upsert as
+the single recovery anchor, order every matching Brew after it, and order only later Bean deletes after every matching Brew. Earlier deletes
+remain historical predecessors. With no Bean upsert, order every matching Brew before every Bean delete. This produces an acyclic
+`historical deletes → latest upsert → matching brews → later deletes` graph with complete coverage. Cap retry delay at
 60 seconds. Preserve `needs_attention` rows during compaction, never merge them with `pending`/`syncing` rows, and never send them
 automatically. Export `selectSendableMutations()` as the compact + filter + order boundary so callers cannot accidentally upload attention rows.
 Whenever compaction constructs or replaces a delete mutation payload, it must call `createDeletePayload()`; it must not use a literal `{}` or
@@ -1618,6 +1624,17 @@ Add concurrency regressions proving create uses an atomic `missing` precondition
 pre-read `updated_at`, and a stale update cannot revive a concurrently deleted row or overwrite another update. Settings create succeeds only
 when the stable `userId` row is missing; a second create leaves the original row and Outbox unchanged. Add a mutation-safety regression that
 mutates shared nested input after a repository promise starts and proves both the stored entity and Outbox retained the validated snapshot.
+Use a shared pure helper for update/delete provisional timestamps:
+`max(context.now(), current.updated_at + 1ms)` in strict ISO form. Tests cover same-millisecond concurrent updates and clock rollback; only one
+same-version write may succeed and every successful write must advance `updated_at`.
+The same operation must reuse that provisional entity timestamp as mutation `queuedAt`; do not call `now()` again or retain a rolled-back raw
+clock value. A create uses one timestamp for `created_at`, `updated_at`, and `queuedAt`; update/delete use the monotonic helper result for both
+entity version and queue order. Regression coverage keeps an offline create queued across a clock-rollback update and proves `listOutbox` plus
+`selectSendableMutationBatch` preserve create→latest-update order and both covered IDs.
+Also cover a Bean create followed by a referencing Brew create after a cross-entity clock rollback: raw Outbox time order may put Brew first,
+but Task 7 dependency selection must emit Bean→Brew and preserve each compacted node's complete `coveredMutationIds`.
+Cover the inverse wall-clock case too: after an existing Bean create has been acknowledged, a Brew created with a fast clock must still be
+selected before a later Bean delete whose queue timestamp sorts earlier, including multiple Brew references and complete coverage.
 
 - [ ] **Step 2: Verify repository tests fail**
 
@@ -1650,6 +1667,12 @@ may omit the precondition for backward compatibility, but all Task 10 feature wr
 After synchronous validation and before the first `await`/database open, `LocalRepository` takes a `structuredClone` snapshot of entity,
 mutation, precondition, and every nested value. Transaction callbacks write and compare only that snapshot, never caller-owned mutable
 references. Settings create uses the `missing` precondition and update preserves the original `created_at`.
+For an `active` precondition, `LocalRepository` also rejects unless the new entity `updated_at` is strictly later than the transaction's current
+row. Delete tombstones must use that same strictly later value for both `updated_at` and `deleted_at`; this storage check prevents callers that
+bypass or misuse the shared timestamp helper from defeating CAS progress.
+Every write with a Task 10 precondition also requires `mutation.queuedAt` and the new entity `updated_at` to represent the same instant. Delete
+additionally requires tombstone `deleted_at` to represent that instant. `prepareRepositoryWrite` reads `now()` and the epoch once per operation
+and accepts a deterministic queued-time resolver so repository code cannot accidentally produce two clocks for one write.
 
 - [ ] **Step 4: Run repository tests**
 

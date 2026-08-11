@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
+import type { BeanUpdatePayload } from '../beans/beanTypes'
+import { createBeanRepository } from '../beans/beanRepository'
 import { createLocalRepository } from '../sync/localRepository'
+import { selectSendableMutationBatch } from '../sync/outboxModel'
 import { syncDatabaseName } from '../sync/syncDatabase'
 import type { BrewLog } from './brewTypes'
 import { createBrewLogRepository, type BrewLogWriteInput } from './brewLogRepository'
@@ -21,6 +24,15 @@ const input: BrewLogWriteInput = {
   aftertaste: 4, flavor_tags: ['floral'], is_pinned_recipe: true, notes: null,
 }
 
+const beanInput: BeanUpdatePayload = {
+  name: 'Offline bean', roaster: null, origin: 'Ethiopia',
+  farm_or_station: null, process: 'washed', variety: null,
+  altitude_meters: null, roast_date: null, roast_level: 'light',
+  flavor_tags: ['floral'], flavor_notes: null, net_weight_grams: 200,
+  price: null, purchase_date: null, source_url: null, bean_type: 'single_origin',
+  blend_components: [], blend_notes: null, notes: null,
+}
+
 describe('brewLogRepository', () => {
   beforeEach(async () => deleteTestDatabase(syncDatabaseName))
   afterEach(async () => deleteTestDatabase(syncDatabaseName))
@@ -38,6 +50,74 @@ describe('brewLogRepository', () => {
     expect(outbox).toHaveLength(1)
     expect(outbox[0]).toMatchObject({ entityId: brew.id, entityType: 'brewLog', operation: 'upsert', baseSyncEpoch: 4, queuedAt: nowIso })
     expect(outbox[0].payload).toEqual({ ...input, schema_version: 1 })
+  })
+
+  it('sends a newly created bean before its brew despite a cross-entity clock rollback', async () => {
+    const local = createLocalRepository()
+    const beanRepository = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1,
+      now: () => new Date('2026-01-01T00:00:00.000Z'),
+    })
+    const bean = await beanRepository.createBean(beanInput)
+    const brewRepository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1,
+      now: () => new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    await brewRepository.createBrewLog({ ...input, bean_id: bean.id })
+
+    const outbox = await local.listOutbox(userId)
+    expect(outbox.map((item) => item.entityType)).toEqual(['brewLog', 'bean'])
+    const selections = selectSendableMutationBatch(outbox)
+    expect(selections.map((item) => item.mutation.entityType)).toEqual([
+      'bean',
+      'brewLog',
+    ])
+    expect(selections.map((item) => item.coveredMutationIds)).toEqual(
+      selections.map((item) => [item.mutation.mutationId]),
+    )
+  })
+
+  it('sends a brew before its bean delete despite a cross-entity clock jump', async () => {
+    const local = createLocalRepository()
+    const createBean = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1,
+      now: () => new Date('2020-01-01T00:00:00.000Z'),
+    })
+    const bean = await createBean.createBean(beanInput)
+    await local.acknowledgeMutations(
+      userId,
+      (await local.listOutbox(userId)).map((item) => item.mutationId),
+    )
+    const brewRepository = createBrewLogRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1,
+      now: () => new Date('2030-01-01T00:00:00.000Z'),
+    })
+    await brewRepository.createBrewLog({ ...input, bean_id: bean.id })
+    const deleteBean = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch: async () => 1,
+      now: () => new Date('2026-01-01T00:00:00.000Z'),
+    })
+    await deleteBean.deleteBean(bean.id)
+
+    const outbox = await local.listOutbox(userId)
+    expect(outbox.map((item) => [item.entityType, item.operation])).toEqual([
+      ['bean', 'delete'],
+      ['brewLog', 'upsert'],
+    ])
+    const selections = selectSendableMutationBatch(outbox)
+    expect(
+      selections.map((item) => [
+        item.mutation.entityType,
+        item.mutation.operation,
+      ]),
+    ).toEqual([
+      ['brewLog', 'upsert'],
+      ['bean', 'delete'],
+    ])
+    expect(selections.map((item) => item.coveredMutationIds)).toEqual(
+      selections.map((item) => [item.mutation.mutationId]),
+    )
   })
 
   it('updates an active row as a complete record without replacing bean_id', async () => {
@@ -62,7 +142,10 @@ describe('brewLogRepository', () => {
 
     const deleted = await Reflect.apply(repository.deleteBrewLog, repository, [created.id, { bean_id: 'evil', user_id: otherUserId }])
 
-    expect(deleted.deleted_at).toBe(laterIso)
+    expect(Date.parse(deleted.deleted_at ?? '')).toBeGreaterThan(
+      Date.parse(laterIso),
+    )
+    expect(deleted.updated_at).toBe(deleted.deleted_at)
     expect(await repository.listBrewLogs()).toEqual([])
     const mutation = (await local.listOutbox(userId))[0]
     expect(Object.keys(mutation.payload)).toHaveLength(0)

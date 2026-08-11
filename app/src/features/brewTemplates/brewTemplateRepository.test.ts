@@ -56,7 +56,10 @@ describe('brewTemplateRepository', () => {
     await local.acknowledgeMutations(userId, (await local.listOutbox(userId)).map((item) => item.mutationId))
     const deleted = await Reflect.apply(repository.deleteBrewTemplate, repository, [created.id, { schema_version: 99, user_id: otherUserId }])
 
-    expect(deleted.deleted_at).toBe(laterIso)
+    expect(Date.parse(deleted.deleted_at ?? '')).toBeGreaterThan(
+      Date.parse(laterIso),
+    )
+    expect(deleted.updated_at).toBe(deleted.deleted_at)
     expect(await repository.listBrewTemplates()).toEqual([])
     const mutation = (await local.listOutbox(userId))[0]
     expect(Object.keys(mutation.payload)).toHaveLength(0)

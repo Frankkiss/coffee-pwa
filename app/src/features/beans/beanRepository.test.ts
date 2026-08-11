@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deleteTestDatabase } from '../../test/setupIndexedDb'
 import { createLocalRepository } from '../sync/localRepository'
+import { selectSendableMutationBatch } from '../sync/outboxModel'
 import { syncDatabaseName } from '../sync/syncDatabase'
 import type { BeanUpdatePayload } from './beanTypes'
 import { createBeanRepository } from './beanRepository'
@@ -96,7 +97,10 @@ describe('beanRepository', () => {
 
     const deleted = await Reflect.apply(repository.deleteBean, repository, [created.id, { user_id: otherUserId, secret: 'must-not-leak' }])
 
-    expect(deleted).toMatchObject({ deleted_at: secondNow, updated_at: secondNow })
+    expect(Date.parse(deleted.deleted_at ?? '')).toBeGreaterThan(
+      Date.parse(secondNow),
+    )
+    expect(deleted.updated_at).toBe(deleted.deleted_at)
     expect(await repository.listBeans()).toEqual([])
     const mutation = (await local.listOutbox(userId))[0]
     expect(mutation.operation).toBe('delete')
@@ -131,4 +135,195 @@ describe('beanRepository', () => {
     expect(await local.listLocalEntities('beans', userId)).toEqual([])
     expect(await local.listOutbox(userId)).toEqual([])
   })
+
+  it('snapshots nested create input before its first await', async () => {
+    const local = createLocalRepository()
+    const sharedInput: BeanUpdatePayload = structuredClone(beanInput)
+    const repository = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(firstNow),
+    })
+
+    const pending = repository.createBean(sharedInput)
+    Object.assign(sharedInput.blend_components[0], {
+      origin: 'mutated',
+      unknown_field: 'must-not-cross-await',
+    })
+
+    const created = await pending
+    expect(created.blend_components[0].origin).toBe('Ethiopia')
+    expect(created.blend_components[0]).not.toHaveProperty('unknown_field')
+    expect((await local.listLocalEntities('beans', userId))[0]).toEqual(created)
+    expect((await local.listOutbox(userId))[0].payload).toMatchObject({
+      blend_components: beanInput.blend_components,
+    })
+  })
+
+  it('allows only one concurrent update built from the same entity version', async () => {
+    const local = createLocalRepository()
+    const seed = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(firstNow),
+    })
+    const created = await seed.createBean(beanInput)
+    await local.acknowledgeMutations(
+      userId,
+      (await local.listOutbox(userId)).map((item) => item.mutationId),
+    )
+    let arrivals = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => { release = resolve })
+    const getSyncEpoch = async () => {
+      arrivals += 1
+      if (arrivals === 2) release()
+      await barrier
+      return 2
+    }
+    const first = createBeanRepository(local, {
+      userId, deviceId, getSyncEpoch, now: () => new Date(firstNow),
+    })
+    const second = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch,
+      now: () => new Date(firstNow),
+    })
+
+    const results = await Promise.allSettled([
+      first.updateBean(created.id, { ...beanInput, name: 'first edit' }),
+      second.updateBean(created.id, { ...beanInput, name: 'second edit' }),
+    ])
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'LOCAL_ENTITY_PRECONDITION_FAILED' },
+    })
+    expect(await local.listOutbox(userId)).toHaveLength(1)
+  })
+
+  it('advances updated_at when the device clock moves backwards', async () => {
+    const local = createLocalRepository()
+    const seed = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(firstNow),
+    })
+    const created = await seed.createBean(beanInput)
+    await local.acknowledgeMutations(
+      userId,
+      (await local.listOutbox(userId)).map((item) => item.mutationId),
+    )
+    const rollback = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 2,
+      now: () => new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    const updated = await rollback.updateBean(created.id, {
+      ...beanInput,
+      name: 'clock rollback edit',
+    })
+
+    expect(Date.parse(updated.updated_at)).toBeGreaterThan(
+      Date.parse(created.updated_at),
+    )
+  })
+
+  it('keeps create before a clock-rollback update through Outbox compaction', async () => {
+    const local = createLocalRepository()
+    const createRepository = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(firstNow),
+    })
+    const created = await createRepository.createBean(beanInput)
+    const updateRepository = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    await updateRepository.updateBean(created.id, {
+      ...beanInput,
+      name: 'latest edit',
+    })
+
+    const outbox = await local.listOutbox(userId)
+    expect(outbox.map(readBeanMutationName)).toEqual([
+      beanInput.name,
+      'latest edit',
+    ])
+    const selection = selectSendableMutationBatch(outbox)
+    expect(selection).toHaveLength(1)
+    expect(readBeanMutationName(selection[0].mutation)).toBe('latest edit')
+    expect(selection[0].coveredMutationIds).toEqual(
+      outbox.map((mutation) => mutation.mutationId),
+    )
+  })
+
+  it('does not let a stale update revive a concurrently deleted bean', async () => {
+    const local = createLocalRepository()
+    const seed = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 1,
+      now: () => new Date(firstNow),
+    })
+    const created = await seed.createBean(beanInput)
+    await local.acknowledgeMutations(
+      userId,
+      (await local.listOutbox(userId)).map((item) => item.mutationId),
+    )
+    let releaseUpdate!: () => void
+    let signalReached!: () => void
+    const updateGate = new Promise<void>((resolve) => { releaseUpdate = resolve })
+    const reachedEpoch = new Promise<void>((resolve) => { signalReached = resolve })
+    const updater = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => {
+        signalReached()
+        await updateGate
+        return 2
+      },
+      now: () => new Date(secondNow),
+    })
+    const deleter = createBeanRepository(local, {
+      userId,
+      deviceId,
+      getSyncEpoch: async () => 2,
+      now: () => new Date('2026-08-09T03:04:05.006Z'),
+    })
+
+    const staleUpdate = updater.updateBean(created.id, {
+      ...beanInput,
+      name: 'must not revive',
+    })
+    await reachedEpoch
+    const tombstone = await deleter.deleteBean(created.id)
+    releaseUpdate()
+
+    await expect(staleUpdate).rejects.toMatchObject({
+      code: 'LOCAL_ENTITY_PRECONDITION_FAILED',
+    })
+    expect(await local.listLocalEntities('beans', userId)).toEqual([tombstone])
+  })
 })
+
+function readBeanMutationName(
+  mutation: Awaited<ReturnType<ReturnType<typeof createLocalRepository>['listOutbox']>>[number],
+) {
+  if (mutation.entityType !== 'bean' || mutation.operation !== 'upsert') {
+    throw new Error('Expected a bean upsert mutation')
+  }
+  return mutation.payload.name
+}
