@@ -238,6 +238,34 @@ describe('backup import', () => {
       .resolves.toMatchObject({ sourceVersion: 2 })
   })
 
+  it('rejects malformed non-null image checksums', async () => {
+    const document = await createV2Document({ beans: [v2Bean] })
+    document.manifest.images = [{
+      entityType: 'bean',
+      entityId: v2Bean.id,
+      originalUrl: 'https://example.invalid/bean.jpg',
+      archivePath: 'images/bean.jpg',
+      mediaType: 'image/jpeg',
+      byteLength: 12,
+      checksum: 'x',
+      status: 'included',
+      errorCode: null,
+    }]
+    for (const checksum of [
+      'x',
+      'A'.repeat(64),
+      'a'.repeat(63),
+      'a'.repeat(65),
+    ]) {
+      document.manifest.images[0].checksum = checksum
+      await expect(parseBackupDocument(JSON.stringify(document)))
+        .rejects.toMatchObject({ code: 'BACKUP_FORMAT_INVALID' })
+    }
+    document.manifest.images[0].checksum = 'a'.repeat(64)
+    await expect(parseBackupDocument(JSON.stringify(document)))
+      .resolves.toMatchObject({ sourceVersion: 2 })
+  })
+
   it('rejects fractional values for every integer database column', async () => {
     const integerMutations: Array<Partial<BackupV2Document['data']>> = [
       { beans: [{ ...v2Bean, altitude_meters: 1.5 }] },

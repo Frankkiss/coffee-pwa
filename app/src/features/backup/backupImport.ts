@@ -414,7 +414,7 @@ function isSourceImport(value: unknown): value is BackupV2Document['data']['sour
 }
 
 function isImageManifestEntry(value: unknown): value is BackupV2Document['manifest']['images'][number] {
-  return isRecord(value) && hasExactKeys(value, ['entityType', 'entityId', 'originalUrl', 'archivePath', 'mediaType', 'byteLength', 'checksum', 'status', 'errorCode']) && value.entityType === 'bean' && isUuid(value.entityId) && isString(value.originalUrl) && isNullableString(value.archivePath) && isNullableString(value.mediaType) && Number.isSafeInteger(value.byteLength) && Number(value.byteLength) >= 0 && isNullableString(value.checksum) && ['included', 'missing'].includes(String(value.status)) && isNullableString(value.errorCode)
+  return isRecord(value) && hasExactKeys(value, ['entityType', 'entityId', 'originalUrl', 'archivePath', 'mediaType', 'byteLength', 'checksum', 'status', 'errorCode']) && value.entityType === 'bean' && isUuid(value.entityId) && isString(value.originalUrl) && isNullableString(value.archivePath) && isNullableString(value.mediaType) && Number.isSafeInteger(value.byteLength) && Number(value.byteLength) >= 0 && (value.checksum === null || (isString(value.checksum) && /^[0-9a-f]{64}$/.test(value.checksum))) && ['included', 'missing'].includes(String(value.status)) && isNullableString(value.errorCode)
 }
 
 function parseRows<T>(value: unknown, validator: (row: unknown) => row is T): T[] {

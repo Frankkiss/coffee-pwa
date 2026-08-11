@@ -54,6 +54,37 @@ async function derivedBackup(): Promise<MigratedV1SafeMergeDocument> {
   }
 }
 
+async function backupWithBadImageChecksum(): Promise<BackupV2Document> {
+  const document = await backup()
+  const bean = {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    name: 'Test bean', roaster: null, origin: null, farm_or_station: null,
+    process: null, variety: null, altitude_meters: null, roast_date: null,
+    roast_level: null, flavor_tags: [], flavor_notes: null,
+    net_weight_grams: null, price: null, purchase_date: null, source_url: null,
+    image_url: null, bean_type: 'single_origin' as const,
+    blend_components: [], blend_notes: null, notes: null,
+    created_at: time, updated_at: time, deleted_at: null, schema_version: 1,
+  }
+  const data = { ...document.data, beans: [bean] }
+  return {
+    ...document,
+    manifest: {
+      ...document.manifest,
+      recordCounts: { ...document.manifest.recordCounts, beans: 1 },
+      checksum: await sha256Hex(data),
+      images: [{
+        entityType: 'bean', entityId: bean.id,
+        originalUrl: 'https://example.invalid/bean.jpg',
+        archivePath: 'images/bean.jpg', mediaType: 'image/jpeg', byteLength: 12,
+        checksum: 'x', status: 'included', errorCode: null,
+      }],
+    },
+    data,
+  }
+}
+
 const zero = {
   total: 0, new: 0, existing: 0, softDeleted: 0, willUpdate: 0, willDelete: 0,
 }
@@ -159,6 +190,22 @@ describe('backup restore API boundary', () => {
     await expect(createBackupRestoreApi(derivedClient.client).preview(
       await derivedBackup(),
       'safe_merge',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+  })
+
+  it('rejects malformed image checksums in requests and export responses', async () => {
+    const malformed = await backupWithBadImageChecksum()
+    const requestClient = clientWith([])
+    await expect(createBackupRestoreApi(requestClient.client).preview(
+      malformed,
+      'safe_merge',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    expect(requestClient.rpc).not.toHaveBeenCalled()
+
+    const exportClient = clientWith([{ data: malformed, error: null }])
+    await expect(createBackupRestoreApi(exportClient.client).exportBackup(
+      '0.0.0-test',
+      'lightweight',
     )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
   })
 
