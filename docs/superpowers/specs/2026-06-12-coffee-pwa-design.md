@@ -330,6 +330,11 @@ abort 旧 generation，再停止其 SyncManager。IndexedDB 迁移事务建立�
 排队写入实体/Outbox 和写 migration meta 前都要检查 signal。取消使用稳定本地取消错误，不发布 `needs_attention`，必须移除监听器，
 且事务回滚后 v2、v3 与 migration meta 保持原样。旧 migration promise 无论何时完成，都不得启动 manager 或发布状态。
 
+认证退出必须在调用 `supabase.auth.signOut()` 前同步暂停当前 sync runtime：立即 abort 当前 legacy migration generation、停止 manager、
+失效所有旧 callback，并阻止普通 render 重新启动。暂停接口返回幂等 resume 令牌；退出成功后保持暂停直到 session change/unmount，
+退出失败时仅当组件仍 mounted 且 user/session 未变化才恢复一个新 generation。确认取消不得暂停；退出请求悬挂期间 timer、online、
+realtime 与在途 RPC 的迟到 callback 均不得写本地 storage 或发布状态。
+
 legacy create 的确认预览只能显示安全比较摘要。客户端从当前 attention mutation 中按实体类型挑选最少字段：咖啡豆仅名称、烘焙商、
 产地、烘焙日；冲煮仅方法、冲煮时间与不含 UUID 的关联豆摘要；模板仅名称；设置仅单位。不得显示备注、来源 URL、完整 payload、
 数据库 ID、token 或其他敏感字段。云端候选也只能使用同一类安全 DTO。缺少可区分摘要，或同一预览中的本地 legacy 咖啡豆不能彼此

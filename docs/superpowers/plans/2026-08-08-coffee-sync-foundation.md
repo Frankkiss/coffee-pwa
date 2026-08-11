@@ -1775,6 +1775,12 @@ Before `supabase.auth.signOut()`, inspect `pendingCount` and `attentionItems`. I
 还有本地修改尚未同步。退出后这些修改仍保留在本机，但切换账号时不会上传。确认退出吗？
 ```
 
+After confirmation (or when no work is pending), synchronously call the runtime's `suspendForSignOut()` before starting the Supabase request. Suspension
+aborts migration, stops the manager, invalidates old callbacks, and prevents render-driven restart. It returns an idempotent resume function. Keep the
+runtime suspended after a successful sign-out; on rejection, resume exactly once only while the same session/user component is still mounted, and show
+a safe local error. A cancelled confirmation never suspends. Deferred sign-out tests must prove `suspend -> signOut` ordering and that timer/online/
+realtime/in-flight callbacks cannot write storage or publish while suspended; session changes and StrictMode must not revive or double-start a runtime.
+
 - [ ] **Step 6: Run model and full tests**
 
 ```powershell
