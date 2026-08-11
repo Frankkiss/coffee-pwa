@@ -30,6 +30,7 @@ import {
   aggregateCurrentUserOutbox,
   completeDiscardAndRefresh,
   createRuntimeGeneration,
+  createRuntimeSuspensionController,
   type EntitySyncStatus,
 } from './syncRuntimeModel'
 
@@ -56,6 +57,7 @@ export type SyncRuntimeValue = {
     options?: { confirmLegacyCreate?: boolean },
   ) => Promise<RetryMutationResult>
   discardMutation: (mutationId: string) => Promise<void>
+  suspendForSignOut: () => () => void
   initializationError: string | null
 }
 
@@ -106,10 +108,23 @@ function SessionSyncProvider({
   )
   const [initializationError, setInitializationError] = useState<string | null>(null)
   const [outboxLoaded, setOutboxLoaded] = useState(false)
+  const [runtimeGenerationId, setRuntimeGenerationId] = useState(0)
   const managerRef = useRef<RuntimeManager | null>(null)
   const refreshRef = useRef<() => Promise<void>>(async () => undefined)
+  const stopRuntimeRef = useRef<() => void>(() => undefined)
+  const [suspensionController] = useState(() =>
+    createRuntimeSuspensionController({
+      restart: () => setRuntimeGenerationId((current) => current + 1),
+    }),
+  )
 
   useEffect(() => {
+    suspensionController.mount()
+    return () => suspensionController.unmount()
+  }, [suspensionController])
+
+  useEffect(() => {
+    if (suspensionController.isSuspended()) return
     let current = true
     let unsubscribeState: (() => void) | null = null
     const localRepository = createLocalRepository()
@@ -192,16 +207,24 @@ function SessionSyncProvider({
         setState({ kind: 'needs_attention', pendingCount: 0, attentionCount: 1 })
       },
     })
-    void generation.start()
-
-    return () => {
+    const stopRuntime = () => {
+      if (!current) return
       current = false
       unsubscribeState?.()
       unsubscribeState = null
       generation.stop()
       managerRef.current = null
     }
-  }, [supabase, userId])
+    stopRuntimeRef.current = stopRuntime
+    void generation.start()
+
+    return () => {
+      stopRuntime()
+      if (stopRuntimeRef.current === stopRuntime) {
+        stopRuntimeRef.current = () => undefined
+      }
+    }
+  }, [runtimeGenerationId, supabase, suspensionController, userId])
 
   const run = useCallback(async () => {
     const manager = managerRef.current
@@ -224,6 +247,10 @@ function SessionSyncProvider({
     if (!manager) return unavailable()
     await completeDiscardAndRefresh(manager, mutationId, refreshRef.current)
   }, [])
+  const suspendForSignOut = useCallback(
+    () => suspensionController.suspend(() => stopRuntimeRef.current()),
+    [suspensionController],
+  )
 
   const value = useMemo<SyncRuntimeValue>(() => ({
     repositories,
@@ -235,6 +262,7 @@ function SessionSyncProvider({
     statusByEntityId: outboxView.statusByEntityId,
     retryMutation,
     discardMutation,
+    suspendForSignOut,
     initializationError,
   }), [
     discardMutation,
@@ -245,6 +273,7 @@ function SessionSyncProvider({
     retryMutation,
     run,
     state,
+    suspendForSignOut,
   ])
 
   return <SyncRuntimeContext.Provider value={value}>{children}</SyncRuntimeContext.Provider>

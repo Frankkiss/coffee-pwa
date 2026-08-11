@@ -2,6 +2,41 @@ import type { SyncMutation } from './syncTypes'
 
 export type EntitySyncStatus = 'synced' | 'pending' | 'needs_attention'
 
+export function createRuntimeSuspensionController(options: {
+  restart: () => void
+}) {
+  let mounted = true
+  let suspended = false
+  let owner = 0
+
+  return {
+    mount() {
+      mounted = true
+    },
+    suspend(stopCurrent: () => void) {
+      if (!mounted || suspended) return () => undefined
+      suspended = true
+      const token = ++owner
+      let resumed = false
+      stopCurrent()
+      return () => {
+        if (resumed) return
+        resumed = true
+        if (!mounted || !suspended || token !== owner) return
+        suspended = false
+        options.restart()
+      }
+    },
+    unmount() {
+      mounted = false
+      owner += 1
+    },
+    isSuspended() {
+      return suspended
+    },
+  }
+}
+
 type RuntimeGenerationOptions<Manager extends { start(): void; stop(): void }> = {
   migrate: () => Promise<unknown>
   createManager: () => Manager

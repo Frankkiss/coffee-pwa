@@ -23,6 +23,7 @@ type HomeOverviewProps = {
   supabase: SupabaseClient
   onNavigate: (view: HomeNavigationTarget) => void
   onSignOut: () => void
+  isSigningOut?: boolean
   authStatus?: string
   previewRows?: HomeRows
   syncState: SyncState
@@ -77,6 +78,7 @@ export function HomeOverview({
   supabase,
   onNavigate,
   onSignOut,
+  isSigningOut = false,
   authStatus,
   previewRows,
   syncState,
@@ -214,8 +216,8 @@ export function HomeOverview({
             <span>状态</span>
             <strong>{overview.syncLabel}</strong>
           </span>
-          <button type="button" onClick={onSignOut}>
-            退出
+          <button type="button" onClick={onSignOut} disabled={isSigningOut}>
+            {isSigningOut ? '退出中' : '退出'}
           </button>
         </div>
         <div className="home-hero__brand">

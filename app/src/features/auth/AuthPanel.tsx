@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
@@ -8,7 +8,11 @@ import { HomeOverview } from '../home/HomeOverview'
 import type { HomeNavigationTarget } from '../home/HomeOverview'
 import { SyncProvider, useSyncRuntime } from '../sync/SyncContext'
 import { SyncStatusBanner } from '../sync/SyncStatusBanner'
-import { confirmAndSignOut, pendingCountForSignOut } from './signOutGuard'
+import {
+  confirmAndSignOut,
+  createSignOutSingleFlight,
+  pendingCountForSignOut,
+} from './signOutGuard'
 import {
   validateEmail,
   validateLoginForm,
@@ -583,15 +587,37 @@ function AuthenticatedApp({
   onSignedOut: () => void
 }) {
   const runtime = useSyncRuntime()
+  const [signOutError, setSignOutError] = useState('')
+  const [isSigningOut, setIsSigningOut] = useState(false)
+  const mountedRef = useRef(true)
+  const [signOutFlight] = useState(() =>
+    createSignOutSingleFlight(setIsSigningOut),
+  )
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   async function handleSignOut() {
-    const signedOut = await confirmAndSignOut(
-      pendingCountForSignOut(runtime.outboxLoaded, runtime.pendingCount),
-      runtime.attentionItems.length,
-      window.confirm,
-      () => authenticatedSupabase.auth.signOut(),
-    )
-    if (signedOut) onSignedOut()
+    await signOutFlight.run(async () => {
+      setSignOutError('')
+      try {
+        const signedOut = await confirmAndSignOut(
+          pendingCountForSignOut(runtime.outboxLoaded, runtime.pendingCount),
+          runtime.attentionItems.length,
+          window.confirm,
+          runtime.suspendForSignOut,
+          () => authenticatedSupabase.auth.signOut(),
+        )
+        if (signedOut && mountedRef.current) onSignedOut()
+      } catch {
+        if (mountedRef.current) {
+          setSignOutError('退出失败，请检查网络后重试。')
+        }
+      }
+    })
   }
 
   function renderActiveView() {
@@ -602,6 +628,7 @@ function AuthenticatedApp({
           supabase={authenticatedSupabase}
           onNavigate={onNavigate}
           onSignOut={handleSignOut}
+          isSigningOut={isSigningOut}
           authStatus={authStatus}
           syncState={runtime.state}
         />
@@ -623,6 +650,9 @@ function AuthenticatedApp({
     <div className="auth-layout auth-layout--app">
       <main className="app-view" aria-label="咖Day 当前页面">
         <SyncStatusBanner />
+        {signOutError ? (
+          <p className="auth-error" role="alert">{signOutError}</p>
+        ) : null}
         <Suspense fallback={<p className="app-view__loading">正在打开页面...</p>}>
           {renderActiveView()}
         </Suspense>

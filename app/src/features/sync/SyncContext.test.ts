@@ -3,6 +3,7 @@ import { createDeletePayload, type SyncMutation } from './syncTypes'
 import {
   aggregateCurrentUserOutbox,
   completeDiscardAndRefresh,
+  createRuntimeSuspensionController,
   createRuntimeGeneration,
 } from './syncRuntimeModel'
 
@@ -120,6 +121,45 @@ describe('createRuntimeGeneration', () => {
 
     expect(createManager).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(error)
+  })
+})
+
+describe('createRuntimeSuspensionController', () => {
+  it('stops the current generation immediately and resumes only once', () => {
+    const stopCurrent = vi.fn()
+    const restart = vi.fn()
+    const controller = createRuntimeSuspensionController({ restart })
+
+    const resume = controller.suspend(stopCurrent)
+    resume()
+    resume()
+
+    expect(stopCurrent).toHaveBeenCalledOnce()
+    expect(restart).toHaveBeenCalledOnce()
+  })
+
+  it('does not revive a previous session after unmount', () => {
+    const restart = vi.fn()
+    const controller = createRuntimeSuspensionController({ restart })
+
+    const resume = controller.suspend(vi.fn())
+    controller.unmount()
+    resume()
+
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('does not create a second suspension owner while sign-out is pending', () => {
+    const restart = vi.fn()
+    const controller = createRuntimeSuspensionController({ restart })
+
+    const resume = controller.suspend(vi.fn())
+    const staleResume = controller.suspend(vi.fn())
+    staleResume()
+    expect(restart).not.toHaveBeenCalled()
+    resume()
+
+    expect(restart).toHaveBeenCalledOnce()
   })
 })
 
