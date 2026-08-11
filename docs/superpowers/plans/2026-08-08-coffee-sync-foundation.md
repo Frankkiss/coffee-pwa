@@ -762,10 +762,12 @@ $$;
 
 The authentication check may run first, but the epoch and all entity collections must be read by this single `select`
 so they share one PostgreSQL statement snapshot. Keep the snapshot function `SECURITY INVOKER` and rely on RLS. Because
-PostgreSQL checks table privileges before applying RLS, explicitly grant `authenticated` only `SELECT` on the five business
-tables read by this RPC (`beans`, `brew_logs`, `brew_templates`, `user_settings`, and `ai_recommendations`). Revoke their table
-access from `anon` and `PUBLIC`, and do not grant direct `INSERT`, `UPDATE`, or `DELETE`; authenticated rows remain isolated by
-the existing current-user RLS policies.
+PostgreSQL checks table privileges before applying RLS, explicitly grant `authenticated` `SELECT` on the five business tables
+read by this RPC (`beans`, `brew_logs`, `brew_templates`, `user_settings`, and `ai_recommendations`). Revoke their table access
+from `anon` and `PUBLIC`; authenticated rows remain isolated by the existing current-user RLS policies. This additive migration
+must not revoke or reconstruct existing authenticated business-table ACLs: v1 backup merge, recommendation persistence, and
+already deployed clients still have direct-write consumers. Migrate those consumers and verify stable client coverage first;
+then use a separate, preflighted cleanup migration to remove obsolete direct-write grants.
 
 - [ ] **Step 5: Lock down function grants**
 

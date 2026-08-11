@@ -398,8 +398,10 @@ result_summary
 
 RPC 优先使用调用者权限运行并保留 RLS。`SECURITY INVOKER` RPC 读取的业务表必须显式只向
 `authenticated` 授予完成该 RPC 所需的最小表级权限；表级授权只是进入查询的前置条件，逐行隔离仍由 RLS
-策略强制执行。不得为此向 `anon` 或 `PUBLIC` 开放业务表，也不得向 `authenticated` 扩大到该 RPC 不需要的
-写权限。若某个恢复流程确实需要 `SECURITY DEFINER`，必须：
+策略强制执行。不得为此向 `anon` 或 `PUBLIC` 开放业务表。当前 additive 同步迁移只增加快照所需的
+`authenticated SELECT`，不得顺带撤销或重写线上既有业务表 ACL；备份恢复和推荐保存仍存在直接写消费者，旧客户端也
+需要短期兼容。只有这些消费者迁移到受控事务接口、稳定客户端覆盖并完成生产 ACL 预检后，才能通过独立的安全清理迁移
+收紧直接写权限。若某个恢复流程确实需要 `SECURITY DEFINER`，必须：
 
 - 固定安全的 `search_path`；
 - 在函数内首先验证 `auth.uid()`；
