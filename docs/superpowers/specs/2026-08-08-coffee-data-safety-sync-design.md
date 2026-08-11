@@ -491,6 +491,25 @@ RPC 优先使用调用者权限运行并保留 RLS。`SECURITY INVOKER` RPC 读�
 
 所有导入行的 `user_id` 均重写为当前登录用户，且关联只能指向备份内或当前用户已有的数据。
 
+#### 11.1.1 服务端预览契约
+
+`preview_restore_v2(p_backup jsonb, p_mode text)` 必须在单个 SQL statement 的同一 MVCC snapshot 中完成校验与影响计算，并取得与同步写入相同的用户级 advisory transaction lock。它是只读操作：调用前后业务表、`user_sync_state.sync_epoch` 与备份元数据必须完全不变。
+
+请求仅接受 `safe_merge` 或 `full_rollback`。服务端不信任浏览器解析结果，必须重新验证根对象、manifest、data 及每一行的精确字段集合、UUID、时间、枚举、跨运行时可规范化数字、记录计数、SHA-256 校验和、重复 ID 与关联完整性；所有输入 `user_id` 和 profile `id` 仅按当前 `auth.uid()` 解释，不能读取或匹配其他用户的数据。
+
+响应根对象只包含 `mode`、`fullRollbackEligible`、`counts`、`invalidRelations`、`warnings`。`counts` 必须精确包含 `profile`、`userSettings`、`beans`、`brewLogs`、`brewTemplates`、`aiRecommendations`、`sourceImports` 七个分区；每个分区只包含非负整数 `total`、`new`、`existing`、`softDeleted`、`willUpdate`、`willDelete`：
+
+- `total`：该分区参与当前模式预览的备份行数；
+- `new`：当前用户不存在同 ID 行；
+- `existing`：当前用户存在同 ID 的活动行；
+- `softDeleted`：当前用户存在同 ID 的软删除行；
+- `willUpdate`：`full_rollback` 将覆盖或复活的同 ID 行；安全合并恒为零；
+- `willDelete`：`full_rollback` 将软删除的、当前活动但备份中缺失的可删除行；安全合并恒为零。
+
+`invalidRelations` 每项只包含 `entityType`、`entityId`、`field`、`value`，按这些字段稳定排序；`warnings` 只包含稳定、非敏感的字符串代码。无异常时两个数组均为空。
+
+由 v1 迁移得到的传输信封只允许 `safe_merge`，且 manifest 必须精确声明 `sourceSchemaVersion: 1`、`fullRollbackEligible: false` 与无重复的 `authoritativeSections`；该列表只能由 `beans`、`brewLogs`、`brewTemplates` 组成。服务端只预览这些权威分区，其他四个分区必须保持空传输值并不得通过伪造字段取得回滚资格。原生 v2 manifest 不得携带上述 v1 衍生字段。
+
 ### 11.2 默认安全合并
 
 - 只新增当前用户数据库中完全不存在的 ID。
