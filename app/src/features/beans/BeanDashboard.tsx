@@ -234,7 +234,6 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
                 onBeanCreated={(bean) => {
                   void bean
                   setExpandedSections((current) => ({ ...current, beanList: true }))
-                  accelerateSync()
                 }}
               />
             )}

@@ -1,27 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Session, SupabaseClient } from '@supabase/supabase-js'
+import type { Session } from '@supabase/supabase-js'
 import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import {
   buildBackupReminder,
   readBackupReminderMeta,
 } from '../backup/backupReminder'
-import { listBeans } from '../beans/beanService'
 import type { Bean } from '../beans/beanTypes'
-import { listBrewLogs } from '../brews/brewLogService'
 import type { BrewLog } from '../brews/brewTypes'
 import type { SyncState } from '../sync/syncTypes'
 import { useOptionalSyncRuntime } from '../sync/SyncContext'
-import {
-  buildOfflineCacheSnapshot,
-  readOfflineCache,
-  writeOfflineCache,
-} from '../offline/offlineCache'
 import { buildHomeOverview } from './homeOverviewModel'
 import './home.css'
 
 type HomeOverviewProps = {
   session: Session
-  supabase: SupabaseClient
   onNavigate: (view: HomeNavigationTarget) => void
   onSignOut: () => void
   isSigningOut?: boolean
@@ -76,7 +68,6 @@ const greetingNotes = [
 
 export function HomeOverview({
   session,
-  supabase,
   onNavigate,
   onSignOut,
   isSigningOut = false,
@@ -85,12 +76,13 @@ export function HomeOverview({
   syncState,
 }: HomeOverviewProps) {
   const runtime = useOptionalSyncRuntime()
+  const beanRepository = runtime?.repositories?.beans ?? null
+  const brewLogRepository = runtime?.repositories?.brewLogs ?? null
   const settingsRepository = runtime?.repositories?.userSettings ?? null
   const [backupReminderDays, setBackupReminderDays] = useState(7)
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
-  const [isUsingCache, setIsUsingCache] = useState(false)
   const [error, setError] = useState('')
   const [lifeNoteIndex, setLifeNoteIndex] = useState(0)
   const [openDrawers, setOpenDrawers] = useState({
@@ -101,71 +93,56 @@ export function HomeOverview({
 
   useEffect(() => {
     let isMounted = true
+    let loadGeneration = 0
 
     async function loadRows() {
+      const generation = ++loadGeneration
       if (previewRows) {
         setRows(previewRows)
-        setIsUsingCache(false)
         setError('')
         setIsLoading(false)
         return
       }
+
+      if (!beanRepository || !brewLogRepository) return
 
       setIsLoading(true)
       setError('')
 
       try {
         const [beans, brewLogs] = await Promise.all([
-          listBeans(supabase),
-          listBrewLogs(supabase),
+          beanRepository.listBeans(),
+          brewLogRepository.listBrewLogs(),
         ])
 
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setRows({ beans, brewLogs })
-          setIsUsingCache(false)
         }
-
-        await Promise.all([
-          writeOfflineCache(
-            'beans',
-            buildOfflineCacheSnapshot(beans, session.user.id, new Date()),
-          ),
-          writeOfflineCache(
-            'brewLogs',
-            buildOfflineCacheSnapshot(brewLogs, session.user.id, new Date()),
-          ),
-        ])
       } catch (err) {
-        const [cachedBeans, cachedBrewLogs] = await Promise.all([
-          readOfflineCache<Bean>('beans', session.user.id),
-          readOfflineCache<BrewLog>('brewLogs', session.user.id),
-        ])
-
-        if (isMounted) {
-          if (cachedBeans || cachedBrewLogs) {
-            setRows({
-              beans: cachedBeans ?? [],
-              brewLogs: cachedBrewLogs ?? [],
-            })
-            setIsUsingCache(true)
-            setError('')
-          } else {
-            setError(err instanceof Error ? err.message : '读取首页概览失败')
-          }
+        if (isMounted && generation === loadGeneration) {
+          setError(err instanceof Error ? err.message : '读取首页概览失败')
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && generation === loadGeneration) {
           setIsLoading(false)
         }
       }
     }
 
-    loadRows()
+    void loadRows()
+    const unsubscribers = beanRepository && brewLogRepository && !previewRows
+      ? [
+          beanRepository.subscribe(() => void loadRows()),
+          brewLogRepository.subscribe(() => void loadRows()),
+        ]
+      : []
 
     return () => {
       isMounted = false
+      loadGeneration += 1
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
     }
-  }, [previewRows, session.user.id, supabase])
+  }, [beanRepository, brewLogRepository, previewRows])
 
   useEffect(() => {
     function handleOnline() {
@@ -304,10 +281,6 @@ export function HomeOverview({
       </section>
 
       {error ? <p className="home-overview__error">{error}</p> : null}
-      {isUsingCache ? (
-        <p className="home-overview__cache">当前显示本机缓存，编辑需要联网。</p>
-      ) : null}
-
       <section className="home-workbench" aria-labelledby="home-workbench-title">
         <div className="home-workbench__header">
           <div className="home-section-heading">

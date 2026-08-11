@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import { createBean } from '../beans/beanService'
-import { toBeanInsertPayload } from '../beans/beanForm'
+import { toBeanUpdatePayload } from '../beans/beanForm'
 import { BlendComponentEditor } from '../beans/BlendComponentEditor'
 import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from '../beans/beanOptions'
 import type { Bean, BeanForm } from '../beans/beanTypes'
+import { useOptionalSyncRuntime } from '../sync/SyncContext'
 import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
 import type { SourceImportResponse } from './sourceImportTypes'
@@ -23,6 +23,8 @@ export function SourceImportPanel({
   supabase,
   onBeanCreated,
 }: SourceImportPanelProps) {
+  const runtime = useOptionalSyncRuntime()
+  const beanRepository = runtime?.repositories?.beans ?? null
   const [url, setUrl] = useState('')
   const [pastedText, setPastedText] = useState('')
   const [form, setForm] = useState<BeanForm | null>(null)
@@ -164,22 +166,28 @@ export function SourceImportPanel({
     setError('')
 
     try {
-      const bean = await createBean(supabase, toBeanInsertPayload(form, session.user.id))
+      if (!beanRepository) throw new Error('本地豆仓仍在初始化，请稍后再试。')
+      const bean = await beanRepository.createBean(toBeanUpdatePayload(form))
       onBeanCreated(bean)
-      await recordSourceImport(supabase, {
-        userId: session.user.id,
-        sourceUrl: form.sourceUrl,
-        status: 'saved',
-        extractedPayload: lastResponse ?? {},
-        selectedPayload: form,
-      })
       setForm(null)
       setLastResponse(null)
       setUrl('')
       setPastedText('')
       setSelectedImage(null)
       setOcrStatus('')
-      setStatus('已保存到豆仓。')
+      setStatus('已保存到豆仓，正在等待同步。')
+      if (runtime) void runtime.run().catch(() => undefined)
+      try {
+        await recordSourceImport(supabase, {
+          userId: session.user.id,
+          sourceUrl: form.sourceUrl,
+          status: 'saved',
+          extractedPayload: lastResponse ?? {},
+          selectedPayload: form,
+        })
+      } catch {
+        setStatus('豆子已安全保存；来源记录暂未写入云端。')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存导入草稿失败')
     } finally {

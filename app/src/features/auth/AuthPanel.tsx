@@ -435,7 +435,6 @@ export function AuthPanel() {
         <main className="app-view" aria-label="咖Day 首页预览">
           <HomeOverview
             session={previewSession}
-            supabase={{} as SupabaseClient}
             onNavigate={(view) => setStatus(`预览模式：${view} 页面未打开。`)}
             onSignOut={() => setStatus('预览模式不需要退出登录。')}
             authStatus={status || '本地首页预览，不连接 Supabase。'}
@@ -631,7 +630,6 @@ function AuthenticatedApp({
       return (
         <HomeOverview
           session={session}
-          supabase={authenticatedSupabase}
           onNavigate={onNavigate}
           onSignOut={handleSignOut}
           isSigningOut={isSigningOut}
