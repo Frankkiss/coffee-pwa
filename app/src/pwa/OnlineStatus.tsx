@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import type { SyncState } from '../features/sync/syncTypes'
+import { buildOnlineStatusText, subscribeToNetworkChanges } from './onlineStatusModel'
 import './pwa.css'
 
-export function OnlineStatus() {
+export function OnlineStatus({ syncState }: { syncState: SyncState }) {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
 
   useEffect(() => {
@@ -13,19 +15,16 @@ export function OnlineStatus() {
       setIsOnline(false)
     }
 
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
+    return subscribeToNetworkChanges(window, () => {
+      if (navigator.onLine) handleOnline()
+      else handleOffline()
+    })
   }, [])
 
   return (
     <div className={isOnline ? 'online-status' : 'online-status online-status--offline'}>
       <span aria-hidden="true" />
-      {isOnline ? '在线，同步与 AI 推荐可用' : '离线，可打开已缓存页面，保存与 AI 推荐需联网'}
+      {buildOnlineStatusText(syncState, isOnline)}
     </div>
   )
 }

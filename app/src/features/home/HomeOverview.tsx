@@ -9,6 +9,7 @@ import { listBeans } from '../beans/beanService'
 import type { Bean } from '../beans/beanTypes'
 import { listBrewLogs } from '../brews/brewLogService'
 import type { BrewLog } from '../brews/brewTypes'
+import type { SyncState } from '../sync/syncTypes'
 import {
   buildOfflineCacheSnapshot,
   readOfflineCache,
@@ -24,6 +25,7 @@ type HomeOverviewProps = {
   onSignOut: () => void
   authStatus?: string
   previewRows?: HomeRows
+  syncState: SyncState
 }
 
 type HomeRows = {
@@ -77,6 +79,7 @@ export function HomeOverview({
   onSignOut,
   authStatus,
   previewRows,
+  syncState,
 }: HomeOverviewProps) {
   const [rows, setRows] = useState<HomeRows>({ beans: [], brewLogs: [] })
   const [isLoading, setIsLoading] = useState(true)
@@ -186,9 +189,9 @@ export function HomeOverview({
           new Date(),
         ),
         email: session.user.email,
-        isOnline,
+        syncState,
       }),
-    [isOnline, rows.beans, rows.brewLogs, session.user.email],
+    [rows.beans, rows.brewLogs, session.user.email, syncState],
   )
   const [beanStat, brewStat, recommendationStat] = overview.stats
   const recommendationPreview = overview.recommendationPreview
@@ -205,11 +208,11 @@ export function HomeOverview({
       <div className="home-hero">
         <div className="home-hero__topline">
           <span
-            className={`home-sync-dot ${isOnline ? 'is-online' : 'is-offline'}`}
-            aria-label={`当前网络状态：${isOnline ? '在线' : '离线'}`}
+            className={`home-sync-dot ${syncState.kind === 'synced' ? 'is-online' : 'is-offline'}`}
+            aria-label={`云同步状态：${overview.syncLabel}；网络${isOnline ? '在线' : '离线'}`}
           >
             <span>状态</span>
-            <strong>{isOnline ? '在线' : '离线'}</strong>
+            <strong>{overview.syncLabel}</strong>
           </span>
           <button type="button" onClick={onSignOut}>
             退出

@@ -104,7 +104,7 @@ describe('buildHomeOverview', () => {
       ],
       backupReminder,
       email: '1799263035@qq.com',
-      isOnline: true,
+      syncState: { kind: 'synced', lastSyncedAt: '2026-08-11T00:00:00.000Z' },
     })
 
     expect(overview.stats).toEqual([
@@ -127,7 +127,7 @@ describe('buildHomeOverview', () => {
       rating: '4.5/5',
     })
     expect(overview.accountLabel).toBe('1799263035')
-    expect(overview.syncLabel).toBe('云同步在线')
+    expect(overview.syncLabel).toBe('已同步')
   })
 
   it('builds a barista recommendation preview from the best pinned brew', () => {
@@ -155,7 +155,7 @@ describe('buildHomeOverview', () => {
       ],
       backupReminder,
       email: '1799263035@qq.com',
-      isOnline: true,
+      syncState: { kind: 'synced', lastSyncedAt: '2026-08-11T00:00:00.000Z' },
     })
 
     expect(overview.recommendationPreview).toEqual({
@@ -170,5 +170,18 @@ describe('buildHomeOverview', () => {
         { label: '时间', value: '150s' },
       ],
     })
+  })
+
+  it('does not call an available network connection cloud sync', () => {
+    const overview = buildHomeOverview({
+      beans: [],
+      brewLogs: [],
+      backupReminder,
+      email: null,
+      syncState: { kind: 'retrying', pendingCount: 0, message: 'waiting' },
+    })
+
+    expect(overview.syncLabel).toBe('同步暂未完成，正在重试')
+    expect(overview.syncLabel).not.toBe('云同步在线')
   })
 })

@@ -6,6 +6,9 @@ import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import { HomeOverview } from '../home/HomeOverview'
 import type { HomeNavigationTarget } from '../home/HomeOverview'
+import { SyncProvider, useSyncRuntime } from '../sync/SyncContext'
+import { SyncStatusBanner } from '../sync/SyncStatusBanner'
+import { confirmAndSignOut, pendingCountForSignOut } from './signOutGuard'
 import {
   validateEmail,
   validateLoginForm,
@@ -379,47 +382,6 @@ export function AuthPanel() {
     setStatus('密码已更新。')
   }
 
-  async function handleSignOut() {
-    if (!supabase) {
-      return
-    }
-
-    await supabase.auth.signOut()
-    setStatus('已退出登录。')
-  }
-
-  function renderActiveView() {
-    if (!session || !supabase) {
-      return null
-    }
-
-    if (activeView === 'home') {
-      return (
-        <HomeOverview
-          session={session}
-          supabase={supabase}
-          onNavigate={setActiveView}
-          onSignOut={handleSignOut}
-          authStatus={status}
-        />
-      )
-    }
-
-    if (activeView === 'brewTemplates') {
-      return <BrewTemplatePanel session={session} supabase={supabase} />
-    }
-
-    if (activeView === 'beans') {
-      return <BeanDashboard session={session} supabase={supabase} />
-    }
-
-    if (activeView === 'recommendations') {
-      return <RecommendationPanel session={session} supabase={supabase} />
-    }
-
-    return <BackupPanel session={session} supabase={supabase} />
-  }
-
   if (session && supabase && isPasswordRecovery) {
     return (
       <div className="auth-layout">
@@ -468,6 +430,7 @@ export function AuthPanel() {
             onSignOut={() => setStatus('预览模式不需要退出登录。')}
             authStatus={status || '本地首页预览，不连接 Supabase。'}
             previewRows={{ beans: previewBeans, brewLogs: previewBrewLogs }}
+            syncState={{ kind: 'offline', pendingCount: 0 }}
           />
         </main>
       </div>
@@ -492,27 +455,16 @@ export function AuthPanel() {
 
   if (session && supabase) {
     return (
-      <div className="auth-layout auth-layout--app">
-        <main className="app-view" aria-label="咖Day 当前页面">
-          <Suspense fallback={<p className="app-view__loading">正在打开页面...</p>}>
-            {renderActiveView()}
-          </Suspense>
-        </main>
-        <nav className="app-bottom-nav" aria-label="咖Day 页面导航">
-          {appNavItems.map((item) => (
-            <button
-              key={item.view}
-              type="button"
-              className={activeView === item.view ? 'is-active' : ''}
-              aria-current={activeView === item.view ? 'page' : undefined}
-              aria-label={item.label}
-              onClick={() => setActiveView(item.view)}
-            >
-              <span>{item.mark}</span>
-            </button>
-          ))}
-        </nav>
-      </div>
+      <SyncProvider session={session} supabase={supabase}>
+        <AuthenticatedApp
+          session={session}
+          supabase={supabase}
+          activeView={activeView}
+          onNavigate={setActiveView}
+          authStatus={status}
+          onSignedOut={() => setStatus('已退出登录。')}
+        />
+      </SyncProvider>
     )
   }
 
@@ -611,6 +563,84 @@ export function AuthPanel() {
         {status ? <p className="auth-status">{status}</p> : null}
         {error ? <p className="auth-error">{error}</p> : null}
       </section>
+    </div>
+  )
+}
+
+function AuthenticatedApp({
+  session,
+  supabase: authenticatedSupabase,
+  activeView,
+  onNavigate,
+  authStatus,
+  onSignedOut,
+}: {
+  session: Session
+  supabase: SupabaseClient
+  activeView: AppView
+  onNavigate: (view: AppView) => void
+  authStatus: string
+  onSignedOut: () => void
+}) {
+  const runtime = useSyncRuntime()
+
+  async function handleSignOut() {
+    const signedOut = await confirmAndSignOut(
+      pendingCountForSignOut(runtime.outboxLoaded, runtime.pendingCount),
+      runtime.attentionItems.length,
+      window.confirm,
+      () => authenticatedSupabase.auth.signOut(),
+    )
+    if (signedOut) onSignedOut()
+  }
+
+  function renderActiveView() {
+    if (activeView === 'home') {
+      return (
+        <HomeOverview
+          session={session}
+          supabase={authenticatedSupabase}
+          onNavigate={onNavigate}
+          onSignOut={handleSignOut}
+          authStatus={authStatus}
+          syncState={runtime.state}
+        />
+      )
+    }
+    if (activeView === 'brewTemplates') {
+      return <BrewTemplatePanel session={session} supabase={authenticatedSupabase} />
+    }
+    if (activeView === 'beans') {
+      return <BeanDashboard session={session} supabase={authenticatedSupabase} />
+    }
+    if (activeView === 'recommendations') {
+      return <RecommendationPanel session={session} supabase={authenticatedSupabase} />
+    }
+    return <BackupPanel session={session} supabase={authenticatedSupabase} />
+  }
+
+  return (
+    <div className="auth-layout auth-layout--app">
+      <main className="app-view" aria-label="咖Day 当前页面">
+        <SyncStatusBanner />
+        <Suspense fallback={<p className="app-view__loading">正在打开页面...</p>}>
+          {renderActiveView()}
+        </Suspense>
+      </main>
+      <nav className="app-bottom-nav" aria-label="咖Day 页面导航">
+        {appNavItems.map((item) => (
+          <button
+            key={item.view}
+            type="button"
+            className={activeView === item.view ? 'is-active' : ''}
+            aria-current={activeView === item.view ? 'page' : undefined}
+            aria-label={item.label}
+            onClick={() => onNavigate(item.view)}
+          >
+            <span>{item.mark}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

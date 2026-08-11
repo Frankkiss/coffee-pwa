@@ -1,13 +1,15 @@
 import type { BackupReminderView } from '../backup/backupReminder'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import { toSyncStatusView } from '../sync/syncStatusModel'
+import type { SyncState } from '../sync/syncTypes'
 
 export type HomeOverviewInput = {
   beans: Bean[]
   brewLogs: BrewLog[]
   backupReminder: BackupReminderView
   email: string | null | undefined
-  isOnline: boolean
+  syncState: SyncState
 }
 
 export type HomeOverviewStat = {
@@ -66,7 +68,7 @@ export function buildHomeOverview(input: HomeOverviewInput): HomeOverviewView {
 
   return {
     accountLabel: formatAccountLabel(input.email),
-    syncLabel: input.isOnline ? '云同步在线' : '离线模式',
+    syncLabel: toSyncStatusView(input.syncState).title,
     stats: [
       { label: '豆仓', value: String(input.beans.length), caption: '支咖啡豆' },
       { label: '冲煮', value: String(input.brewLogs.length), caption: '条记录' },
