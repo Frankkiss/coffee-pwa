@@ -191,7 +191,7 @@ function parseV1Document(value: Record<string, unknown>): BackupV1Document {
   const data = requireRecord(value.data)
   exactKeys(counts, ['beans', 'brewLogs'], ['brewTemplates'])
   exactKeys(data, ['beans', 'brewLogs'], ['brewTemplates'])
-  const beans = parseRows(data.beans, isBean)
+  const beans = parseRows(data.beans, isV1Bean)
   const brewLogs = parseRows(data.brewLogs, isBrewLog)
   const brewTemplates = data.brewTemplates === undefined ? undefined : parseRows(data.brewTemplates, isBrewTemplate)
   if (!isCount(counts.beans, beans.length) || !isCount(counts.brewLogs, brewLogs.length)) throw invalidFormat()
@@ -221,7 +221,7 @@ function parseV2Document(value: Record<string, unknown>): BackupV2Document {
   if (!isTimestamp(manifest.exportedAt) || !isString(manifest.appVersion) || !['lightweight', 'complete'].includes(String(manifest.backupMode)) || manifest.checksumAlgorithm !== 'SHA-256' || !isString(manifest.checksum)) throw invalidFormat()
   const profile = data.profile === null ? null : parseSingle(data.profile, isProfile)
   const userSettings = data.userSettings === null ? null : parseSingle(data.userSettings, isUserSettings)
-  const beans = parseRows(data.beans, isBean)
+  const beans = parseRows(data.beans, isV2Bean)
   const brewLogs = parseRows(data.brewLogs, isBrewLog)
   const brewTemplates = parseRows(data.brewTemplates, isBrewTemplate)
   const aiRecommendations = parseRows(data.aiRecommendations, isRecommendation)
@@ -268,13 +268,24 @@ function summaryFor(document: BackupV2Document) {
   }
 }
 
-function isBean(value: unknown): value is Bean {
+function isV1Bean(value: unknown): value is Bean {
+  return isBean(value, false)
+}
+
+function isV2Bean(value: unknown): value is Bean {
+  return isBean(value, true)
+}
+
+function isBean(value: unknown, requireBlendFields: boolean): value is Bean {
   if (!isRecord(value)) return false
-  const required = ['id', 'user_id', 'name', 'roaster', 'origin', 'farm_or_station', 'process', 'variety', 'altitude_meters', 'roast_date', 'roast_level', 'flavor_tags', 'flavor_notes', 'net_weight_grams', 'price', 'purchase_date', 'source_url', 'image_url', 'notes', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
-  if (!hasExactKeys(value, required, ['bean_type', 'blend_components', 'blend_notes'])) return false
+  const baseRequired = ['id', 'user_id', 'name', 'roaster', 'origin', 'farm_or_station', 'process', 'variety', 'altitude_meters', 'roast_date', 'roast_level', 'flavor_tags', 'flavor_notes', 'net_weight_grams', 'price', 'purchase_date', 'source_url', 'image_url', 'notes', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
+  const blendFields = ['bean_type', 'blend_components', 'blend_notes']
+  const required = requireBlendFields ? [...baseRequired, ...blendFields] : baseRequired
+  const optional = requireBlendFields ? [] : blendFields
+  if (!hasExactKeys(value, required, optional)) return false
   return isUuid(value.id) && isUuid(value.user_id) && isString(value.name) &&
     ['roaster', 'origin', 'farm_or_station', 'process', 'variety', 'roast_date', 'roast_level', 'flavor_notes', 'purchase_date', 'source_url', 'image_url', 'notes', 'deleted_at'].every((key) => isNullableString(value[key])) &&
-    ['altitude_meters', 'net_weight_grams', 'price'].every((key) => isNullableNumber(value[key])) &&
+    isNullableSafeInteger(value.altitude_meters) && ['net_weight_grams', 'price'].every((key) => isNullableNumber(value[key])) &&
     isStringArray(value.flavor_tags) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version) &&
     (value.bean_type === undefined || value.bean_type === 'single_origin' || value.bean_type === 'blend') &&
     (value.blend_notes === undefined || isNullableString(value.blend_notes)) &&
@@ -292,7 +303,8 @@ function isBrewLog(value: unknown): value is BrewLog {
   if (!hasExactKeys(value, keys)) return false
   return isUuid(value.id) && isUuid(value.user_id) && (value.bean_id === null || isUuid(value.bean_id)) && isTimestamp(value.brewed_at) &&
     ['method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'ratio', 'notes', 'deleted_at'].every((key) => isNullableString(value[key])) &&
-    ['coffee_grams', 'water_grams', 'water_temperature_c', 'total_time_seconds', 'rating', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste'].every((key) => isNullableNumber(value[key])) &&
+    ['coffee_grams', 'water_grams', 'water_temperature_c', 'rating'].every((key) => isNullableNumber(value[key])) &&
+    ['total_time_seconds', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste'].every((key) => isNullableSafeInteger(value[key])) &&
     Array.isArray(value.pour_steps) && isJsonValue(value.pour_steps) && isStringArray(value.flavor_tags) && typeof value.is_pinned_recipe === 'boolean' && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version)
 }
 
@@ -302,7 +314,8 @@ function isBrewTemplate(value: unknown): value is UserBrewTemplateRow {
   if (!hasExactKeys(value, keys)) return false
   const categories = ['daily-pourover', 'immersion-hybrid', 'bean-specific', 'cold-brew', 'moka-pot', 'champion-reference']
   return isUuid(value.id) && isUuid(value.user_id) && ['name', 'brewer', 'filter', 'ratio', 'grind_size', 'flavor_goal', 'source_notes'].every((key) => isString(value[key])) && categories.includes(String(value.category)) && ['easy', 'medium', 'advanced'].includes(String(value.difficulty)) &&
-    ['dose_grams', 'water_grams', 'water_temperature_min', 'water_temperature_max', 'target_time_min', 'target_time_max'].every((key) => isNumber(value[key])) &&
+    ['dose_grams', 'water_grams'].every((key) => isNumber(value[key])) &&
+    ['water_temperature_min', 'water_temperature_max', 'target_time_min', 'target_time_max'].every((key) => isSafeInteger(value[key])) &&
     Array.isArray(value.pour_steps) && value.pour_steps.every(isTemplatePourStep) && ['suitable_for', 'avoid_for', 'adjustment_rules', 'source_urls'].every((key) => isStringArray(value[key])) &&
     typeof value.is_champion_reference === 'boolean' && isNullableString(value.copied_from_template_id) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableString(value.deleted_at) && isSchemaVersion(value.schema_version)
 }
@@ -370,6 +383,8 @@ function isString(value: unknown): value is string { return typeof value === 'st
 function isNullableString(value: unknown): value is string | null { return value === null || typeof value === 'string' }
 function isNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) }
 function isNullableNumber(value: unknown): value is number | null { return value === null || isNumber(value) }
+function isSafeInteger(value: unknown): value is number { return Number.isSafeInteger(value) }
+function isNullableSafeInteger(value: unknown): value is number | null { return value === null || isSafeInteger(value) }
 function isTimestamp(value: unknown): value is string { return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)) }
 function isSchemaVersion(value: unknown) { return Number.isSafeInteger(value) && Number(value) >= 1 }
 function isCount(value: unknown, expected: number) { return Number.isSafeInteger(value) && value === expected }

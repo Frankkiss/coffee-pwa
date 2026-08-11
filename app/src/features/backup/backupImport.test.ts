@@ -36,6 +36,13 @@ const bean = {
   schema_version: 1,
 } satisfies Bean
 
+const v2Bean = {
+  ...bean,
+  bean_type: 'single_origin',
+  blend_components: [],
+  blend_notes: null,
+} satisfies Bean
+
 const brewLog = {
   id: '22222222-2222-4222-8222-222222222222',
   user_id: '33333333-3333-4333-8333-333333333333',
@@ -191,15 +198,39 @@ describe('backup import', () => {
     })
   })
 
+  it('requires every v2 bean column while keeping old v1 beans compatible', async () => {
+    const incompleteV2 = await createV2Document({ beans: [bean] })
+    await expect(parseBackupDocument(JSON.stringify(incompleteV2))).rejects.toThrow('备份文件格式不正确')
+
+    const completeV2 = await createV2Document({ beans: [v2Bean] })
+    await expect(parseBackupDocument(JSON.stringify(completeV2))).resolves.toMatchObject({ sourceVersion: 2 })
+    await expect(parseBackupDocument(JSON.stringify(createBackupDocument([bean], [])))).resolves.toMatchObject({ sourceVersion: 1 })
+  })
+
   it('rejects v2 duplicate ids, invalid bean relations, and unknown row fields', async () => {
-    const duplicate = await createV2Document({ beans: [bean, { ...bean }] })
+    const duplicate = await createV2Document({ beans: [v2Bean, { ...v2Bean }] })
     await expect(parseBackupDocument(JSON.stringify(duplicate))).rejects.toThrow('备份文件格式不正确')
 
-    const orphan = await createV2Document({ beans: [bean], brewLogs: [{ ...brewLog, bean_id: '55555555-5555-4555-8555-555555555555' }] })
+    const orphan = await createV2Document({ beans: [v2Bean], brewLogs: [{ ...brewLog, bean_id: '55555555-5555-4555-8555-555555555555' }] })
     await expect(parseBackupDocument(JSON.stringify(orphan))).rejects.toThrow('备份文件格式不正确')
 
-    const unknownField = await createV2Document({ beans: [{ ...bean, rollback: true } as typeof bean] })
+    const unknownField = await createV2Document({ beans: [{ ...v2Bean, rollback: true } as typeof v2Bean] })
     await expect(parseBackupDocument(JSON.stringify(unknownField))).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('rejects fractional values for every integer database column', async () => {
+    const integerMutations: Array<Partial<BackupV2Document['data']>> = [
+      { beans: [{ ...v2Bean, altitude_meters: 1.5 }] },
+      ...(['total_time_seconds', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste'] as const)
+        .map((field) => ({ beans: [v2Bean], brewLogs: [{ ...brewLog, [field]: 1.5 }] })),
+      ...(['water_temperature_min', 'water_temperature_max', 'target_time_min', 'target_time_max'] as const)
+        .map((field) => ({ brewTemplates: [{ ...brewTemplate, [field]: 1.5 }] })),
+    ]
+
+    for (const mutation of integerMutations) {
+      const document = await createV2Document(mutation)
+      await expect(parseBackupDocument(JSON.stringify(document))).rejects.toThrow('备份文件格式不正确')
+    }
   })
 
   it('rejects image manifest entries that refer to beans absent from the backup', async () => {
