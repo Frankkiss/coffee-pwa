@@ -9,6 +9,7 @@ import type {
   BackupInvalidRelation,
   BackupV1Document,
   BackupV2Document,
+  MigratedV1SafeMergeDocument,
   ParsedBackupDocument,
 } from './backupTypes'
 
@@ -53,10 +54,13 @@ export async function parseBackupDocument(jsonText: string): Promise<ParsedBacku
 
   if (parsed.schemaVersion === 1) {
     const source = parseV1Document(parsed)
-    const validBeanIds = new Set(source.data.beans.map((bean) => bean.id))
+    const validBeanIds = new Set(
+      source.data.beans.map((bean) => normalizeUuid(bean.id)),
+    )
     const invalidRelations: BackupInvalidRelation[] = []
     const brewLogs = source.data.brewLogs.filter((brewLog) => {
-      if (brewLog.bean_id === null || validBeanIds.has(brewLog.bean_id)) return true
+      if (brewLog.bean_id === null
+        || validBeanIds.has(normalizeUuid(brewLog.bean_id))) return true
       invalidRelations.push({
         entityType: 'brewLog', entityId: brewLog.id, field: 'bean_id', value: brewLog.bean_id,
       })
@@ -78,7 +82,7 @@ export async function parseBackupDocument(jsonText: string): Promise<ParsedBacku
   }
 
   if (parsed.schemaVersion === 2) {
-    const document = parseV2Document(parsed)
+    const document = parseV2Document(parsed) as BackupV2Document
     if (!(await verifyBackupChecksum(document))) {
       throw new BackupImportError('BACKUP_CHECKSUM_MISMATCH')
     }
@@ -94,24 +98,40 @@ export async function parseBackupDocument(jsonText: string): Promise<ParsedBacku
   throw invalidFormat()
 }
 
+export async function validateBackupTransportDocument(
+  value: unknown,
+): Promise<BackupV2Document | MigratedV1SafeMergeDocument> {
+  if (!isRecord(value)) throw invalidFormat()
+  const document = parseV2Document(value, true)
+  if (!(await verifyBackupChecksum(document))) {
+    throw new BackupImportError('BACKUP_CHECKSUM_MISMATCH')
+  }
+  return document
+}
+
 export function createBackupImportPreview(
   backup: Pick<BackupDocument | BackupV2Document, 'data'>,
   existingIds: ExistingBackupIds,
 ): BackupImportPreview {
   const backupBrewTemplates = backup.data.brewTemplates ?? []
+  const existingBeanIds = normalizeUuidSet(existingIds.beanIds)
+  const existingBrewLogIds = normalizeUuidSet(existingIds.brewLogIds)
+  const existingTemplateIds = normalizeUuidSet(
+    existingIds.brewTemplateIds ?? new Set(),
+  )
   const importableBeanIds = new Set(
     backup.data.beans
-      .filter((bean) => !existingIds.beanIds.has(bean.id))
+      .filter((bean) => !existingBeanIds.has(normalizeUuid(bean.id)))
       .map((bean) => bean.id),
   )
   const importableBrewLogIds = new Set(
     backup.data.brewLogs
-      .filter((brewLog) => !existingIds.brewLogIds.has(brewLog.id))
+      .filter((brewLog) => !existingBrewLogIds.has(normalizeUuid(brewLog.id)))
       .map((brewLog) => brewLog.id),
   )
   const importableBrewTemplateIds = new Set(
     backupBrewTemplates
-      .filter((template) => !(existingIds.brewTemplateIds ?? new Set()).has(template.id))
+      .filter((template) => !existingTemplateIds.has(normalizeUuid(template.id)))
       .map((template) => template.id),
   )
 
@@ -145,10 +165,10 @@ export function buildBackupImportPayloads(
     existingBeanIds: Set<string>
   },
 ): BackupImportPayloads {
-  const availableBeanIds = new Set([
+  const availableBeanIds = normalizeUuidSet(new Set([
     ...options.existingBeanIds,
     ...preview.importableBeanIds,
-  ])
+  ]))
   const beans = backup.data.beans
     .filter((bean) => preview.importableBeanIds.has(bean.id))
     .map((bean) => ({
@@ -160,7 +180,8 @@ export function buildBackupImportPayloads(
     .filter(
       (brewLog) =>
         preview.importableBrewLogIds.has(brewLog.id) &&
-        (brewLog.bean_id === null || availableBeanIds.has(brewLog.bean_id)),
+        (brewLog.bean_id === null
+          || availableBeanIds.has(normalizeUuid(brewLog.bean_id))),
     )
     .map((brewLog) => ({
       ...brewLog,
@@ -211,14 +232,35 @@ function parseV1Document(value: Record<string, unknown>): BackupV1Document {
   }
 }
 
-function parseV2Document(value: Record<string, unknown>): BackupV2Document {
+function parseV2Document(
+  value: Record<string, unknown>,
+  allowDerived = false,
+): BackupV2Document | MigratedV1SafeMergeDocument {
   exactKeys(value, ['schemaVersion', 'manifest', 'data'])
   if (value.schemaVersion !== 2) throw invalidFormat()
   const manifest = requireRecord(value.manifest)
   const data = requireRecord(value.data)
-  exactKeys(manifest, ['exportedAt', 'appVersion', 'backupMode', 'recordCounts', 'checksumAlgorithm', 'checksum', 'images', 'warnings'])
+  const derived = Object.hasOwn(manifest, 'sourceSchemaVersion')
+    || Object.hasOwn(manifest, 'fullRollbackEligible')
+    || Object.hasOwn(manifest, 'authoritativeSections')
+  const nativeManifestKeys = ['exportedAt', 'appVersion', 'backupMode', 'recordCounts', 'checksumAlgorithm', 'checksum', 'images', 'warnings']
+  if (derived) {
+    if (!allowDerived) throw invalidFormat()
+    exactKeys(manifest, [
+      ...nativeManifestKeys,
+      'sourceSchemaVersion', 'fullRollbackEligible', 'authoritativeSections',
+    ])
+  } else {
+    exactKeys(manifest, nativeManifestKeys)
+  }
   exactKeys(data, ['profile', 'userSettings', 'beans', 'brewLogs', 'brewTemplates', 'aiRecommendations', 'sourceImports'])
-  if (!isTimestamp(manifest.exportedAt) || !isString(manifest.appVersion) || !['lightweight', 'complete'].includes(String(manifest.backupMode)) || manifest.checksumAlgorithm !== 'SHA-256' || !isString(manifest.checksum)) throw invalidFormat()
+  if (!isTimestamp(manifest.exportedAt)
+    || !isString(manifest.appVersion)
+    || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(manifest.appVersion)
+    || !['lightweight', 'complete'].includes(String(manifest.backupMode))
+    || manifest.checksumAlgorithm !== 'SHA-256'
+    || !isString(manifest.checksum)
+    || !/^[0-9a-f]{64}$/.test(manifest.checksum)) throw invalidFormat()
   const profile = data.profile === null ? null : parseSingle(data.profile, isProfile)
   const userSettings = data.userSettings === null ? null : parseSingle(data.userSettings, isUserSettings)
   const beans = parseRows(data.beans, isV2Bean)
@@ -237,12 +279,12 @@ function parseV2Document(value: Record<string, unknown>): BackupV2Document {
   }
   for (const [key, count] of Object.entries(expected)) if (!isCount(counts[key], count)) throw invalidFormat()
   ;[beans, brewLogs, brewTemplates, aiRecommendations, sourceImports].forEach(assertUniqueIds)
-  const beanIds = new Set(beans.map((row) => row.id))
-  if (brewLogs.some((row) => row.bean_id !== null && !beanIds.has(row.bean_id))) throw invalidFormat()
-  if (aiRecommendations.some((row) => row.bean_id !== null && !beanIds.has(row.bean_id))) throw invalidFormat()
-  if (images.some((image) => !beanIds.has(image.entityId))) throw invalidFormat()
+  const beanIds = new Set(beans.map((row) => normalizeUuid(row.id)))
+  if (brewLogs.some((row) => row.bean_id !== null && !beanIds.has(normalizeUuid(row.bean_id)))) throw invalidFormat()
+  if (aiRecommendations.some((row) => row.bean_id !== null && !beanIds.has(normalizeUuid(row.bean_id)))) throw invalidFormat()
+  if (images.some((image) => !beanIds.has(normalizeUuid(image.entityId)))) throw invalidFormat()
   assertCanonical(data)
-  return {
+  const document: BackupV2Document = {
     schemaVersion: 2,
     manifest: {
       exportedAt: manifest.exportedAt,
@@ -255,6 +297,35 @@ function parseV2Document(value: Record<string, unknown>): BackupV2Document {
       warnings,
     },
     data: { profile, userSettings, beans, brewLogs, brewTemplates, aiRecommendations, sourceImports },
+  }
+  if (!derived) return document
+
+  const authoritativeSections = parseStringArray(manifest.authoritativeSections)
+  const allowed = new Set(['beans', 'brewLogs', 'brewTemplates'])
+  if (manifest.sourceSchemaVersion !== 1
+    || manifest.fullRollbackEligible !== false
+    || authoritativeSections.some((section) => !allowed.has(section))
+    || new Set(authoritativeSections).size !== authoritativeSections.length
+    || profile !== null
+    || userSettings !== null
+    || aiRecommendations.length !== 0
+    || sourceImports.length !== 0
+    || images.length !== 0
+    || (!authoritativeSections.includes('beans') && beans.length !== 0)
+    || (!authoritativeSections.includes('brewLogs') && brewLogs.length !== 0)
+    || (!authoritativeSections.includes('brewTemplates') && brewTemplates.length !== 0)) {
+    throw invalidFormat()
+  }
+  return {
+    ...document,
+    manifest: {
+      ...document.manifest,
+      sourceSchemaVersion: 1,
+      fullRollbackEligible: false,
+      authoritativeSections: authoritativeSections as Array<
+        'beans' | 'brewLogs' | 'brewTemplates'
+      >,
+    },
   }
 }
 
@@ -284,7 +355,8 @@ function isBean(value: unknown, requireBlendFields: boolean): value is Bean {
   const optional = requireBlendFields ? [] : blendFields
   if (!hasExactKeys(value, required, optional)) return false
   return isUuid(value.id) && isUuid(value.user_id) && isString(value.name) &&
-    ['roaster', 'origin', 'farm_or_station', 'process', 'variety', 'roast_date', 'roast_level', 'flavor_notes', 'purchase_date', 'source_url', 'image_url', 'notes', 'deleted_at'].every((key) => isNullableString(value[key])) &&
+    ['roaster', 'origin', 'farm_or_station', 'process', 'variety', 'roast_level', 'flavor_notes', 'source_url', 'image_url', 'notes'].every((key) => isNullableString(value[key])) &&
+    isNullableDate(value.roast_date) && isNullableDate(value.purchase_date) && isNullableTimestamp(value.deleted_at) &&
     isNullableSafeInteger(value.altitude_meters) && ['net_weight_grams', 'price'].every((key) => isNullableNumber(value[key])) &&
     isStringArray(value.flavor_tags) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version) &&
     (value.bean_type === undefined || value.bean_type === 'single_origin' || value.bean_type === 'blend') &&
@@ -302,7 +374,7 @@ function isBrewLog(value: unknown): value is BrewLog {
   const keys = ['id', 'user_id', 'bean_id', 'brewed_at', 'method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'coffee_grams', 'water_grams', 'ratio', 'water_temperature_c', 'total_time_seconds', 'pour_steps', 'rating', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste', 'flavor_tags', 'is_pinned_recipe', 'notes', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
   if (!hasExactKeys(value, keys)) return false
   return isUuid(value.id) && isUuid(value.user_id) && (value.bean_id === null || isUuid(value.bean_id)) && isTimestamp(value.brewed_at) &&
-    ['method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'ratio', 'notes', 'deleted_at'].every((key) => isNullableString(value[key])) &&
+    ['method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'ratio', 'notes'].every((key) => isNullableString(value[key])) && isNullableTimestamp(value.deleted_at) &&
     ['coffee_grams', 'water_grams', 'water_temperature_c', 'rating'].every((key) => isNullableNumber(value[key])) &&
     ['total_time_seconds', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste'].every((key) => isNullableSafeInteger(value[key])) &&
     Array.isArray(value.pour_steps) && isJsonValue(value.pour_steps) && isStringArray(value.flavor_tags) && typeof value.is_pinned_recipe === 'boolean' && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version)
@@ -317,7 +389,7 @@ function isBrewTemplate(value: unknown): value is UserBrewTemplateRow {
     ['dose_grams', 'water_grams'].every((key) => isNumber(value[key])) &&
     ['water_temperature_min', 'water_temperature_max', 'target_time_min', 'target_time_max'].every((key) => isSafeInteger(value[key])) &&
     Array.isArray(value.pour_steps) && value.pour_steps.every(isTemplatePourStep) && ['suitable_for', 'avoid_for', 'adjustment_rules', 'source_urls'].every((key) => isStringArray(value[key])) &&
-    typeof value.is_champion_reference === 'boolean' && isNullableString(value.copied_from_template_id) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableString(value.deleted_at) && isSchemaVersion(value.schema_version)
+    typeof value.is_champion_reference === 'boolean' && isNullableString(value.copied_from_template_id) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableTimestamp(value.deleted_at) && isSchemaVersion(value.schema_version)
 }
 
 function isTemplatePourStep(value: unknown) {
@@ -334,11 +406,11 @@ function isUserSettings(value: unknown): value is NonNullable<BackupV2Document['
 }
 
 function isRecommendation(value: unknown): value is BackupV2Document['data']['aiRecommendations'][number] {
-  return isRecord(value) && hasExactKeys(value, ['id', 'user_id', 'bean_id', 'input_context', 'recommendation', 'model_name', 'accepted', 'created_at', 'updated_at', 'deleted_at', 'schema_version']) && isUuid(value.id) && isUuid(value.user_id) && (value.bean_id === null || isUuid(value.bean_id)) && isJsonObject(value.input_context) && isJsonObject(value.recommendation) && isNullableString(value.model_name) && (value.accepted === null || typeof value.accepted === 'boolean') && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableString(value.deleted_at) && isSchemaVersion(value.schema_version)
+  return isRecord(value) && hasExactKeys(value, ['id', 'user_id', 'bean_id', 'input_context', 'recommendation', 'model_name', 'accepted', 'created_at', 'updated_at', 'deleted_at', 'schema_version']) && isUuid(value.id) && isUuid(value.user_id) && (value.bean_id === null || isUuid(value.bean_id)) && isJsonObject(value.input_context) && isJsonObject(value.recommendation) && isNullableString(value.model_name) && (value.accepted === null || typeof value.accepted === 'boolean') && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableTimestamp(value.deleted_at) && isSchemaVersion(value.schema_version)
 }
 
 function isSourceImport(value: unknown): value is BackupV2Document['data']['sourceImports'][number] {
-  return isRecord(value) && hasExactKeys(value, ['id', 'user_id', 'source_url', 'source_type', 'status', 'extracted_payload', 'selected_payload', 'error_message', 'created_at', 'updated_at', 'deleted_at', 'schema_version']) && isUuid(value.id) && isUuid(value.user_id) && isString(value.source_url) && isString(value.source_type) && ['draft', 'saved', 'failed'].includes(String(value.status)) && isJsonObject(value.extracted_payload) && isJsonObject(value.selected_payload) && isNullableString(value.error_message) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableString(value.deleted_at) && isSchemaVersion(value.schema_version)
+  return isRecord(value) && hasExactKeys(value, ['id', 'user_id', 'source_url', 'source_type', 'status', 'extracted_payload', 'selected_payload', 'error_message', 'created_at', 'updated_at', 'deleted_at', 'schema_version']) && isUuid(value.id) && isUuid(value.user_id) && isString(value.source_url) && isString(value.source_type) && ['draft', 'saved', 'failed'].includes(String(value.status)) && isJsonObject(value.extracted_payload) && isJsonObject(value.selected_payload) && isNullableString(value.error_message) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableTimestamp(value.deleted_at) && isSchemaVersion(value.schema_version)
 }
 
 function isImageManifestEntry(value: unknown): value is BackupV2Document['manifest']['images'][number] {
@@ -356,7 +428,12 @@ function parseSingle<T>(value: unknown, validator: (row: unknown) => row is T): 
 }
 
 function assertUniqueIds(rows: Array<{ id: string }>) {
-  if (new Set(rows.map((row) => row.id)).size !== rows.length) throw invalidFormat()
+  if (new Set(rows.map((row) => normalizeUuid(row.id))).size !== rows.length) throw invalidFormat()
+}
+
+function normalizeUuid(value: string) { return value.toLowerCase() }
+function normalizeUuidSet(values: Set<string>) {
+  return new Set([...values].map(normalizeUuid))
 }
 
 function exactKeys(value: Record<string, unknown>, required: string[], optional: string[] = []) {
@@ -385,7 +462,40 @@ function isNumber(value: unknown): value is number { return typeof value === 'nu
 function isNullableNumber(value: unknown): value is number | null { return value === null || isNumber(value) }
 function isSafeInteger(value: unknown): value is number { return Number.isSafeInteger(value) }
 function isNullableSafeInteger(value: unknown): value is number | null { return value === null || isSafeInteger(value) }
-function isTimestamp(value: unknown): value is string { return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)) }
+function isTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
+  if (!match || !Number.isFinite(Date.parse(value))) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const offsetHour = Number(match[7] ?? 0)
+  const offsetMinute = Number(match[8] ?? 0)
+  return month >= 1 && month <= 12 && day >= 1
+    && day <= daysInMonth(year, month) && hour <= 23 && minute <= 59
+    && second <= 59 && offsetHour <= 23 && offsetMinute <= 59
+}
+function isNullableTimestamp(value: unknown): value is string | null { return value === null || isTimestamp(value) }
+function isNullableDate(value: unknown): value is string | null {
+  if (value === null) return true
+  if (typeof value !== 'string') return false
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  return month >= 1 && month <= 12 && day >= 1
+    && day <= daysInMonth(year, month)
+}
+function daysInMonth(year: number, month: number) {
+  if (month === 2) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31
+}
 function isSchemaVersion(value: unknown) { return Number.isSafeInteger(value) && Number(value) >= 1 }
 function isCount(value: unknown, expected: number) { return Number.isSafeInteger(value) && value === expected }
 function isStringArray(value: unknown): value is string[] { return Array.isArray(value) && value.every(isString) }

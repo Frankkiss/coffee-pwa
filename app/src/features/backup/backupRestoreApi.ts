@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { canonicalJson, verifyBackupChecksum } from './backupChecksum'
-import { parseBackupDocument } from './backupImport'
+import {
+  parseBackupDocument,
+  validateBackupTransportDocument,
+} from './backupImport'
 import {
   backupPreviewSections,
   type BackupPreviewCount,
@@ -41,13 +43,17 @@ export function createBackupRestoreApi(supabase: SupabaseClient) {
       backup: BackupTransport,
       mode: BackupRestoreMode,
     ): Promise<BackupRestorePreview> {
-      await validatePreviewRequest(backup, mode)
+      const fullRollbackEligible = await validatePreviewRequest(backup, mode)
       const response = await rpc('preview_restore_v2', {
         p_backup: backup,
         p_mode: mode,
       })
       assertRpcSuccess(response)
-      return validatePreviewResponse(response.data, mode)
+      return validatePreviewResponse(
+        response.data,
+        mode,
+        fullRollbackEligible,
+      )
     },
 
     async exportBackup(
@@ -97,78 +103,16 @@ export function createBackupRestoreApi(supabase: SupabaseClient) {
 async function validatePreviewRequest(
   backup: BackupTransport,
   mode: BackupRestoreMode,
-) {
+): Promise<boolean> {
   if (mode !== 'safe_merge' && mode !== 'full_rollback') throw invalidRequest()
-  if (!isPlainRecord(backup)
-    || !hasExactKeys(backup, ['schemaVersion', 'manifest', 'data'])
-    || backup.schemaVersion !== 2
-    || !isPlainRecord(backup.manifest)) {
-    throw invalidRequest()
-  }
-
-  const derived = Object.hasOwn(backup.manifest, 'sourceSchemaVersion')
-    || Object.hasOwn(backup.manifest, 'fullRollbackEligible')
-    || Object.hasOwn(backup.manifest, 'authoritativeSections')
-  if (!derived) {
-    try {
-      const parsed = await parseBackupDocument(JSON.stringify(backup))
-      if (parsed.sourceVersion !== 2) throw invalidRequest()
-    } catch {
-      throw invalidRequest()
-    }
-    return
-  }
-
-  const manifest = backup.manifest as unknown as Record<string, unknown>
-  const data = backup.data
-  const allowedSections = ['beans', 'brewLogs', 'brewTemplates'] as const
-  const sections = manifest.authoritativeSections
-  const validSections = Array.isArray(sections)
-    && sections.every(
-      (section): section is typeof allowedSections[number] =>
-        typeof section === 'string'
-        && allowedSections.includes(section as typeof allowedSections[number]),
-    )
-  const authoritativeSections = validSections ? sections : []
-  if (mode !== 'safe_merge'
-    || !hasExactKeys(manifest, [
-      'exportedAt', 'appVersion', 'backupMode', 'recordCounts',
-      'checksumAlgorithm', 'checksum', 'images', 'warnings',
-      'sourceSchemaVersion', 'fullRollbackEligible', 'authoritativeSections',
-    ])
-    || manifest.sourceSchemaVersion !== 1
-    || manifest.fullRollbackEligible !== false
-    || !validSections
-    || new Set(authoritativeSections).size !== authoritativeSections.length
-    || !isPlainRecord(data)
-    || !hasExactKeys(data, [...backupPreviewSections])
-    || data.profile !== null
-    || data.userSettings !== null
-    || data.aiRecommendations.length !== 0
-    || data.sourceImports.length !== 0
-    || (!authoritativeSections.includes('beans') && data.beans.length !== 0)
-    || (!authoritativeSections.includes('brewLogs') && data.brewLogs.length !== 0)
-    || (!authoritativeSections.includes('brewTemplates') && data.brewTemplates.length !== 0)
-    || !isRecordCounts(manifest.recordCounts)
-    || manifest.recordCounts.profile !== 0
-    || manifest.recordCounts.userSettings !== 0
-    || manifest.recordCounts.beans !== data.beans.length
-    || manifest.recordCounts.brewLogs !== data.brewLogs.length
-    || manifest.recordCounts.brewTemplates !== data.brewTemplates.length
-    || manifest.recordCounts.aiRecommendations !== 0
-    || manifest.recordCounts.sourceImports !== 0
-    || manifest.checksumAlgorithm !== 'SHA-256'
-    || typeof manifest.checksum !== 'string'
-    || !/^[0-9a-f]{64}$/.test(manifest.checksum)
-    || !Array.isArray(manifest.images)
-    || manifest.images.length !== 0
-    || !Array.isArray(manifest.warnings)
-    || !manifest.warnings.every(isStableWarning)) {
-    throw invalidRequest()
-  }
   try {
-    canonicalJson(data)
-    if (!await verifyBackupChecksum(backup)) throw invalidRequest()
+    const validated = await validateBackupTransportDocument(backup)
+    const derived = Object.hasOwn(
+      validated.manifest,
+      'sourceSchemaVersion',
+    )
+    if (derived && mode !== 'safe_merge') throw invalidRequest()
+    return !derived
   } catch {
     throw invalidRequest()
   }
@@ -177,6 +121,7 @@ async function validatePreviewRequest(
 function validatePreviewResponse(
   value: unknown,
   requestedMode: BackupRestoreMode,
+  expectedFullRollbackEligible: boolean,
 ): BackupRestorePreview {
   const row = exactRecord(value, [
     'mode', 'fullRollbackEligible', 'counts', 'invalidRelations', 'warnings',
@@ -201,7 +146,7 @@ function validatePreviewResponse(
     ]),
   ) as BackupRestorePreview['counts']
   const invalidRelations = row.invalidRelations.map(validateInvalidRelation)
-  if (requestedMode === 'full_rollback' && row.fullRollbackEligible !== true) {
+  if (row.fullRollbackEligible !== expectedFullRollbackEligible) {
     throw invalidResponse()
   }
   return {

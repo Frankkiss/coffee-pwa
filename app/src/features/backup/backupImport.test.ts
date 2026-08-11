@@ -218,6 +218,26 @@ describe('backup import', () => {
     await expect(parseBackupDocument(JSON.stringify(unknownField))).rejects.toThrow('备份文件格式不正确')
   })
 
+  it('compares UUID identity case-insensitively for duplicates and relations', async () => {
+    const lowerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const upperId = lowerId.toUpperCase()
+    const duplicate = await createV2Document({
+      beans: [
+        { ...v2Bean, id: lowerId },
+        { ...v2Bean, id: upperId },
+      ],
+    })
+    await expect(parseBackupDocument(JSON.stringify(duplicate)))
+      .rejects.toMatchObject({ code: 'BACKUP_FORMAT_INVALID' })
+
+    const related = await createV2Document({
+      beans: [{ ...v2Bean, id: lowerId }],
+      brewLogs: [{ ...brewLog, bean_id: upperId }],
+    })
+    await expect(parseBackupDocument(JSON.stringify(related)))
+      .resolves.toMatchObject({ sourceVersion: 2 })
+  })
+
   it('rejects fractional values for every integer database column', async () => {
     const integerMutations: Array<Partial<BackupV2Document['data']>> = [
       { beans: [{ ...v2Bean, altitude_meters: 1.5 }] },

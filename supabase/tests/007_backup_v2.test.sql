@@ -631,6 +631,62 @@ select throws_ok(
   $$select public.preview_restore_v2(
     private.test_rechecksum_backup(
       pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          (select document from restore_preview_fixtures where name = 'native-v2'),
+          '{data,beans}',
+          pg_catalog.jsonb_build_array(
+            (select document #> '{data,beans,0}' from restore_preview_fixtures where name = 'native-v2')
+              || '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}'::jsonb,
+            (select document #> '{data,beans,0}' from restore_preview_fixtures where name = 'native-v2')
+              || '{"id":"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"}'::jsonb
+          )
+        ),
+        '{manifest,recordCounts,beans}',
+        '2'::jsonb
+      )
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'preview rejects UUID duplicates that differ only by hexadecimal case'
+);
+select is(
+  public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          pg_catalog.jsonb_set(
+            pg_catalog.jsonb_set(
+              (select document from restore_preview_fixtures where name = 'native-v2'),
+              '{data,beans}',
+              pg_catalog.jsonb_build_array(
+                (select document #> '{data,beans,0}' from restore_preview_fixtures where name = 'native-v2')
+                  || '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}'::jsonb
+              )
+            ),
+            '{data,brewLogs}',
+            pg_catalog.jsonb_build_array(
+              (select document #> '{data,brewLogs,0}' from restore_preview_fixtures where name = 'native-v2')
+                || '{"bean_id":"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"}'::jsonb
+            )
+          ),
+          '{data,aiRecommendations}',
+          '[]'::jsonb
+        ),
+        '{manifest,recordCounts}',
+        (select document #> '{manifest,recordCounts}' from restore_preview_fixtures where name = 'native-v2')
+          || '{"beans":1,"brewLogs":1,"aiRecommendations":0}'::jsonb
+      )
+    ),
+    'safe_merge'
+  ) #> '{invalidRelations}',
+  '[]'::jsonb,
+  'preview resolves UUID relations case-insensitively'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
         (select document from restore_preview_fixtures where name = 'native-v2'),
         '{data,beans,0,net_weight_grams}',
         '0.0000001'::jsonb

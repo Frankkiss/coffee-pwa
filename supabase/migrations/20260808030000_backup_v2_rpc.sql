@@ -185,6 +185,16 @@ begin
           or v_scalar::numeric = pg_catalog.trunc(v_scalar::numeric))
       when 'boolean' then v_actual = 'boolean'
       when 'nullable_boolean' then v_actual in ('boolean', 'null')
+      when 'timestamp' then v_actual = 'string'
+        and v_scalar ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$'
+      when 'nullable_timestamp' then v_actual = 'null'
+        or (v_actual = 'string'
+          and v_scalar ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$')
+      when 'date' then v_actual = 'string'
+        and v_scalar ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      when 'nullable_date' then v_actual = 'null'
+        or (v_actual = 'string'
+          and v_scalar ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
       when 'array' then v_actual = 'array'
       when 'object' then v_actual = 'object'
       else false
@@ -216,7 +226,7 @@ begin
       'id', 'display_name', 'created_at', 'updated_at', 'schema_version'
     ]) or not private.jsonb_matches_field_types(p_row, '{
       "id":"string","display_name":"nullable_string",
-      "created_at":"string","updated_at":"string","schema_version":"integer"
+      "created_at":"timestamp","updated_at":"timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -237,7 +247,7 @@ begin
     ]) or not private.jsonb_matches_field_types(p_row, '{
       "user_id":"string","preferred_units":"object","default_gear":"object",
       "taste_preferences":"object","backup_reminder_days":"integer",
-      "created_at":"string","updated_at":"string","schema_version":"integer"
+      "created_at":"timestamp","updated_at":"timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -268,14 +278,14 @@ begin
       "roaster":"nullable_string","origin":"nullable_string",
       "farm_or_station":"nullable_string","process":"nullable_string",
       "variety":"nullable_string","altitude_meters":"nullable_integer",
-      "roast_date":"nullable_string","roast_level":"nullable_string",
+      "roast_date":"nullable_date","roast_level":"nullable_string",
       "flavor_tags":"array","flavor_notes":"nullable_string",
       "net_weight_grams":"nullable_number","price":"nullable_number",
-      "purchase_date":"nullable_string","source_url":"nullable_string",
+      "purchase_date":"nullable_date","source_url":"nullable_string",
       "image_url":"nullable_string","bean_type":"string",
       "blend_components":"array","blend_notes":"nullable_string",
-      "notes":"nullable_string","created_at":"string","updated_at":"string",
-      "deleted_at":"nullable_string","schema_version":"integer"
+      "notes":"nullable_string","created_at":"timestamp","updated_at":"timestamp",
+      "deleted_at":"nullable_timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -319,7 +329,7 @@ begin
       'updated_at', 'deleted_at', 'schema_version'
     ]) or not private.jsonb_matches_field_types(p_row, '{
       "id":"string","user_id":"string","bean_id":"nullable_string",
-      "brewed_at":"string","method":"nullable_string",
+      "brewed_at":"timestamp","method":"nullable_string",
       "dripper":"nullable_string","filter_paper":"nullable_string",
       "grinder":"nullable_string","grind_setting":"nullable_string",
       "coffee_grams":"nullable_number","water_grams":"nullable_number",
@@ -330,8 +340,8 @@ begin
       "astringency":"nullable_integer","body":"nullable_integer",
       "aftertaste":"nullable_integer","flavor_tags":"array",
       "is_pinned_recipe":"boolean","notes":"nullable_string",
-      "created_at":"string","updated_at":"string",
-      "deleted_at":"nullable_string","schema_version":"integer"
+      "created_at":"timestamp","updated_at":"timestamp",
+      "deleted_at":"nullable_timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -371,8 +381,8 @@ begin
       "flavor_goal":"string","adjustment_rules":"array",
       "source_notes":"string","source_urls":"array",
       "is_champion_reference":"boolean",
-      "copied_from_template_id":"nullable_string","created_at":"string",
-      "updated_at":"string","deleted_at":"nullable_string",
+      "copied_from_template_id":"nullable_string","created_at":"timestamp",
+      "updated_at":"timestamp","deleted_at":"nullable_timestamp",
       "schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
@@ -420,8 +430,8 @@ begin
       "id":"string","user_id":"string","bean_id":"nullable_string",
       "input_context":"object","recommendation":"object",
       "model_name":"nullable_string","accepted":"nullable_boolean",
-      "created_at":"string","updated_at":"string",
-      "deleted_at":"nullable_string","schema_version":"integer"
+      "created_at":"timestamp","updated_at":"timestamp",
+      "deleted_at":"nullable_timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -446,8 +456,8 @@ begin
       "id":"string","user_id":"string","source_url":"string",
       "source_type":"string","status":"string","extracted_payload":"object",
       "selected_payload":"object","error_message":"nullable_string",
-      "created_at":"string","updated_at":"string",
-      "deleted_at":"nullable_string","schema_version":"integer"
+      "created_at":"timestamp","updated_at":"timestamp",
+      "deleted_at":"nullable_timestamp","schema_version":"integer"
     }'::jsonb) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -716,8 +726,9 @@ begin
   end if;
 
   if pg_catalog.jsonb_typeof(v_manifest->'exportedAt') <> 'string'
+    or v_manifest->>'exportedAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$'
     or pg_catalog.jsonb_typeof(v_manifest->'appVersion') <> 'string'
-    or pg_catalog.length(v_manifest->>'appVersion') = 0
+    or v_manifest->>'appVersion' !~ '^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$'
     or v_manifest->>'backupMode' not in ('lightweight', 'complete')
     or v_manifest->>'checksumAlgorithm' <> 'SHA-256'
     or pg_catalog.jsonb_typeof(v_manifest->'checksum') <> 'string'
@@ -772,7 +783,7 @@ begin
     if not exists (
       select 1
       from pg_catalog.jsonb_array_elements(v_data->'beans') bean
-      where bean->>'id' = v_image->>'entityId'
+      where (bean->>'id')::uuid = (v_image->>'entityId')::uuid
     ) then
       raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
     end if;
@@ -810,7 +821,7 @@ begin
         select pg_catalog.count(*)
         from pg_catalog.jsonb_array_elements(v_data->v_section) row_data
       ) <> (
-        select pg_catalog.count(distinct row_data->>'id')
+        select pg_catalog.count(distinct (row_data->>'id')::uuid)
         from pg_catalog.jsonb_array_elements(v_data->v_section) row_data
       ) then
         raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
@@ -907,7 +918,7 @@ begin
       and row_data->'bean_id' <> 'null'::jsonb
       and not exists (
         select 1 from pg_catalog.jsonb_array_elements(v_data->'beans') bean
-        where bean->>'id' = row_data->>'bean_id'
+        where (bean->>'id')::uuid = (row_data->>'bean_id')::uuid
       )
       and (
         p_mode = 'full_rollback'
@@ -925,7 +936,7 @@ begin
       and row_data->'bean_id' <> 'null'::jsonb
       and not exists (
         select 1 from pg_catalog.jsonb_array_elements(v_data->'beans') bean
-        where bean->>'id' = row_data->>'bean_id'
+        where (bean->>'id')::uuid = (row_data->>'bean_id')::uuid
       )
       and (
         p_mode = 'full_rollback'

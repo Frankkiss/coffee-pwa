@@ -5,7 +5,10 @@ import {
   BackupRestoreApiError,
   createBackupRestoreApi,
 } from './backupRestoreApi'
-import type { BackupV2Document } from './backupTypes'
+import type {
+  BackupV2Document,
+  MigratedV1SafeMergeDocument,
+} from './backupTypes'
 
 const time = '2026-08-12T08:00:00.000Z'
 
@@ -35,6 +38,19 @@ async function backup(): Promise<BackupV2Document> {
       warnings: [],
     },
     data,
+  }
+}
+
+async function derivedBackup(): Promise<MigratedV1SafeMergeDocument> {
+  const document = await backup()
+  return {
+    ...document,
+    manifest: {
+      ...document.manifest,
+      sourceSchemaVersion: 1 as const,
+      fullRollbackEligible: false as const,
+      authoritativeSections: ['beans'],
+    },
   }
 }
 
@@ -99,6 +115,51 @@ describe('backup restore API boundary', () => {
     await expect(api.preview(document, 'overwrite' as 'safe_merge'))
       .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
     expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('strictly validates every v1-derived request field before calling RPC', async () => {
+    const document = await derivedBackup()
+    const malformedData = { ...document.data, beans: [{}] }
+    const malformed = {
+      ...document,
+      manifest: {
+        ...document.manifest,
+        exportedAt: 'yesterday',
+        recordCounts: { ...document.manifest.recordCounts, beans: 1 },
+        checksum: await sha256Hex(malformedData),
+      },
+      data: malformedData,
+    }
+    const { client, rpc } = clientWith([])
+    await expect(createBackupRestoreApi(client).preview(malformed as never, 'safe_merge'))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    await expect(createBackupRestoreApi(client).preview({
+      ...document,
+      data: { ...document.data, beans: 1 },
+    } as never, 'safe_merge')).rejects.toMatchObject({
+      code: 'INVALID_BACKUP_RPC_REQUEST',
+    })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('requires response rollback eligibility to match the request document', async () => {
+    const nativeClient = clientWith([{
+      data: { ...preview(), fullRollbackEligible: false },
+      error: null,
+    }])
+    await expect(createBackupRestoreApi(nativeClient.client).preview(
+      await backup(),
+      'safe_merge',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+
+    const derivedClient = clientWith([{
+      data: { ...preview(), fullRollbackEligible: true },
+      error: null,
+    }])
+    await expect(createBackupRestoreApi(derivedClient.client).preview(
+      await derivedBackup(),
+      'safe_merge',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
   })
 
   it('validates export responses and download metadata requests', async () => {
