@@ -1296,13 +1296,13 @@ to authenticated;
 grant execute on function public.get_sync_snapshot()
 to authenticated;
 
-revoke all on table
+revoke select on table
   public.beans,
   public.brew_logs,
   public.brew_templates,
   public.user_settings,
   public.ai_recommendations
-from public, anon, authenticated;
+from public, anon;
 
 grant select on table
   public.beans,

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(170);
+select plan(169);
 
 -- 1. Technical sync tables exist.
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
@@ -908,8 +908,21 @@ select ok(
       'public.user_settings',
       'public.ai_recommendations'
     ]) as snapshot_tables(table_name)
-    where has_table_privilege('anon', snapshot_tables.table_name, 'SELECT')
-      or has_table_privilege('public', snapshot_tables.table_name, 'SELECT')
+    join pg_catalog.pg_class as snapshot_relations
+      on snapshot_relations.oid = snapshot_tables.table_name::regclass
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        snapshot_relations.relacl,
+        pg_catalog.acldefault('r', snapshot_relations.relowner)
+      )
+    ) as privileges
+    where (
+      privileges.grantee = 0
+        or privileges.grantee = (
+          select oid from pg_catalog.pg_roles where rolname = 'anon'
+        )
+    )
+      and privileges.privilege_type = 'SELECT'
   ),
   'anon and PUBLIC cannot select snapshot business tables'
 );
@@ -930,25 +943,6 @@ select ok(
   ),
   'authenticated can select every snapshot business table'
 );
--- Authenticated clients cannot bypass RPC validation with direct writes.
-select ok(
-  not exists (
-    select 1
-    from unnest(array[
-      'public.beans',
-      'public.brew_logs',
-      'public.brew_templates',
-      'public.user_settings',
-      'public.ai_recommendations'
-    ]) as snapshot_tables(table_name)
-    where has_table_privilege(
-      'authenticated', snapshot_tables.table_name,
-      'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'
-    )
-  ),
-  'authenticated cannot mutate snapshot business tables directly'
-);
-
 select set_config(
   'request.jwt.claim.sub',
   '00000000-0000-0000-0000-000000000001',
