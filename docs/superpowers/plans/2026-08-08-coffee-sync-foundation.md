@@ -761,7 +761,11 @@ $$;
 ```
 
 The authentication check may run first, but the epoch and all entity collections must be read by this single `select`
-so they share one PostgreSQL statement snapshot. Keep the snapshot function `SECURITY INVOKER` and rely on RLS.
+so they share one PostgreSQL statement snapshot. Keep the snapshot function `SECURITY INVOKER` and rely on RLS. Because
+PostgreSQL checks table privileges before applying RLS, explicitly grant `authenticated` only `SELECT` on the five business
+tables read by this RPC (`beans`, `brew_logs`, `brew_templates`, `user_settings`, and `ai_recommendations`). Revoke their table
+access from `anon` and `PUBLIC`, and do not grant direct `INSERT`, `UPDATE`, or `DELETE`; authenticated rows remain isolated by
+the existing current-user RLS policies.
 
 - [ ] **Step 5: Lock down function grants**
 
@@ -770,6 +774,11 @@ revoke all on function public.apply_sync_batch(bigint, jsonb) from public, anon;
 revoke all on function public.get_sync_snapshot() from public, anon;
 grant execute on function public.apply_sync_batch(bigint, jsonb) to authenticated;
 grant execute on function public.get_sync_snapshot() to authenticated;
+
+revoke all on table public.beans, public.brew_logs, public.brew_templates,
+  public.user_settings, public.ai_recommendations from public, anon;
+grant select on table public.beans, public.brew_logs, public.brew_templates,
+  public.user_settings, public.ai_recommendations to authenticated;
 ```
 
 - [ ] **Step 6: Reset locally and run SQL tests**

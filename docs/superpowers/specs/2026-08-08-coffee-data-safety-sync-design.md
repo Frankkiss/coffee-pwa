@@ -396,7 +396,10 @@ result_summary
 
 ### 9.3 安全执行方式
 
-RPC 优先使用调用者权限运行并保留 RLS。若某个恢复流程确实需要 `SECURITY DEFINER`，必须：
+RPC 优先使用调用者权限运行并保留 RLS。`SECURITY INVOKER` RPC 读取的业务表必须显式只向
+`authenticated` 授予完成该 RPC 所需的最小表级权限；表级授权只是进入查询的前置条件，逐行隔离仍由 RLS
+策略强制执行。不得为此向 `anon` 或 `PUBLIC` 开放业务表，也不得向 `authenticated` 扩大到该 RPC 不需要的
+写权限。若某个恢复流程确实需要 `SECURITY DEFINER`，必须：
 
 - 固定安全的 `search_path`；
 - 在函数内首先验证 `auth.uid()`；
