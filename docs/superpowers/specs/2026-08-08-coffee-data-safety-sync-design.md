@@ -101,6 +101,13 @@ React 页面
 
 页面组件不得自行维护第二套同步队列，也不得用 `navigator.onLine` 推断“已经同步”。
 
+统一同步迁移收尾时，首页概览也必须通过 `SyncProvider` 暴露的豆子与冲煮 Repository 读取并订阅本地合成视图，不能继续直读
+Supabase 或维护旧 `snapshots` 缓存。来源解析、图片识别和来源记录仍保持原有联网边界，但用户确认导入草稿后，豆子必须先经
+`beanRepository` 原子写入本地实体与 Outbox，再以 best-effort 方式唤醒 `SyncManager`；同步唤醒失败不能把已经安全落盘的豆子
+误报为保存失败。只有上述生产消费者全部迁移且 import 扫描为零后，才能删除旧 `offlineCache`、`offlineQueue` 和页面直连 CRUD
+service 源码。删除源码不得升级或删除 IndexedDB 中的物理 `snapshots`、`pendingMutations` store，旧数据迁移与恢复导出继续由
+自包含的 `legacyMigration` raw reader 负责。
+
 ## 5. 本地数据模型
 
 ### 5.1 IndexedDB 存储

@@ -1925,6 +1925,9 @@ git commit -m "feat: sync templates settings and recommendation cache"
 ### Task 14: Remove obsolete runtime paths only after migration coverage
 
 **Files:**
+- Modify: `app/src/features/home/HomeOverview.tsx`
+- Modify: `app/src/features/sourceImports/SourceImportPanel.tsx`
+- Create: `app/src/features/sync/legacyRuntimeRemoval.test.ts`
 - Delete: `app/src/features/offline/offlineCache.ts`
 - Delete: `app/src/features/offline/offlineCache.test.ts`
 - Delete: `app/src/features/offline/offlineQueue.ts`
@@ -1934,7 +1937,16 @@ git commit -m "feat: sync templates settings and recommendation cache"
 - Delete if no imports remain: `app/src/features/brewTemplates/brewTemplateService.ts`
 - Modify: `app/src/features/sync/legacyMigration.ts`
 
-- [ ] **Step 1: Prove old modules are no longer runtime dependencies**
+- [ ] **Step 1: Write the removal gate and migrate the two omitted consumers**
+
+Add a regression gate proving production source no longer imports `offlineCache`, `offlineQueue`, `beanService`, `brewLogService`, or
+`brewTemplateService`. It must fail before the omitted consumers are migrated. Refactor `HomeOverview` to load beans and brews from the
+`useSyncRuntime()` repositories and refresh through their entity subscriptions; preview rows remain an explicit no-Supabase path. Refactor
+`SourceImportPanel` so AI/OCR parsing and `source_imports` recording remain online, but confirmation saves the bean through
+`beanRepository.createBean`, then calls `sync.run()` best-effort after the local transaction succeeds. Do not poll and do not restore a page-owned
+queue.
+
+- [ ] **Step 2: Prove old modules are no longer runtime dependencies**
 
 ```powershell
 rg -n "offlineCache|offlineQueue|beanService|brewLogService|brewTemplateService" app/src --glob '!**/*.test.ts'
@@ -1942,15 +1954,15 @@ rg -n "offlineCache|offlineQueue|beanService|brewLogService|brewTemplateService"
 
 Expected: only `legacyMigration.ts` references the legacy IndexedDB store names; no page imports old modules.
 
-- [ ] **Step 2: Preserve raw migration readers before deletion**
+- [ ] **Step 3: Preserve raw migration readers before deletion**
 
 Move the minimal legacy row types and raw `snapshots`/`pendingMutations` readers into `legacyMigration.ts`. Do not call functions from the modules being deleted.
 
-- [ ] **Step 3: Delete obsolete modules**
+- [ ] **Step 4: Delete obsolete modules**
 
 Delete only the files listed above whose imports are zero. Keep the physical legacy IndexedDB stores for at least one stable release; this task removes source modules, not user data.
 
-- [ ] **Step 4: Run the entire quality gate**
+- [ ] **Step 5: Run the entire quality gate**
 
 ```powershell
 npm test
@@ -1960,7 +1972,7 @@ npm run build
 
 Expected: all tests pass; lint and build exit 0.
 
-- [ ] **Step 5: Commit cleanup**
+- [ ] **Step 6: Commit cleanup**
 
 ```powershell
 git add -A app/src/features
