@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { createBean } from '../beans/beanService'
@@ -9,6 +9,7 @@ import type { Bean, BeanForm } from '../beans/beanTypes'
 import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
 import type { SourceImportResponse } from './sourceImportTypes'
+import { getSourceImportAvailability } from './sourceImportAvailability'
 import './sourceImports.css'
 
 type SourceImportPanelProps = {
@@ -33,6 +34,18 @@ export function SourceImportPanel({
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const parseAvailability = getSourceImportAvailability(isOnline)
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
 
   function updateField<K extends keyof BeanForm>(field: K, value: BeanForm[K]) {
     setForm((current) => (current ? { ...current, [field]: value } : current))
@@ -76,6 +89,10 @@ export function SourceImportPanel({
   }
 
   async function handleParse() {
+    if (!parseAvailability.enabled) {
+      setError(parseAvailability.message)
+      return
+    }
     const sourceUrl = url.trim()
     const detailText = pastedText.trim()
     setStatus('')
@@ -188,9 +205,10 @@ export function SourceImportPanel({
             inputMode="url"
           />
         </label>
-        <button type="button" onClick={handleParse} disabled={isParsing}>
+        <button type="button" onClick={handleParse} disabled={isParsing || !parseAvailability.enabled}>
           {isParsing ? '解析中' : 'AI 解析'}
         </button>
+        {parseAvailability.message ? <p role="status">{parseAvailability.message}</p> : null}
       </div>
 
       <div className="source-import__image">
