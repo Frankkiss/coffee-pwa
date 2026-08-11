@@ -1,4 +1,5 @@
 import type { BeanBlendComponent, BeanForm, BeanType } from '../beans/beanTypes'
+import type { JsonObject } from '../../lib/jsonTypes'
 
 export type SourceImportConfidence = 'low' | 'medium' | 'high' | ''
 
@@ -45,4 +46,19 @@ export type SourceImportRecordInput = {
   extractedPayload: SourceImportResponse | SourceImportDraft | Record<string, unknown>
   selectedPayload?: BeanForm | Record<string, unknown>
   errorMessage?: string | null
+}
+
+export type SourceImportRow = {
+  id: string
+  user_id: string
+  source_url: string
+  source_type: string
+  status: 'draft' | 'saved' | 'failed'
+  extracted_payload: JsonObject
+  selected_payload: JsonObject
+  error_message: string | null
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+  schema_version: number
 }
