@@ -1295,3 +1295,19 @@ grant execute on function public.apply_sync_batch(bigint, jsonb)
 to authenticated;
 grant execute on function public.get_sync_snapshot()
 to authenticated;
+
+revoke all on table
+  public.beans,
+  public.brew_logs,
+  public.brew_templates,
+  public.user_settings,
+  public.ai_recommendations
+from public, anon, authenticated;
+
+grant select on table
+  public.beans,
+  public.brew_logs,
+  public.brew_templates,
+  public.user_settings,
+  public.ai_recommendations
+to authenticated;

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(166);
+select plan(170);
 
 -- 1. Technical sync tables exist.
 select has_table('public', 'user_sync_state', 'user_sync_state exists');
@@ -877,6 +877,77 @@ values
     '{"method":"other"}'::jsonb,
     'test-model'
   );
+
+-- Snapshot tables expose only the minimum authenticated read path.
+select ok(
+  not exists (
+    select 1
+    from unnest(array[
+      'public.beans',
+      'public.brew_logs',
+      'public.brew_templates',
+      'public.user_settings',
+      'public.ai_recommendations'
+    ]) as snapshot_tables(table_name)
+    where not (
+      select relrowsecurity
+      from pg_catalog.pg_class
+      where oid = snapshot_tables.table_name::regclass
+    )
+  ),
+  'all snapshot business tables enforce RLS'
+);
+-- Anonymous roles have no snapshot table read access.
+select ok(
+  not exists (
+    select 1
+    from unnest(array[
+      'public.beans',
+      'public.brew_logs',
+      'public.brew_templates',
+      'public.user_settings',
+      'public.ai_recommendations'
+    ]) as snapshot_tables(table_name)
+    where has_table_privilege('anon', snapshot_tables.table_name, 'SELECT')
+      or has_table_privilege('public', snapshot_tables.table_name, 'SELECT')
+  ),
+  'anon and PUBLIC cannot select snapshot business tables'
+);
+-- Authenticated callers can enter the invoker snapshot query.
+select ok(
+  not exists (
+    select 1
+    from unnest(array[
+      'public.beans',
+      'public.brew_logs',
+      'public.brew_templates',
+      'public.user_settings',
+      'public.ai_recommendations'
+    ]) as snapshot_tables(table_name)
+    where not has_table_privilege(
+      'authenticated', snapshot_tables.table_name, 'SELECT'
+    )
+  ),
+  'authenticated can select every snapshot business table'
+);
+-- Authenticated clients cannot bypass RPC validation with direct writes.
+select ok(
+  not exists (
+    select 1
+    from unnest(array[
+      'public.beans',
+      'public.brew_logs',
+      'public.brew_templates',
+      'public.user_settings',
+      'public.ai_recommendations'
+    ]) as snapshot_tables(table_name)
+    where has_table_privilege(
+      'authenticated', snapshot_tables.table_name,
+      'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'
+    )
+  ),
+  'authenticated cannot mutate snapshot business tables directly'
+);
 
 select set_config(
   'request.jwt.claim.sub',
@@ -2028,15 +2099,14 @@ select ok(
   'public, anon, and authenticated have no USAGE on private schema'
 );
 
-set local role authenticated;
-
 -- 146. Revoking direct trigger-function execution does not disable triggers.
 select lives_ok(
   $$update public.beans
     set updated_at = '2000-01-01T00:00:00Z'
     where id = '30000000-0000-0000-0000-000000000001'$$,
-  'bean updated_at trigger still executes for authenticated table updates'
+  'bean updated_at trigger still executes for table-owner updates'
 );
+set local role authenticated;
 -- 147.
 select ok(
   (
@@ -2168,10 +2238,11 @@ select ok(
     ) ~
       'select pg_catalog[.]jsonb_build_object[(][^;]*''syncEpoch''[^;]*from public[.]user_sync_state[^;]*''beans''[^;]*''brewLogs''[^;]*''brewTemplates''[^;]*''userSettings''[^;]*''aiRecommendations''[^;]*[)] into v_result;'
   )
-    and pg_catalog.position(
-      'into v_epoch' in pg_catalog.pg_get_functiondef(
+    and pg_catalog.strpos(
+      pg_catalog.pg_get_functiondef(
         'public.get_sync_snapshot()'::pg_catalog.regprocedure
-      )
+      ),
+      'into v_epoch'
     ) = 0,
   'snapshot epoch and all collections share one SQL statement contract'
 );
