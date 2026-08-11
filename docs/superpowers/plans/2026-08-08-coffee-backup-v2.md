@@ -130,7 +130,7 @@ Define full row types for saved recommendations and source imports, including `u
 
 - [ ] **Step 4: Implement canonical JSON and SHA-256**
 
-`backupChecksum.ts` must recursively sort object keys, preserve array order, reject non-finite numbers, and hash UTF-8 bytes through `crypto.subtle.digest('SHA-256', bytes)`.
+`backupChecksum.ts` must recursively sort object keys using JavaScript UTF-16 order, preserve array order, and hash UTF-8 bytes through `crypto.subtle.digest('SHA-256', bytes)`. Its number branch must enforce the same cross-runtime subset as `canonical_jsonb_text`: reject non-finite values, unsafe integers, nonzero magnitudes below `1e-6`, magnitudes at or above `1e21`, and decimals with more than 15 significant digits. Shared browser/SQL fixtures must cover accepted boundaries and every rejected class.
 
 ```ts
 export async function verifyBackupChecksum(document: BackupV2Document) {
