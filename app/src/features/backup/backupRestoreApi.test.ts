@@ -1,0 +1,158 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { describe, expect, it, vi } from 'vitest'
+import { sha256Hex } from './backupChecksum'
+import {
+  BackupRestoreApiError,
+  createBackupRestoreApi,
+} from './backupRestoreApi'
+import type { BackupV2Document } from './backupTypes'
+
+const time = '2026-08-12T08:00:00.000Z'
+
+async function backup(): Promise<BackupV2Document> {
+  const data = {
+    profile: null,
+    userSettings: null,
+    beans: [],
+    brewLogs: [],
+    brewTemplates: [],
+    aiRecommendations: [],
+    sourceImports: [],
+  }
+  return {
+    schemaVersion: 2,
+    manifest: {
+      exportedAt: time,
+      appVersion: '0.0.0-test',
+      backupMode: 'lightweight',
+      recordCounts: {
+        profile: 0, userSettings: 0, beans: 0, brewLogs: 0,
+        brewTemplates: 0, aiRecommendations: 0, sourceImports: 0,
+      },
+      checksumAlgorithm: 'SHA-256',
+      checksum: await sha256Hex(data),
+      images: [],
+      warnings: [],
+    },
+    data,
+  }
+}
+
+const zero = {
+  total: 0, new: 0, existing: 0, softDeleted: 0, willUpdate: 0, willDelete: 0,
+}
+
+function preview() {
+  return {
+    mode: 'safe_merge',
+    fullRollbackEligible: true,
+    counts: {
+      profile: { ...zero }, userSettings: { ...zero }, beans: { ...zero },
+      brewLogs: { ...zero }, brewTemplates: { ...zero },
+      aiRecommendations: { ...zero }, sourceImports: { ...zero },
+    },
+    invalidRelations: [],
+    warnings: [],
+  }
+}
+
+function clientWith(results: unknown[]) {
+  const rpc = vi.fn()
+  for (const result of results) rpc.mockResolvedValueOnce(result)
+  return { client: { rpc } as unknown as SupabaseClient, rpc }
+}
+
+describe('backup restore API boundary', () => {
+  it('sends only the validated preview request and accepts the exact response', async () => {
+    const document = await backup()
+    const result = preview()
+    const { client, rpc } = clientWith([{ data: result, error: null }])
+    const api = createBackupRestoreApi(client)
+    await expect(api.preview(document, 'safe_merge')).resolves.toEqual(result)
+    expect(rpc).toHaveBeenCalledWith('preview_restore_v2', {
+      p_backup: document,
+      p_mode: 'safe_merge',
+    })
+    expect('restore' in api).toBe(false)
+  })
+
+  it.each([
+    ['unknown root response key', { ...preview(), surprise: true }],
+    ['missing partition', { ...preview(), counts: { ...preview().counts, beans: undefined } }],
+    ['unknown count key', { ...preview(), counts: { ...preview().counts, beans: { ...zero, skipped: 1 } } }],
+    ['fractional count', { ...preview(), counts: { ...preview().counts, beans: { ...zero, total: 0.5 } } }],
+    ['mode mismatch', { ...preview(), mode: 'full_rollback' }],
+    ['unknown warning', { ...preview(), warnings: ['raw server detail'] }],
+    ['bad relation', { ...preview(), invalidRelations: [{ entityType: 'bean', entityId: 'x', field: 'bean_id', value: 'x' }] }],
+  ])('rejects malformed preview response: %s', async (_name, data) => {
+    const { client } = clientWith([{ data, error: null }])
+    await expect(createBackupRestoreApi(client).preview(await backup(), 'safe_merge'))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+  })
+
+  it('rejects unknown request fields and invalid modes before making an RPC', async () => {
+    const document = await backup()
+    const { client, rpc } = clientWith([])
+    const api = createBackupRestoreApi(client)
+    await expect(api.preview({ ...document, hidden: true } as BackupV2Document, 'safe_merge'))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    await expect(api.preview(document, 'overwrite' as 'safe_merge'))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('validates export responses and download metadata requests', async () => {
+    const document = await backup()
+    const counts = document.manifest.recordCounts
+    const { client, rpc } = clientWith([
+      { data: document, error: null },
+      { data: time, error: null },
+    ])
+    const api = createBackupRestoreApi(client)
+    await expect(api.exportBackup('0.0.0-test', 'lightweight')).resolves.toEqual(document)
+    await expect(api.recordBackupDownload('coffee-backup-2026-08-12.json', 'lightweight', counts))
+      .resolves.toBe(time)
+    expect(rpc.mock.calls).toEqual([
+      ['export_backup_v2', { p_app_version: '0.0.0-test', p_backup_mode: 'lightweight' }],
+      ['record_backup_download', { p_file_name: 'coffee-backup-2026-08-12.json', p_backup_mode: 'lightweight', p_record_counts: counts }],
+    ])
+  })
+
+  it('rejects malformed export/download responses and count requests', async () => {
+    const malformed = { ...(await backup()), extra: true }
+    const first = clientWith([{ data: malformed, error: null }])
+    await expect(createBackupRestoreApi(first.client).exportBackup('0.0.0-test', 'lightweight'))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+
+    const second = clientWith([{ data: 'yesterday', error: null }])
+    await expect(createBackupRestoreApi(second.client).recordBackupDownload(
+      'coffee-backup-2026-08-12.json',
+      'lightweight',
+      { ...(await backup()).manifest.recordCounts, extra: 1 } as never,
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    expect(second.rpc).not.toHaveBeenCalled()
+
+    const third = clientWith([{ data: 'yesterday', error: null }])
+    await expect(createBackupRestoreApi(third.client).recordBackupDownload(
+      'coffee-backup-2026-08-12.json',
+      'lightweight',
+      (await backup()).manifest.recordCounts,
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+    expect(third.rpc).toHaveBeenCalledOnce()
+  })
+
+  it('does not expose unknown server text through API errors', async () => {
+    const { client } = clientWith([{
+      data: null,
+      error: { code: 'P0001', message: 'SECRET table detail' },
+      status: 400,
+    }])
+    await expect(createBackupRestoreApi(client).preview(await backup(), 'safe_merge'))
+      .rejects.toEqual(expect.objectContaining({
+        name: 'BackupRestoreApiError',
+        code: 'BACKUP_RPC_FAILED',
+        message: '备份操作失败，请稍后重试',
+      }))
+    expect(BackupRestoreApiError).toBeDefined()
+  })
+})

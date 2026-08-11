@@ -7,6 +7,7 @@ select no_plan();
 
 select has_function('public', 'canonical_jsonb_text', array['jsonb']);
 select has_function('public', 'export_backup_v2', array['text', 'text']);
+select has_function('public', 'preview_restore_v2', array['jsonb', 'text']);
 select has_function(
   'public',
   'record_backup_download',
@@ -40,10 +41,37 @@ select ok(
   ),
   'canonical JSON helpers are not directly executable by client roles'
 );
+
+create or replace function private.test_rechecksum_backup(p_backup jsonb)
+returns jsonb
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+  select pg_catalog.jsonb_set(
+    p_backup,
+    '{manifest,checksum}',
+    pg_catalog.to_jsonb(
+      pg_catalog.encode(
+        extensions.digest(
+          pg_catalog.convert_to(
+            public.canonical_jsonb_text(p_backup->'data'),
+            'UTF8'
+          ),
+          'sha256'
+        ),
+        'hex'
+      )
+    )
+  )
+$$;
 select ok(
   not has_function_privilege(
     'anon', 'public.export_backup_v2(text,text)', 'EXECUTE'
   )
+    and not has_function_privilege(
+      'anon', 'public.preview_restore_v2(jsonb,text)', 'EXECUTE'
+    )
     and not has_function_privilege(
       'anon', 'public.record_backup_download(text,text,jsonb)', 'EXECUTE'
     )
@@ -58,6 +86,7 @@ select ok(
       ) as privileges
       where procedures.oid in (
           'public.export_backup_v2(text,text)'::regprocedure,
+          'public.preview_restore_v2(jsonb,text)'::regprocedure,
           'public.record_backup_download(text,text,jsonb)'::regprocedure
         )
         and privileges.grantee = 0
@@ -69,6 +98,9 @@ select ok(
   has_function_privilege(
     'authenticated', 'public.export_backup_v2(text,text)', 'EXECUTE'
   )
+    and has_function_privilege(
+      'authenticated', 'public.preview_restore_v2(jsonb,text)', 'EXECUTE'
+    )
     and has_function_privilege(
       'authenticated',
       'public.record_backup_download(text,text,jsonb)',
@@ -101,10 +133,28 @@ select ok(
   'download metadata RPC is definer-owned and search-path hardened'
 );
 select ok(
+  (
+    select prosecdef
+      and coalesce(
+        proconfig @> array['search_path=pg_catalog, pg_temp']::text[],
+        false
+      )
+    from pg_catalog.pg_proc
+    where oid = 'public.preview_restore_v2(jsonb,text)'::regprocedure
+  ),
+  'preview RPC is definer-owned and search-path hardened'
+);
+select ok(
   pg_catalog.pg_get_functiondef(
     'public.export_backup_v2(text,text)'::regprocedure
   ) like '%pg_advisory_xact_lock%hashtextextended(v_user_id::text, 0)%',
   'export uses the same per-user transaction lock as sync'
+);
+select ok(
+  pg_catalog.pg_get_functiondef(
+    'public.preview_restore_v2(jsonb,text)'::regprocedure
+  ) like '%pg_advisory_xact_lock%hashtextextended(v_user_id::text, 0)%',
+  'preview uses the same per-user transaction lock as sync'
 );
 
 select is(
@@ -413,7 +463,281 @@ select throws_ok(
   'export rejects an unknown mode'
 );
 
+reset role;
+
+create temporary table restore_preview_fixtures (
+  name text primary key,
+  document jsonb not null
+) on commit drop;
+
+with base as materialized (
+  select public.export_backup_v2('0.0.0-test', 'lightweight') as document
+), changed as (
+  select pg_catalog.jsonb_set(
+    pg_catalog.jsonb_set(
+      document,
+      '{data,beans}',
+      pg_catalog.jsonb_build_array(
+        (document #> '{data,beans,0}')
+          || '{"user_id":"70000000-0000-0000-0000-000000000002"}'::jsonb,
+        (document #> '{data,beans,0}')
+          || '{"id":"71000000-0000-0000-0000-000000000003","user_id":"70000000-0000-0000-0000-000000000002","name":"Backup deleted bean"}'::jsonb,
+        (document #> '{data,beans,0}')
+          || '{"id":"71000000-0000-0000-0000-000000000099","user_id":"70000000-0000-0000-0000-000000000002","name":"Backup new bean"}'::jsonb
+      )
+    ),
+    '{data,brewLogs}',
+    pg_catalog.jsonb_build_array(
+      (document #> '{data,brewLogs,0}')
+        || '{"id":"72000000-0000-0000-0000-000000000099","user_id":"70000000-0000-0000-0000-000000000002","bean_id":"71000000-0000-0000-0000-000000000098"}'::jsonb
+    )
+  ) as document
+  from base
+), counted as (
+  select pg_catalog.jsonb_set(
+    document,
+    '{manifest,recordCounts}',
+    (document #> '{manifest,recordCounts}')
+      || '{"beans":3,"brewLogs":1}'::jsonb
+  ) as document
+  from changed
+)
+insert into restore_preview_fixtures (name, document)
+select 'native-v2', private.test_rechecksum_backup(document)
+from counted;
+
+create temporary table restore_preview_state_before on commit drop as
+select pg_catalog.jsonb_build_object(
+  'profiles', (select pg_catalog.jsonb_agg(p order by p.id) from public.profiles p),
+  'settings', (select pg_catalog.jsonb_agg(s order by s.user_id) from public.user_settings s),
+  'beans', (select pg_catalog.jsonb_agg(b order by b.id) from public.beans b),
+  'brews', (select pg_catalog.jsonb_agg(l order by l.id) from public.brew_logs l),
+  'templates', (select pg_catalog.jsonb_agg(t order by t.id) from public.brew_templates t),
+  'recommendations', (select pg_catalog.jsonb_agg(a order by a.id) from public.ai_recommendations a),
+  'imports', (select pg_catalog.jsonb_agg(i order by i.id) from public.source_imports i),
+  'syncState', (select pg_catalog.jsonb_agg(ss order by ss.user_id) from public.user_sync_state ss),
+  'backupExports', (select pg_catalog.jsonb_agg(be order by be.id) from public.backup_exports be)
+) as value;
+
+create temporary table restore_preview_results (
+  mode text primary key,
+  result jsonb not null
+) on commit drop;
+
+insert into restore_preview_results (mode, result)
+select mode, public.preview_restore_v2(document, mode)
+from restore_preview_fixtures
+cross join (values ('safe_merge'), ('full_rollback')) as modes(mode)
+where name = 'native-v2';
+
+select is(
+  (select result from restore_preview_results where mode = 'safe_merge'),
+  '{"mode":"safe_merge","fullRollbackEligible":true,"counts":{"profile":{"total":1,"new":0,"existing":1,"softDeleted":0,"willUpdate":0,"willDelete":0},"userSettings":{"total":1,"new":0,"existing":1,"softDeleted":0,"willUpdate":0,"willDelete":0},"beans":{"total":3,"new":1,"existing":1,"softDeleted":1,"willUpdate":0,"willDelete":0},"brewLogs":{"total":1,"new":1,"existing":0,"softDeleted":0,"willUpdate":0,"willDelete":0},"brewTemplates":{"total":1,"new":0,"existing":1,"softDeleted":0,"willUpdate":0,"willDelete":0},"aiRecommendations":{"total":1,"new":0,"existing":1,"softDeleted":0,"willUpdate":0,"willDelete":0},"sourceImports":{"total":1,"new":0,"existing":1,"softDeleted":0,"willUpdate":0,"willDelete":0}},"invalidRelations":[{"entityType":"brewLog","entityId":"72000000-0000-0000-0000-000000000099","field":"bean_id","value":"71000000-0000-0000-0000-000000000098"}],"warnings":[]}'::jsonb,
+  'safe merge preview distinguishes new, active, soft-deleted and invalid relations without destructive effects'
+);
+select is(
+  (select result #> '{counts,beans}' from restore_preview_results where mode = 'full_rollback'),
+  '{"total":3,"new":1,"existing":1,"softDeleted":1,"willUpdate":2,"willDelete":1}'::jsonb,
+  'full rollback preview reports rows that will update, revive and soft-delete'
+);
+select is(
+  (
+    select pg_catalog.count(*)
+    from restore_preview_results,
+      lateral pg_catalog.jsonb_object_keys(result->'counts') keys(key)
+    where mode = 'full_rollback'
+  ),
+  7::bigint,
+  'preview returns exactly seven logical count partitions'
+);
+select is(
+  (select value from restore_preview_state_before),
+  pg_catalog.jsonb_build_object(
+    'profiles', (select pg_catalog.jsonb_agg(p order by p.id) from public.profiles p),
+    'settings', (select pg_catalog.jsonb_agg(s order by s.user_id) from public.user_settings s),
+    'beans', (select pg_catalog.jsonb_agg(b order by b.id) from public.beans b),
+    'brews', (select pg_catalog.jsonb_agg(l order by l.id) from public.brew_logs l),
+    'templates', (select pg_catalog.jsonb_agg(t order by t.id) from public.brew_templates t),
+    'recommendations', (select pg_catalog.jsonb_agg(a order by a.id) from public.ai_recommendations a),
+    'imports', (select pg_catalog.jsonb_agg(i order by i.id) from public.source_imports i),
+    'syncState', (select pg_catalog.jsonb_agg(ss order by ss.user_id) from public.user_sync_state ss),
+    'backupExports', (select pg_catalog.jsonb_agg(be order by be.id) from public.backup_exports be)
+  ),
+  'preview leaves business rows, sync metadata and backup metadata unchanged'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    pg_catalog.jsonb_set(
+      (select document from restore_preview_fixtures where name = 'native-v2'),
+      '{manifest,checksum}',
+      '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_CHECKSUM_MISMATCH',
+  'preview rejects a checksum mismatch'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    (select document from restore_preview_fixtures where name = 'native-v2')
+      || '{"unexpected":true}'::jsonb,
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'preview rejects unknown root keys'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        (select document from restore_preview_fixtures where name = 'native-v2'),
+        '{data,beans,0}',
+        (select document #> '{data,beans,0}' from restore_preview_fixtures where name = 'native-v2')
+          || '{"unexpected":true}'::jsonb
+      )
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'preview rejects unknown row keys'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        (select document from restore_preview_fixtures where name = 'native-v2'),
+        '{data,beans,0,name}',
+        '42'::jsonb
+      )
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'preview rejects coercible values with the wrong JSON type'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    pg_catalog.jsonb_set(
+      (select document from restore_preview_fixtures where name = 'native-v2'),
+      '{schemaVersion}',
+      '3'::jsonb
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'preview rejects unsupported schema versions'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        (select document from restore_preview_fixtures where name = 'native-v2'),
+        '{data,beans,0,net_weight_grams}',
+        '0.0000001'::jsonb
+      )
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_NUMBER_NOT_CANONICAL',
+  'preview rejects a noncanonical numeric value before computing impact'
+);
+
+with native as (
+  select document from restore_preview_fixtures where name = 'native-v2'
+), transport as (
+  select pg_catalog.jsonb_set(
+    pg_catalog.jsonb_set(
+      document,
+      '{data}',
+      pg_catalog.jsonb_build_object(
+        'profile', null,
+        'userSettings', null,
+        'beans', document #> '{data,beans}',
+        'brewLogs', '[]'::jsonb,
+        'brewTemplates', '[]'::jsonb,
+        'aiRecommendations', '[]'::jsonb,
+        'sourceImports', '[]'::jsonb
+      )
+    ),
+    '{manifest}',
+    (document->'manifest') || pg_catalog.jsonb_build_object(
+      'sourceSchemaVersion', 1,
+      'fullRollbackEligible', false,
+      'authoritativeSections', pg_catalog.jsonb_build_array('beans'),
+      'recordCounts', '{"profile":0,"userSettings":0,"beans":3,"brewLogs":0,"brewTemplates":0,"aiRecommendations":0,"sourceImports":0}'::jsonb
+    )
+  ) as document
+  from native
+)
+insert into restore_preview_fixtures (name, document)
+select 'derived-v1', private.test_rechecksum_backup(document) from transport;
+
+select is(
+  public.preview_restore_v2(
+    (select document from restore_preview_fixtures where name = 'derived-v1'),
+    'safe_merge'
+  ) #>> '{fullRollbackEligible}',
+  'false',
+  'v1-derived backup remains safe-merge-only'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    (select document from restore_preview_fixtures where name = 'derived-v1'),
+    'full_rollback'
+  )$$,
+  '22023', 'BACKUP_FULL_ROLLBACK_NOT_ELIGIBLE',
+  'v1-derived backup cannot preview full rollback'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        (select document from restore_preview_fixtures where name = 'derived-v1'),
+        '{manifest,authoritativeSections}',
+        '["beans","sourceImports"]'::jsonb
+      )
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'v1-derived backup rejects forged authoritative sections'
+);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    pg_catalog.jsonb_set(
+      (select document from restore_preview_fixtures where name = 'derived-v1'),
+      '{manifest,fullRollbackEligible}',
+      'true'::jsonb
+    ),
+    'safe_merge'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'v1-derived backup rejects forged eligibility'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '70000000-0000-0000-0000-000000000002',
+  true
+);
+select is(
+  public.preview_restore_v2(
+    (select document from restore_preview_fixtures where name = 'native-v2'),
+    'safe_merge'
+  ) #> '{counts,beans}',
+  '{"total":3,"new":3,"existing":0,"softDeleted":0,"willUpdate":0,"willDelete":0}'::jsonb,
+  'preview does not reveal another user rows even when backup IDs collide'
+);
+
 select set_config('request.jwt.claim.sub', '', true);
+select throws_ok(
+  $$select public.preview_restore_v2(
+    (select document from restore_preview_fixtures where name = 'native-v2'),
+    'safe_merge'
+  )$$,
+  '42501', 'AUTH_REQUIRED',
+  'preview rejects a missing authenticated user'
+);
 select throws_ok(
   $$select public.export_backup_v2('0.0.0-test', 'lightweight')$$,
   '42501', 'AUTH_REQUIRED',
@@ -428,6 +752,8 @@ select throws_ok(
   '42501', 'AUTH_REQUIRED',
   'download metadata rejects a missing authenticated user'
 );
+
+set local role authenticated;
 
 select set_config(
   'request.jwt.claim.sub',
