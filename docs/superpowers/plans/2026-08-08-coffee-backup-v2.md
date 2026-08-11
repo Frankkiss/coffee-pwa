@@ -117,7 +117,7 @@ export type MigratedV1SafeMergeDocument = BackupV2Document & {
   manifest: BackupV2Manifest & {
     sourceSchemaVersion: 1
     fullRollbackEligible: false
-    authoritativeSections: ['beans', 'brewLogs', 'brewTemplates']
+    authoritativeSections: Array<'beans' | 'brewLogs' | 'brewTemplates'>
   }
 }
 
@@ -248,13 +248,13 @@ expect(result.importable.brewLogs).toBe(0)
 
 - [ ] **Step 2: Add failing version-discrimination tests**
 
-Assert a valid v1 file returns `sourceVersion: 1` and `fullRollbackEligible: false`; a valid v2 file with matching checksum returns version 2 and eligibility true; a checksum mismatch throws `备份校验失败，文件可能已损坏或被修改`.
+Assert a valid v1 file returns `sourceVersion: 1` and `fullRollbackEligible: false`; a valid v2 file with matching checksum returns version 2 and eligibility true; a checksum mismatch throws error code `BACKUP_CHECKSUM_MISMATCH` with user-facing message `备份校验失败，文件可能已损坏或被修改`.
 
 - [ ] **Step 3: Implement v1 normalization**
 
 `normalizeV1ForSafeMerge` converts the three v1 arrays into `MigratedV1SafeMergeDocument`: a schema-2 transport envelope whose manifest
 contains `sourceSchemaVersion: 1` and `fullRollbackEligible: false`. Missing logical sections use empty transport values but are excluded from
-`authoritativeSections`, which is exactly `['beans', 'brewLogs', 'brewTemplates']`. The server must reject this envelope for full rollback
+`authoritativeSections`; every listed value must be one of `beans`, `brewLogs`, or `brewTemplates`. The server must reject this envelope for full rollback
 regardless of any client-supplied confirmation.
 
 - [ ] **Step 4: Implement async parsing**
