@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { buildBackupPreviewRows, type BackupRestorePreview } from './backupPreviewModel'
-import { createBackupRestoreApi, type BackupRestoreApi, type FullRollbackRestoreResult, type SafeMergeRestoreResult } from './backupRestoreApi'
+import { createBackupRestoreApi, protectBackupRestoreWrites, type BackupRestoreApi, type FullRollbackRestoreResult, type SafeMergeRestoreResult } from './backupRestoreApi'
 import { exportBackupV2ForDownload, exportCompleteBackupForDownload } from './backupExport'
 import { parseBackupDocument } from './backupImport'
 import {
@@ -37,7 +37,8 @@ type BackupPanelProps = {
   supabase: SupabaseClient
   fixture?: {
     api: BackupRestoreApi
-    runtime: Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'>
+    runtime: Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'> &
+      Partial<Pick<SyncRuntimeValue, 'syncMode'>>
     downloadText?: typeof downloadTextFile
     downloadBinary?: typeof downloadBinaryFile
   }
@@ -51,8 +52,11 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   const contextRuntime = useOptionalSyncRuntime()
   const runtime = requireBackupRuntime(developmentFixture?.runtime ?? contextRuntime)
   const api = useMemo(
-    () => developmentFixture?.api ?? createBackupRestoreApi(supabase),
-    [developmentFixture?.api, supabase],
+    () => protectBackupRestoreWrites(
+      developmentFixture?.api ?? createBackupRestoreApi(supabase),
+      runtime.syncMode ?? 'enabled',
+    ),
+    [developmentFixture?.api, runtime.syncMode, supabase],
   )
   const downloadText = developmentFixture?.downloadText ?? downloadTextFile
   const downloadBinary = developmentFixture?.downloadBinary ?? downloadBinaryFile
@@ -250,6 +254,7 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   }
 
   async function handleSafeMerge() {
+    if (runtime.syncMode === 'protection') return
     if (!selected || !preview || safeMergeRunningRef.current
       || (flow.phase !== 'preview' && flow.phase !== 'error') || invalidCount > 0) return
     const token = selectedGeneration
@@ -282,6 +287,7 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   }
 
   async function prepareFullRollback() {
+    if (runtime.syncMode === 'protection') return
     if (!selected || selected.sourceVersion !== 2
       || (flow.phase !== 'preview' && flow.phase !== 'error') || isPreparingRollback) return
     const token = selectedGeneration
@@ -322,6 +328,7 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   }
 
   async function handleFullRollback() {
+    if (runtime.syncMode === 'protection') return
     if (!selected || selected.sourceVersion !== 2 || !canRunFullRollback
       || (flow.phase !== 'preview' && flow.phase !== 'error')) return
     const token = selectedGeneration
@@ -395,6 +402,9 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
 
       <section className="backup-card backup-import" aria-labelledby="backup-restore-title">
         <div><strong id="backup-restore-title">从备份恢复</strong><p>选择文件后先校验，再显示实际影响。</p></div>
+        {runtime.syncMode === 'protection' ? (
+          <p className="backup-progress" role="status">同步写入已暂停；仍可查看文件影响，但暂不能恢复数据。</p>
+        ) : null}
         <label className="backup-file">选择 JSON 备份<input type="file" accept="application/json,.json" onChange={handleFileChange} disabled={flow.phase === 'restoring'} /></label>
         {selected ? <button type="button" className="backup-button--quiet" onClick={clearSelection} disabled={flow.phase === 'restoring'}>清除已选文件</button> : null}
 
@@ -420,9 +430,9 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
               关联异常：{invalidCount}；警告：{preview.warnings.length}
             </p>
             {preview.warnings.length > 0 ? <ul className="backup-preview__warnings">{preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
-            <button type="button" onClick={handleSafeMerge} disabled={flow.phase === 'restoring' || isPreparingRollback || invalidCount > 0 || preview.mode !== 'safe_merge'}>安全合并缺失数据</button>
+            <button type="button" onClick={handleSafeMerge} disabled={runtime.syncMode === 'protection' || flow.phase === 'restoring' || isPreparingRollback || invalidCount > 0 || preview.mode !== 'safe_merge'}>安全合并缺失数据</button>
             {selected.fullRollbackEligible ? (
-              <button type="button" className="backup-button--danger-link" onClick={prepareFullRollback} disabled={flow.phase === 'restoring' || isPreparingRollback}>{isPreparingRollback ? '正在准备回滚…' : '全量回滚'}</button>
+              <button type="button" className="backup-button--danger-link" onClick={prepareFullRollback} disabled={runtime.syncMode === 'protection' || flow.phase === 'restoring' || isPreparingRollback}>{isPreparingRollback ? '正在准备回滚…' : '全量回滚'}</button>
             ) : <p>这份 v1 备份只能安全合并，不能全量回滚。</p>}
           </div>
         ) : null}
@@ -453,7 +463,8 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
 }
 
 function requireBackupRuntime(
-  runtime: Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'> | null,
+  runtime: (Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'> &
+    Partial<Pick<SyncRuntimeValue, 'syncMode'>>) | null,
 ) {
   if (!runtime) throw new Error('备份面板需要同步运行环境。')
   return runtime

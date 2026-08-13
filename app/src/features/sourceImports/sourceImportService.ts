@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  assertSyncWritesEnabled,
+  type EffectiveSyncMode,
+} from '../sync/syncFeatureFlag'
 import { normalizeSourceImportDraft } from './sourceImportMapping'
 import type {
   SourceImportRequest,
@@ -35,7 +39,9 @@ export async function requestSourceImport(
 export async function recordSourceImport(
   supabase: SupabaseClient,
   input: SourceImportRecordInput,
+  syncMode: EffectiveSyncMode = 'enabled',
 ) {
+  assertSyncWritesEnabled(syncMode)
   const { data, error } = await supabase
     .from('source_imports')
     .insert({

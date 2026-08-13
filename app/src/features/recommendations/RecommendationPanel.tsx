@@ -204,6 +204,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
           ruleRecommendation,
           aiRecommendation,
         }),
+        runtime.syncMode,
       )
       try {
         await runtime.run()
@@ -226,7 +227,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
     setUpdatingSavedId(recommendation.id)
 
     try {
-      await updateSavedRecommendationAccepted(supabase, recommendation.id, !recommendation.accepted)
+      await updateSavedRecommendationAccepted(supabase, recommendation.id, !recommendation.accepted, runtime.syncMode)
       try {
         await runtime.run()
       } catch {
@@ -253,7 +254,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
     setUpdatingSavedId(recommendation.id)
 
     try {
-      await softDeleteSavedRecommendation(supabase, recommendation.id)
+      await softDeleteSavedRecommendation(supabase, recommendation.id, runtime.syncMode)
       try {
         await runtime.run()
       } catch {

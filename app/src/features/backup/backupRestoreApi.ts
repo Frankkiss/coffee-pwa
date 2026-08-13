@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  assertSyncWritesEnabled,
+  type EffectiveSyncMode,
+} from '../sync/syncFeatureFlag'
 import { isRfc3339 } from '../../lib/rfc3339'
 import {
   parseBackupDocument,
@@ -50,6 +54,28 @@ export class BackupRestoreApiError extends Error {
 }
 
 export type BackupRestoreApi = ReturnType<typeof createBackupRestoreApi>
+
+export function protectBackupRestoreWrites(
+  api: BackupRestoreApi,
+  mode: EffectiveSyncMode,
+): BackupRestoreApi {
+  if (mode === 'enabled') return api
+  return {
+    ...api,
+    async restoreSafeMerge(...args) {
+      assertSyncWritesEnabled(mode)
+      return api.restoreSafeMerge(...args)
+    },
+    async restoreFullRollback(...args) {
+      assertSyncWritesEnabled(mode)
+      return api.restoreFullRollback(...args)
+    },
+    async recordBackupDownload(...args) {
+      assertSyncWritesEnabled(mode)
+      return api.recordBackupDownload(...args)
+    },
+  }
+}
 
 export function createBackupRestoreApi(supabase: SupabaseClient) {
   const rpc = supabase.rpc.bind(supabase) as unknown as (

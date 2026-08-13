@@ -9,6 +9,13 @@ export type SyncStatusView = {
 
 export function toSyncStatusView(state: SyncState): SyncStatusView {
   switch (state.kind) {
+    case 'protection':
+      return {
+        tone: 'warning',
+        title: '同步写入已暂停',
+        detail: '现有本地和云端数据仍可查看与导出，请等待恢复通知。',
+        canRetry: false,
+      }
     case 'synced':
       return {
         tone: 'success',

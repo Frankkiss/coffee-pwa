@@ -1,7 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
-import { loadRuleRecommendationData } from './recommendationService'
+import {
+  loadRuleRecommendationData,
+  saveRecommendation,
+  softDeleteSavedRecommendation,
+  updateSavedRecommendationAccepted,
+} from './recommendationService'
+
+it('blocks all saved recommendation writes in protection mode before touching Supabase', async () => {
+  await expect(saveRecommendation(null as never, {} as never, 'protection'))
+    .rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+  await expect(updateSavedRecommendationAccepted(null as never, 'id', true, 'protection'))
+    .rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+  await expect(softDeleteSavedRecommendation(null as never, 'id', 'protection'))
+    .rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+})
 
 describe('loadRuleRecommendationData', () => {
   it('loads rule inputs from local repositories and keeps system templates read-only', async () => {

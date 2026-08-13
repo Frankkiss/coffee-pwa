@@ -4,6 +4,7 @@ import { sha256Hex } from './backupChecksum'
 import {
   BackupRestoreApiError,
   createBackupRestoreApi,
+  protectBackupRestoreWrites,
 } from './backupRestoreApi'
 import type {
   BackupV2Document,
@@ -122,6 +123,29 @@ function clientWith(results: unknown[]) {
 }
 
 describe('backup restore API boundary', () => {
+  it('keeps preview and export available but rejects both restore modes in protection mode', async () => {
+    const document = await backup()
+    const result = preview()
+    const { client, rpc } = clientWith([
+      { data: result, error: null },
+      { data: document, error: null },
+    ])
+    const api = protectBackupRestoreWrites(createBackupRestoreApi(client), 'protection')
+
+    await expect(api.preview(document, 'safe_merge')).resolves.toEqual(result)
+    await expect(api.exportBackup('0.0.0-test', 'lightweight')).resolves.toEqual(document)
+    await expect(api.restoreSafeMerge(document)).rejects.toMatchObject({
+      code: 'SYNC_PROTECTION_MODE',
+    })
+    await expect(api.restoreFullRollback(
+      document, 'FULL RESTORE', '76000000-0000-4000-8000-000000000001',
+    )).rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+    await expect(api.recordBackupDownload(
+      'coffee-backup-2026-08-12.json', 'lightweight', document.manifest.recordCounts,
+    )).rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+    expect(rpc).toHaveBeenCalledTimes(2)
+  })
+
   it('exposes only a strictly validated safe-merge restore request', async () => {
     const document = await backup()
     const result = safeMergeResult()

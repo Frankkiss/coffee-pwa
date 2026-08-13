@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { toSyncStatusView } from './syncStatusModel'
 
 describe('toSyncStatusView', () => {
+  it('describes protection mode without claiming synchronization or offering writes', () => {
+    const view = toSyncStatusView({ kind: 'protection' })
+    expect(view).toEqual({
+      tone: 'warning',
+      title: '同步写入已暂停',
+      detail: '现有本地和云端数据仍可查看与导出，请等待恢复通知。',
+      canRetry: false,
+    })
+    expect(JSON.stringify(view)).not.toContain('已同步')
+  })
+
   it('describes offline pending work without offering an unavailable retry', () => {
     expect(toSyncStatusView({ kind: 'offline', pendingCount: 2 })).toEqual({
       tone: 'warning',

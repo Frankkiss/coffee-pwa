@@ -121,7 +121,7 @@ export function SourceImportPanel({
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'DeepSeek API not configured',
-        })
+        }, runtime?.syncMode)
         return
       }
 
@@ -133,7 +133,7 @@ export function SourceImportPanel({
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'No draft extracted',
-        })
+        }, runtime?.syncMode)
         return
       }
 
@@ -145,7 +145,7 @@ export function SourceImportPanel({
         sourceUrl: response.sourceUrl,
         status: 'draft',
         extractedPayload: response,
-      })
+      }, runtime?.syncMode)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI 解析失败')
     } finally {
@@ -180,7 +180,7 @@ export function SourceImportPanel({
           status: 'saved',
           extractedPayload: lastResponse ?? {},
           selectedPayload: form,
-        })
+        }, runtime?.syncMode)
       } catch {
         setStatus('豆子已安全保存；来源记录暂未写入云端。')
       }

@@ -33,6 +33,11 @@ import {
   createRuntimeSuspensionController,
   type EntitySyncStatus,
 } from './syncRuntimeModel'
+import {
+  assertSyncWritesEnabled,
+  readSyncRolloutMode,
+  type EffectiveSyncMode,
+} from './syncFeatureFlag'
 
 const deviceIdStorageKey = 'kaday:sync-device-id'
 
@@ -45,6 +50,7 @@ export type SyncRepositories = {
 }
 
 export type SyncRuntimeValue = {
+  syncMode: EffectiveSyncMode
   repositories: SyncRepositories | null
   state: SyncState
   run: () => Promise<void>
@@ -102,8 +108,13 @@ function SessionSyncProvider({
   supabase: SupabaseClient
   children: ReactNode
 }) {
+  const [syncMode] = useState(() => readSyncRolloutMode(
+    import.meta.env.VITE_SYNC_ROLLOUT_MODE,
+    window.localStorage,
+  ))
   const [repositories, setRepositories] = useState<SyncRepositories | null>(null)
-  const [state, setState] = useState<SyncState>(initialState)
+  const [state, setState] = useState<SyncState>(() =>
+    syncMode === 'protection' ? { kind: 'protection' } : initialState)
   const [outboxView, setOutboxView] = useState(() =>
     aggregateCurrentUserOutbox(userId, []),
   )
@@ -146,11 +157,49 @@ function SessionSyncProvider({
         if (current) {
           setOutboxLoaded(false)
           setInitializationError(toSafeInitializationMessage(error))
-          setState({ kind: 'needs_attention', pendingCount: 0, attentionCount: 1 })
+          setState(syncMode === 'protection'
+            ? { kind: 'protection' }
+            : { kind: 'needs_attention', pendingCount: 0, attentionCount: 1 })
         }
       }
     }
     refreshRef.current = refreshOutbox
+
+    if (syncMode === 'protection') {
+      const repositoryContext: RepositoryContext = {
+        userId,
+        deviceId: '',
+        getSyncEpoch: () => localRepository.readSyncEpoch(userId),
+        now: () => new Date(),
+        syncMode,
+      }
+      const nextRepositories = createRepositories(localRepository, repositoryContext)
+      unsubscribeEntityChanges = [
+        nextRepositories.beans.subscribe(() => void refreshOutbox()),
+        nextRepositories.brewLogs.subscribe(() => void refreshOutbox()),
+      ]
+      void Promise.resolve().then(() => {
+        if (!current) return
+        setRepositories(nextRepositories)
+        setState({ kind: 'protection' })
+      })
+      void refreshOutbox()
+
+      const stopProtectedRuntime = () => {
+        if (!current) return
+        current = false
+        unsubscribeEntityChanges.forEach((unsubscribe) => unsubscribe())
+        unsubscribeEntityChanges = []
+        readSyncEpochRef.current = unavailable
+      }
+      stopRuntimeRef.current = stopProtectedRuntime
+      return () => {
+        stopProtectedRuntime()
+        if (stopRuntimeRef.current === stopProtectedRuntime) {
+          stopRuntimeRef.current = () => undefined
+        }
+      }
+    }
 
     const generation = createRuntimeGeneration({
       migrate: async () => {
@@ -172,6 +221,7 @@ function SessionSyncProvider({
           deviceId,
           getSyncEpoch: () => localRepository.readSyncEpoch(userId),
           now: () => new Date(),
+          syncMode,
         }
         const nextRepositories = createRepositories(localRepository, repositoryContext)
         unsubscribeEntityChanges = [
@@ -235,38 +285,42 @@ function SessionSyncProvider({
         stopRuntimeRef.current = () => undefined
       }
     }
-  }, [runtimeGenerationId, supabase, suspensionController, userId])
+  }, [runtimeGenerationId, supabase, suspensionController, syncMode, userId])
 
   const run = useCallback(async () => {
+    assertSyncWritesEnabled(syncMode)
     const manager = managerRef.current
     if (!manager) return unavailable()
     await manager.run()
     await refreshRef.current()
-  }, [])
+  }, [syncMode])
   const readCurrentSyncEpoch = useCallback(async () => {
     return readSyncEpochRef.current()
   }, [])
   const retryMutation = useCallback(
     async (mutationId: string, options?: { confirmLegacyCreate?: boolean }) => {
+      assertSyncWritesEnabled(syncMode)
       const manager = managerRef.current
       if (!manager) return unavailable()
       const result = await manager.retryMutation(mutationId, options)
       await refreshRef.current()
       return result
     },
-    [],
+    [syncMode],
   )
   const discardMutation = useCallback(async (mutationId: string) => {
+    assertSyncWritesEnabled(syncMode)
     const manager = managerRef.current
     if (!manager) return unavailable()
     await completeDiscardAndRefresh(manager, mutationId, refreshRef.current)
-  }, [])
+  }, [syncMode])
   const suspendForSignOut = useCallback(
     () => suspensionController.suspend(() => stopRuntimeRef.current()),
     [suspensionController],
   )
 
   const value = useMemo<SyncRuntimeValue>(() => ({
+    syncMode,
     repositories,
     state,
     run,
@@ -290,6 +344,7 @@ function SessionSyncProvider({
     run,
     state,
     suspendForSignOut,
+    syncMode,
   ])
 
   return <SyncRuntimeContext.Provider value={value}>{children}</SyncRuntimeContext.Provider>

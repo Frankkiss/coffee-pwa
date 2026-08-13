@@ -191,6 +191,7 @@ export type SyncStorage = {
 }
 
 export type SyncState =
+  | { kind: 'protection' }
   | { kind: 'synced'; lastSyncedAt: string }
   | { kind: 'syncing'; pendingCount: number }
   | { kind: 'offline'; pendingCount: number }

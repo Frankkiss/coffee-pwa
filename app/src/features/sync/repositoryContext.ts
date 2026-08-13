@@ -1,11 +1,16 @@
 import type { LocalEntityStoreName, LocalRepository } from './localRepository'
 import { createMutationId } from './syncTypes'
+import {
+  assertSyncWritesEnabled,
+  type EffectiveSyncMode,
+} from './syncFeatureFlag'
 
 export type RepositoryContext = {
   userId: string
   deviceId: string
   getSyncEpoch: () => Promise<number>
   now: () => Date
+  syncMode?: EffectiveSyncMode
 }
 
 export class LocalEntityNotFoundError extends Error {
@@ -69,6 +74,7 @@ export async function prepareRepositoryWrite(
   context: RepositoryContext,
   resolveQueuedAt: (now: Date) => string = (now) => now.toISOString(),
 ) {
+  assertSyncWritesEnabled(context.syncMode ?? 'enabled')
   const now = context.now()
   const queuedAt = resolveQueuedAt(now)
   const baseSyncEpoch = await context.getSyncEpoch()

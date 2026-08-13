@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  assertSyncWritesEnabled,
+  type EffectiveSyncMode,
+} from '../sync/syncFeatureFlag'
 import type { createBeanRepository } from '../beans/beanRepository'
 import type { createBrewLogRepository } from '../brews/brewLogRepository'
 import type { createBrewTemplateRepository } from '../brewTemplates/brewTemplateRepository'
@@ -80,7 +84,9 @@ export async function requestAiRecommendation(
 export async function saveRecommendation(
   supabase: SupabaseClient,
   payload: SavedRecommendationPayload,
+  syncMode: EffectiveSyncMode = 'enabled',
 ) {
+  assertSyncWritesEnabled(syncMode)
   const { data, error } = await supabase
     .from('ai_recommendations')
     .insert(payload)
@@ -98,7 +104,9 @@ export async function updateSavedRecommendationAccepted(
   supabase: SupabaseClient,
   id: string,
   accepted: boolean,
+  syncMode: EffectiveSyncMode = 'enabled',
 ) {
+  assertSyncWritesEnabled(syncMode)
   const { error } = await supabase
     .from('ai_recommendations')
     .update({ accepted })
@@ -112,7 +120,9 @@ export async function updateSavedRecommendationAccepted(
 export async function softDeleteSavedRecommendation(
   supabase: SupabaseClient,
   id: string,
+  syncMode: EffectiveSyncMode = 'enabled',
 ) {
+  assertSyncWritesEnabled(syncMode)
   const { error } = await supabase
     .from('ai_recommendations')
     .update({ deleted_at: new Date().toISOString() })

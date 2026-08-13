@@ -60,7 +60,7 @@ export function SyncStatusBanner() {
         </p>
       ) : null}
 
-      {runtime.attentionItems.length > 0 ? (
+      {runtime.state.kind !== 'protection' && runtime.attentionItems.length > 0 ? (
         <AttentionList
           key={attentionCollectionKey(runtime.attentionItems)}
           attentionItems={runtime.attentionItems}

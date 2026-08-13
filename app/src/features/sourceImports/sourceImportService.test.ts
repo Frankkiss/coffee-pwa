@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { requestSourceImport } from './sourceImportService'
+import { recordSourceImport, requestSourceImport } from './sourceImportService'
+
+it('blocks source import record writes in protection mode before touching Supabase', async () => {
+  await expect(recordSourceImport(null as never, {
+    userId: 'user-a', sourceUrl: 'manual://pasted-text', status: 'draft',
+    extractedPayload: {},
+  }, 'protection')).rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+})
 
 describe('requestSourceImport', () => {
   it('sends only pasted text to the import-source function', async () => {
