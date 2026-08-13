@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { buildBackupPreviewRows, type BackupRestorePreview } from './backupPreviewModel'
 import { createBackupRestoreApi, type FullRollbackRestoreResult, type SafeMergeRestoreResult } from './backupRestoreApi'
-import { exportBackupV2ForDownload } from './backupExport'
+import { exportBackupV2ForDownload, exportCompleteBackupForDownload } from './backupExport'
 import { parseBackupDocument } from './backupImport'
 import {
   beginParsing,
@@ -58,6 +58,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const [confirmation, setConfirmation] = useState('')
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [isCompleteExporting, setIsCompleteExporting] = useState(false)
   const [isPreparingRollback, setIsPreparingRollback] = useState(false)
   const [csvExporting, setCsvExporting] = useState<'beans' | 'brews' | null>(null)
   const [backupReminderDays, setBackupReminderDays] = useState(7)
@@ -114,7 +115,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   }
 
   async function handleExport() {
-    if (isExporting || csvExporting) return
+    if (isExporting || isCompleteExporting || csvExporting) return
     setIsExporting(true)
     setNotice('')
     const token = exportGuardRef.current.begin()
@@ -136,6 +137,31 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       }
     } finally {
       if (exportGuardRef.current.isCurrent(token, session.user.id)) setIsExporting(false)
+    }
+  }
+
+  async function handleCompleteExport() {
+    if (isExporting || isCompleteExporting || csvExporting) return
+    setIsCompleteExporting(true)
+    setNotice('')
+    const token = exportGuardRef.current.begin()
+    try {
+      const result = await exportCompleteBackupForDownload({
+        api, appVersion, now: new Date(), fetchImpl: fetch, download: downloadBinaryFile,
+        isCurrent: () => exportGuardRef.current.isCurrent(token, session.user.id),
+      })
+      if (!exportGuardRef.current.isCurrent(token, session.user.id)) return
+      const reminderMeta = { exportedAt: result.document.manifest.exportedAt, fileName: result.fileName }
+      writeBackupReminderMeta(window.localStorage, reminderMeta)
+      setBackupReminderMeta(reminderMeta)
+      const missing = result.document.manifest.images.filter((image) => image.status === 'missing').length
+      setNotice(`${result.metadataRecorded ? '完整备份已下载并记录' : '完整备份已下载，但云端提醒记录暂未保存'}；${missing} 张不可访问图片已写入清单。`)
+    } catch {
+      if (exportGuardRef.current.isCurrent(token, session.user.id)) {
+        setNotice('完整备份未下载，请检查网络后重试。')
+      }
+    } finally {
+      if (exportGuardRef.current.isCurrent(token, session.user.id)) setIsCompleteExporting(false)
     }
   }
 
@@ -308,10 +334,16 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
 
       <section className="backup-card" aria-labelledby="backup-export-title">
         <div><strong id="backup-export-title">保存一份轻量备份</strong><p>包含全部可见逻辑数据，不含图片。</p></div>
-        <button type="button" onClick={handleExport} disabled={isExporting || csvExporting !== null}>{isExporting ? '正在生成…' : '下载 JSON 备份'}</button>
+        <button type="button" onClick={handleExport} disabled={isExporting || isCompleteExporting || csvExporting !== null}>{isExporting ? '正在生成…' : '下载 JSON 备份'}</button>
+        <div className="backup-complete">
+          <button type="button" className="backup-button--quiet" onClick={handleCompleteExport} disabled={isExporting || isCompleteExporting || csvExporting !== null}>
+            {isCompleteExporting ? '正在收集可访问图片…' : '包含可访问图片的完整 ZIP'}
+          </button>
+          <p>图片会压缩后附加；无法访问的远程图片不会阻断备份，并会在清单中报告。</p>
+        </div>
         <div className="backup-csv__actions">
-          <button type="button" className="backup-button--quiet" onClick={() => void handleCsv('beans')} disabled={csvExporting !== null || isExporting}>豆子 CSV</button>
-          <button type="button" className="backup-button--quiet" onClick={() => void handleCsv('brews')} disabled={csvExporting !== null || isExporting}>冲煮 CSV</button>
+          <button type="button" className="backup-button--quiet" onClick={() => void handleCsv('beans')} disabled={csvExporting !== null || isExporting || isCompleteExporting}>豆子 CSV</button>
+          <button type="button" className="backup-button--quiet" onClick={() => void handleCsv('brews')} disabled={csvExporting !== null || isExporting || isCompleteExporting}>冲煮 CSV</button>
         </div>
       </section>
 
@@ -382,6 +414,16 @@ function RestoreResultSummary({ result }: { result: RestoreResult }) {
 
 function downloadTextFile(content: string, fileName: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.append(link)
+  try { link.click() } finally { link.remove(); URL.revokeObjectURL(url) }
+}
+
+function downloadBinaryFile(content: Uint8Array, fileName: string, type: string) {
+  const bytes = new Uint8Array(content)
+  const url = URL.createObjectURL(new Blob([bytes.buffer], { type }))
   const link = document.createElement('a')
   link.href = url
   link.download = fileName

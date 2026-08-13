@@ -6,6 +6,7 @@ import {
   createBackupFileName,
   createRestorePointFileName,
   exportBackupV2ForDownload,
+  exportCompleteBackupForDownload,
 } from './backupExport'
 import { vi } from 'vitest'
 import type { BackupV2Document } from './backupTypes'
@@ -209,6 +210,40 @@ describe('backup export', () => {
     })).rejects.toMatchObject({ code: 'BACKUP_OPERATION_STALE' })
     expect(download).not.toHaveBeenCalled()
     expect(recordBackupDownload).not.toHaveBeenCalled()
+  })
+
+  it('downloads a complete ZIP before recording complete-backup metadata', async () => {
+    const order: string[] = []
+    const source = await emptyV2Backup()
+    source.data.beans.push({
+      id: 'bean-1', user_id: 'user-1', name: 'Bean', roaster: null, origin: null,
+      farm_or_station: null, process: null, variety: null, altitude_meters: null,
+      roast_date: null, roast_level: null, flavor_tags: [], flavor_notes: null,
+      net_weight_grams: null, price: null, purchase_date: null, source_url: null,
+      image_url: null, notes: null, created_at: '2026-08-12T00:00:00Z',
+      updated_at: '2026-08-12T00:00:00Z', deleted_at: null, schema_version: 1,
+    })
+    source.manifest.recordCounts.beans = 1
+    source.manifest.checksum = await (await import('./backupChecksum')).sha256Hex(source.data)
+    const result = await exportCompleteBackupForDownload({
+      api: {
+        exportBackup: vi.fn(async () => source),
+        recordBackupDownload: vi.fn(async (_file, mode) => {
+          expect(mode).toBe('complete')
+          order.push('record')
+          return '2026-08-12T08:00:00.000Z'
+        }),
+      },
+      appVersion: '0.0.0', now: new Date('2026-08-12T08:00:00.000Z'),
+      fetchImpl: vi.fn(),
+      download: (_bytes, fileName, type) => {
+        expect(fileName).toBe('coffee-backup-2026-08-12.zip')
+        expect(type).toBe('application/zip')
+        order.push('download')
+      },
+    })
+    expect(order).toEqual(['download', 'record'])
+    expect(result.document.manifest.backupMode).toBe('complete')
   })
 })
 

@@ -4,6 +4,7 @@ import type {
   BackupV2Document,
   BuildBackupDocumentInput,
 } from './backupTypes'
+import { createCompleteBackup, type CompleteBackupOptions } from './imageBackup'
 
 export function buildBackupDocument(
   input: BuildBackupDocumentInput,
@@ -37,12 +38,44 @@ export function createRestorePointFileName(date: Date) {
 }
 
 type BackupExportApi = {
-  exportBackup(appVersion: string, mode: 'lightweight'): Promise<BackupV2Document>
+  exportBackup(appVersion: string, mode: 'lightweight' | 'complete'): Promise<BackupV2Document>
   recordBackupDownload(
     fileName: string,
-    mode: 'lightweight',
+    mode: 'lightweight' | 'complete',
     counts: BackupV2Document['manifest']['recordCounts'],
   ): Promise<string>
+}
+
+export function createCompleteBackupFileName(date: Date) {
+  return `coffee-backup-${date.toISOString().slice(0, 10)}.zip`
+}
+
+export async function exportCompleteBackupForDownload(input: {
+  api: BackupExportApi
+  appVersion: string
+  now: Date
+  fetchImpl: typeof fetch
+  download: (content: Uint8Array, fileName: string, type: string) => void
+  imageOptions?: CompleteBackupOptions
+  isCurrent?: () => boolean
+}) {
+  const source = await input.api.exportBackup(input.appVersion, 'complete')
+  if (!(await verifyBackupChecksum(source))) {
+    throw new Error('备份校验失败，未下载文件')
+  }
+  const complete = await createCompleteBackup(source, input.fetchImpl, input.imageOptions)
+  assertCurrent(input.isCurrent)
+  const fileName = createCompleteBackupFileName(input.now)
+  input.download(complete.zipBytes, fileName, 'application/zip')
+  try {
+    const recordedAt = await input.api.recordBackupDownload(
+      fileName, 'complete', complete.document.manifest.recordCounts,
+    )
+    return { ...complete, fileName, metadataRecorded: true as const, recordedAt }
+  } catch (error) {
+    if (isStaleOperation(error)) throw error
+    return { ...complete, fileName, metadataRecorded: false as const, recordedAt: null }
+  }
 }
 
 export async function exportBackupV2ForDownload(input: {
