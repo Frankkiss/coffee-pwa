@@ -1,3 +1,7 @@
+import { requireUser, type RequireUserResult } from '../_shared/auth.ts'
+import { consumeRateLimit } from '../_shared/rateLimit.ts'
+import { SafeFetchError, safeFetchText } from '../_shared/safeFetch.ts'
+
 type ImportRequest = {
   url?: string
   pastedText?: string
@@ -35,8 +39,7 @@ type SourceDraft = {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -44,16 +47,55 @@ const manualSourceUrl = 'manual://pasted-text'
 const minTextLength = 30
 const maxPromptTextLength = 12000
 
-Deno.serve(async (request) => {
+export type ImportSourceDependencies = {
+  getApiKey: () => string | undefined
+  requireUser: (request: Request) => Promise<RequireUserResult>
+  consumeRateLimit: typeof consumeRateLimit
+  safeFetchText: (url: string) => Promise<string>
+  requestDeepSeekDraft: typeof requestDeepSeekDraft
+}
+
+const defaultDependencies: ImportSourceDependencies = {
+  getApiKey: () => Deno.env.get('DEEPSEEK_API_KEY'),
+  requireUser,
+  consumeRateLimit,
+  safeFetchText,
+  requestDeepSeekDraft,
+}
+
+export async function handleImportSourceRequest(
+  request: Request,
+  dependencies: ImportSourceDependencies = defaultDependencies,
+) {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   if (request.method !== 'POST') {
-    return jsonResponse({ configured: false, draft: null, error: 'Method not allowed' }, 405)
+    return jsonResponse(
+      {
+        configured: false,
+        draft: null,
+        error: 'Method not allowed',
+      },
+      405,
+    )
   }
 
-  const apiKey = Deno.env.get('DEEPSEEK_API_KEY')
+  const authentication = await dependencies.requireUser(request)
+  if (!authentication.ok) {
+    return withCors(authentication.response)
+  }
+
+  const rateLimitResponse = await dependencies.consumeRateLimit(
+    'import-source',
+    authentication.client,
+  )
+  if (rateLimitResponse) {
+    return withCors(rateLimitResponse)
+  }
+
+  const apiKey = dependencies.getApiKey()
 
   if (!apiKey) {
     return jsonResponse({ configured: false, draft: null })
@@ -64,7 +106,14 @@ Deno.serve(async (request) => {
   try {
     payload = await request.json()
   } catch {
-    return jsonResponse({ configured: true, draft: null, error: 'Invalid JSON body' }, 400)
+    return jsonResponse(
+      {
+        configured: true,
+        draft: null,
+        error: 'Invalid JSON body',
+      },
+      400,
+    )
   }
 
   const normalizedText = normalizePastedText(payload.pastedText)
@@ -72,16 +121,24 @@ Deno.serve(async (request) => {
   const sourceForResponse = sourceUrl ?? manualSourceUrl
 
   if (!sourceUrl && !normalizedText) {
-    return jsonResponse({
-      configured: true,
-      sourceUrl: sourceForResponse,
-      draft: null,
-      error: 'Please provide a source URL or pasted product detail text',
-    }, 400)
+    return jsonResponse(
+      {
+        configured: true,
+        sourceUrl: sourceForResponse,
+        draft: null,
+        error: 'Please provide a source URL or pasted product detail text',
+      },
+      400,
+    )
   }
 
   try {
-    const sourceText = normalizedText || await fetchFallbackText(sourceUrl)
+    if (sourceUrl && isTaobaoLikeUrl(sourceUrl)) {
+      throw new Error('淘宝/天猫链接通常无法直接抓取，请粘贴商品详情文本后再解析。')
+    }
+
+    const sourceText =
+      normalizedText || extractReadableText(await dependencies.safeFetchText(sourceUrl!))
 
     if (sourceText.length < minTextLength) {
       return jsonResponse({
@@ -94,7 +151,7 @@ Deno.serve(async (request) => {
     }
 
     const promptText = sourceText.slice(0, maxPromptTextLength)
-    const draft = await requestDeepSeekDraft(apiKey, sourceForResponse, promptText)
+    const draft = await dependencies.requestDeepSeekDraft(apiKey, sourceForResponse, promptText)
 
     return jsonResponse({
       configured: true,
@@ -103,14 +160,22 @@ Deno.serve(async (request) => {
       rawTextLength: promptText.length,
     })
   } catch (error) {
-    return jsonResponse({
-      configured: true,
-      sourceUrl: sourceForResponse,
-      draft: null,
-      error: error instanceof Error ? error.message : 'Source import failed',
-    })
+    const status = error instanceof SafeFetchError ? error.status : 200
+    return jsonResponse(
+      {
+        configured: true,
+        sourceUrl: sourceForResponse,
+        draft: null,
+        error: error instanceof Error ? error.message : 'Source import failed',
+      },
+      status,
+    )
   }
-})
+}
+
+if (import.meta.main) {
+  Deno.serve((request) => handleImportSourceRequest(request))
+}
 
 function normalizePastedText(value: unknown) {
   if (typeof value !== 'string') {
@@ -136,31 +201,6 @@ function normalizeUrl(value: unknown) {
   } catch {
     return null
   }
-}
-
-async function fetchFallbackText(sourceUrl: string | null) {
-  if (!sourceUrl) {
-    return ''
-  }
-
-  if (isTaobaoLikeUrl(sourceUrl)) {
-    throw new Error('淘宝/天猫链接通常无法直接抓取，请粘贴商品详情文本后再解析。')
-  }
-
-  const response = await fetch(sourceUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (compatible; KaDayCoffeeImporter/1.0; +https://frankkiss.github.io/coffee-pwa/)',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5',
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Source page request failed: ${response.status}`)
-  }
-
-  const html = await response.text()
-  return extractReadableText(html)
 }
 
 function isTaobaoLikeUrl(sourceUrl: string) {
@@ -305,7 +345,11 @@ function numberValue(value: unknown) {
 }
 
 function listValue(value: unknown) {
-  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,，、]/) : []
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[,，、]/)
+      : []
   const normalized = values.map(stringValue).filter(Boolean)
 
   return Array.from(new Set(normalized))
@@ -363,5 +407,17 @@ function jsonResponse(body: unknown, status = 200) {
       ...corsHeaders,
       'Content-Type': 'application/json',
     },
+  })
+}
+
+function withCors(response: Response) {
+  const headers = new Headers(response.headers)
+  for (const [name, value] of Object.entries(corsHeaders)) {
+    headers.set(name, value)
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   })
 }
