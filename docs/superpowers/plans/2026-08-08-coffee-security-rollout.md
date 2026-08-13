@@ -4,7 +4,7 @@
 
 **Goal:** Harden server-side source and AI requests, prove multi-device behavior in browsers and SQL, and deploy the data-safety redesign to the existing Supabase project with explicit backups, feature flags, and rollback checkpoints.
 
-**Architecture:** Shared Edge Function guards authenticate the current user, enforce a database-backed rate limit, validate DNS and every redirect target, bound response time and size, and redact logs. Playwright exercises two browser contexts and offline transitions against a local Supabase stack. Production rollout is expand-first: audit and backup, apply additive SQL, deploy a pilot client, migrate one desktop/phone pair, then enable and monitor before removing any legacy storage.
+**Architecture:** Shared Edge Function guards authenticate the current user, enforce a database-backed rate limit, reject URL-fetch input, bound pasted-text requests, and redact logs. Playwright exercises two browser contexts and offline transitions against a local Supabase stack. Production rollout is expand-first: audit and backup, apply additive SQL, deploy a pilot client, migrate one desktop/phone pair, then enable and monitor before removing any legacy storage.
 
 **Tech Stack:** Supabase Edge Functions on the Deno-compatible Edge Runtime, Deno test, Supabase CLI, Postgres, React/Vite, Playwright, GitHub Actions, GitHub Pages.
 
@@ -16,7 +16,7 @@
 
 - Create `supabase/functions/_shared/auth.ts` and `auth.test.ts`.
 - Create `supabase/functions/_shared/rateLimit.ts` and `rateLimit.test.ts`.
-- Create `supabase/functions/_shared/safeFetch.ts` and `safeFetch.test.ts`.
+- Delete the retired `supabase/functions/_shared/safeFetch.ts` and `safeFetch.test.ts`.
 - Create `supabase/migrations/20260808040000_edge_rate_limit.sql` and SQL test.
 - Modify `supabase/functions/import-source/index.ts`.
 - Modify `supabase/functions/recommend-brew/index.ts`.
@@ -91,59 +91,42 @@ git add supabase/migrations/20260808040000_edge_rate_limit.sql supabase/tests/00
 git commit -m "feat: rate limit authenticated edge calls"
 ```
 
-### Task 2: Add DNS-aware bounded source fetching
+### Task 2: Remove URL fetching and bound pasted-text source parsing
 
 **Files:**
-- Create: `supabase/functions/_shared/safeFetch.ts`
-- Create: `supabase/functions/_shared/safeFetch.test.ts`
+- Delete: `supabase/functions/_shared/safeFetch.ts`
+- Delete: `supabase/functions/_shared/safeFetch.test.ts`
 - Modify: `supabase/functions/import-source/index.ts`
+- Modify: `app/src/features/sourceImports/*`
 
-- [ ] **Step 1: Write failing URL and IP tests**
+- [ ] **Step 1: Write failing no-fetch and request-bound tests**
 
-Cover rejection of non-HTTP protocols, credentials in URLs, localhost names, IPv4 loopback/private/link-local/multicast/documentation ranges, IPv6 loopback/link-local/unique-local/mapped private ranges, DNS returning any forbidden address, redirects to forbidden hosts, too many redirects, non-text media, oversized bodies, and timeout. Cover one valid HTTPS text response.
+Cover stable 400 rejection when a forged `url` field is present and prove no external fetch dependency is reachable. Cover authentication, rate limiting, a 64 KiB actual streamed body limit before JSON parsing, invalid JSON, and one valid pasted-text request whose normalized model prompt is capped at 12,000 characters.
 
-- [ ] **Step 2: Implement pure address guards**
+- [ ] **Step 2: Remove all URL fetching code**
 
-`safeFetch.ts` exports:
+Delete `safeFetch` and every source-page networking branch. The production source-import path must have no page-fetch implementation to bypass.
 
-```ts
-export type DnsResolver = (hostname: string, recordType: 'A' | 'AAAA') => Promise<string[]>
+- [ ] **Step 3: Enforce pasted-text-only input**
 
-export type SafeFetchDependencies = {
-  fetchImpl: typeof fetch
-  resolveDns: DnsResolver
-  now: () => number
-  createAbortController: () => AbortController
-}
+Reject any payload containing a `url` field with stable 400 `SOURCE_URL_NOT_SUPPORTED`, even when pasted text is also present. Accept only pasted/OCR text for this handler.
 
-export function isForbiddenHostname(hostname: string): boolean
-export function isForbiddenIpAddress(address: string): boolean
-export async function assertSafeHttpUrl(url: URL, resolveDns: DnsResolver): Promise<void>
-export async function safeFetchText(url: string, dependencies?: SafeFetchDependencies): Promise<string>
-```
+- [ ] **Step 4: Bound inbound and model text**
 
-Reject literal and DNS-resolved loopback, private, link-local, multicast, unspecified, carrier-grade NAT, benchmarking, documentation, and IPv4-mapped private IPv6 addresses. Resolve both A and AAAA with `Deno.resolveDns`. DNS failure is a hard failure, not permission to fetch.
+Reject declared or actual request bodies over 65,536 bytes before JSON parsing, then normalize pasted text and cap the text sent to the model at 12,000 characters.
 
-- [ ] **Step 3: Implement manual redirect validation**
+- [ ] **Step 5: Preserve auth and rate limiting**
 
-Use `redirect: 'manual'`; permit at most three redirects. Resolve relative `Location` values against the current URL, call `assertSafeHttpUrl` again for every hop, and reject missing or malformed locations.
-
-- [ ] **Step 4: Bound time, type, and bytes**
-
-Use an AbortController with a 10-second total timeout. Accept only `text/html`, `application/xhtml+xml`, and `text/plain`. Stream `response.body` and stop after 1,000,000 bytes before decoding UTF-8. Never call unbounded `response.text()` for remote source pages.
-
-- [ ] **Step 5: Integrate with `import-source`**
-
-At the top of the handler, require a verified user and consume the `import-source` rate limit. Replace `fetchFallbackText` network code with `safeFetchText`. Preserve pasted-text imports, still limiting normalized prompt text to 12,000 characters.
+At the top of the handler, require a verified user and consume the `import-source` rate limit before reading the body. Preserve pasted-text parsing and stable client errors.
 
 - [ ] **Step 6: Run Deno tests and local function smoke test**
 
 ```powershell
-deno test supabase/functions/_shared/safeFetch.test.ts --allow-net
+deno test supabase/functions/import-source/index.test.ts --allow-env
 supabase functions serve import-source --env-file supabase/.env.local
 ```
 
-Expected: tests pass; unauthenticated curl receives 401; forbidden URL receives 400; authenticated pasted text reaches the existing parse flow.
+Expected: tests pass; unauthenticated curl receives 401; any URL field receives 400 without an outbound request; authenticated pasted text reaches the existing parse flow.
 
 - [ ] **Step 7: Commit safe fetching**
 
