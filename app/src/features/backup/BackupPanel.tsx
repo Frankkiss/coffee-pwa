@@ -16,6 +16,7 @@ import {
   resetFlow,
   showPreview,
   waitForSyncEpoch,
+  acceptAsyncResult,
   type BackupFlowState,
 } from './backupFlowModel'
 import type { ParsedBackupDocument } from './backupTypes'
@@ -188,8 +189,12 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     let committed: SafeMergeRestoreResult | null = null
     try {
       const result = await api.restoreSafeMerge(selected.document)
+      if (!acceptAsyncResult(
+        guardRef.current.isCurrent(token, session.user.id),
+        result,
+        setRestoreResult,
+      )) return
       committed = result
-      setRestoreResult(result)
       await runtime.run()
       if (!guardRef.current.isCurrent(token, session.user.id)) return
       dispatchFlow(completeFlow(flowRef.current, '安全合并完成；现有数据没有被覆盖。'))
@@ -256,8 +261,12 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     try {
       const result = await restoreAttemptRef.current.run((requestId) =>
         api.restoreFullRollback(selected.document, confirmation, requestId))
+      if (!acceptAsyncResult(
+        guardRef.current.isCurrent(token, session.user.id),
+        result,
+        setRestoreResult,
+      )) return
       committed = result
-      setRestoreResult(result)
       await waitForSyncEpoch(result.syncEpoch, runtime.run, runtime.readSyncEpoch)
       if (!guardRef.current.isCurrent(token, session.user.id)) return
       dispatchFlow(completeFlow(flowRef.current, `全量回滚完成；本机已采用同步代次 ${result.syncEpoch}。`))
@@ -309,9 +318,10 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       <section className="backup-card backup-import" aria-labelledby="backup-restore-title">
         <div><strong id="backup-restore-title">从备份恢复</strong><p>选择文件后先校验，再显示实际影响。</p></div>
         <label className="backup-file">选择 JSON 备份<input type="file" accept="application/json,.json" onChange={handleFileChange} disabled={flow.phase === 'restoring'} /></label>
-        {selected ? <button type="button" className="backup-button--quiet" onClick={clearSelection}>取消并清除文件</button> : null}
+        {selected ? <button type="button" className="backup-button--quiet" onClick={clearSelection} disabled={flow.phase === 'restoring'}>清除已选文件</button> : null}
 
         {flow.phase === 'parsing' ? <p className="backup-progress" role="status">正在校验文件并生成预览…</p> : null}
+        {flow.phase === 'restoring' ? <p className="backup-progress" role="status">恢复正在服务器事务中执行，现在不能取消或更换文件。</p> : null}
         {preview && selected ? (
           <div className="backup-preview" aria-labelledby="backup-preview-title">
             <div className="backup-preview__summary">

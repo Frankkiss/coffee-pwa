@@ -11,6 +11,7 @@ import {
   resetFlow,
   showPreview,
   waitForSyncEpoch,
+  acceptAsyncResult,
 } from './backupFlowModel'
 
 describe('backup flow model', () => {
@@ -59,6 +60,23 @@ describe('backup flow model', () => {
     guard.dispose()
     expect(guard.isCurrent(second, 'user-a')).toBe(false)
   })
+
+  it.each(['safe merge', 'full rollback'])(
+    'does not publish a deferred %s RPC result after its generation changed',
+    async () => {
+      let current = true
+      let resolveRpc!: (value: string) => void
+      const rpc = new Promise<string>((resolve) => { resolveRpc = resolve })
+      const publish = vi.fn()
+      const completion = rpc.then((result) => acceptAsyncResult(current, result, publish))
+
+      current = false
+      resolveRpc('restored')
+
+      await expect(completion).resolves.toBe(false)
+      expect(publish).not.toHaveBeenCalled()
+    },
+  )
 
   it('keeps one request id for response-loss retries and blocks parallel restore', async () => {
     const ids = ['76000000-0000-4000-8000-000000000001', '76000000-0000-4000-8000-000000000002']

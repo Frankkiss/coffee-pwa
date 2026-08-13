@@ -115,3 +115,13 @@ export async function waitForSyncEpoch(
     code: 'SYNC_EPOCH_NOT_ADOPTED',
   })
 }
+
+export function acceptAsyncResult<T>(
+  current: boolean,
+  value: T,
+  publish: (value: T) => void,
+) {
+  if (!current) return false
+  publish(value)
+  return true
+}
