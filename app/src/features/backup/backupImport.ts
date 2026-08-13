@@ -1,6 +1,7 @@
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
+import { daysInMonth, isRfc3339 } from '../../lib/rfc3339'
 import { canonicalJson, verifyBackupChecksum } from './backupChecksum'
 import { normalizeV1ForSafeMerge } from './backupV1Migration'
 import type {
@@ -350,22 +351,7 @@ function isNumber(value: unknown): value is number { return typeof value === 'nu
 function isNullableNumber(value: unknown): value is number | null { return value === null || isNumber(value) }
 function isSafeInteger(value: unknown): value is number { return Number.isSafeInteger(value) }
 function isNullableSafeInteger(value: unknown): value is number | null { return value === null || isSafeInteger(value) }
-function isTimestamp(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
-  if (!match || !Number.isFinite(Date.parse(value))) return false
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
-  const offsetHour = Number(match[7] ?? 0)
-  const offsetMinute = Number(match[8] ?? 0)
-  return month >= 1 && month <= 12 && day >= 1
-    && day <= daysInMonth(year, month) && hour <= 23 && minute <= 59
-    && second <= 59 && offsetHour <= 23 && offsetMinute <= 59
-}
+const isTimestamp = isRfc3339
 function isNullableTimestamp(value: unknown): value is string | null { return value === null || isTimestamp(value) }
 function isNullableDate(value: unknown): value is string | null {
   if (value === null) return true
@@ -377,12 +363,6 @@ function isNullableDate(value: unknown): value is string | null {
   const day = Number(match[3])
   return month >= 1 && month <= 12 && day >= 1
     && day <= daysInMonth(year, month)
-}
-function daysInMonth(year: number, month: number) {
-  if (month === 2) {
-    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31
 }
 function isSchemaVersion(value: unknown) { return Number.isSafeInteger(value) && Number(value) >= 1 }
 function isCount(value: unknown, expected: number) { return Number.isSafeInteger(value) && value === expected }

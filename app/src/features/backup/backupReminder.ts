@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isRfc3339 } from '../../lib/rfc3339'
 
 export type BackupReminderMeta = {
   exportedAt: string
@@ -178,8 +179,7 @@ function isExactReminderMeta(value: unknown): value is BackupReminderMeta {
     || typeof value.exportedAt !== 'string' || typeof value.fileName !== 'string') {
     return false
   }
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value.exportedAt)
-    && Number.isFinite(Date.parse(value.exportedAt))
+  return isRfc3339(value.exportedAt)
     && value.fileName.length >= 1
     && value.fileName.length <= 128
     && !/[\\/]/.test(value.fileName)

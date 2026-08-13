@@ -112,6 +112,10 @@ describe('backup reminder', () => {
     const responses: unknown[] = [
       { exportedAt: '2026-06-18T00:00:00Z', fileName: 'ok.json', userId: 'leak' },
       { exportedAt: 'not-a-time', fileName: 'ok.json' },
+      { exportedAt: '2026-02-30T00:00:00Z', fileName: 'ok.json' },
+      { exportedAt: '2026-06-18T24:00:00Z', fileName: 'ok.json' },
+      { exportedAt: '2026-06-18T00:00:00+24:00', fileName: 'ok.json' },
+      { exportedAt: 'Infinity', fileName: 'ok.json' },
       { exportedAt: '2026-06-18T00:00:00Z', fileName: '../bad.json' },
     ]
     for (const data of responses) {
@@ -127,6 +131,8 @@ describe('backup reminder', () => {
   it('accepts null and an exact safe reminder response', async () => {
     const values: unknown[] = [null, {
       exportedAt: '2026-06-18T00:00:00.000Z', fileName: 'coffee-backup-2026-06-18.json',
+    }, {
+      exportedAt: '2024-02-29T23:59:59.123456789+05:30', fileName: 'offset.json',
     }]
     for (const data of values) {
       const api = createBackupReminderApi({ rpc: async () => ({ data, error: null }) } as never)

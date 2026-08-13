@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isRfc3339 } from '../../lib/rfc3339'
 import {
   parseBackupDocument,
   validateBackupTransportDocument,
@@ -373,25 +374,6 @@ function isUuid(value: unknown): value is string {
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function isRfc3339(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
-  if (!match || !Number.isFinite(Date.parse(value))) return false
-  const normalized = new Date(value)
-  return Number(match[2]) >= 1 && Number(match[2]) <= 12
-    && Number(match[3]) >= 1
-    && Number(match[3]) <= daysInMonth(Number(match[1]), Number(match[2]))
-    && Number(match[4]) <= 23 && Number(match[5]) <= 59
-    && Number(match[6]) <= 59 && Number(match[7] ?? 0) <= 23
-    && Number(match[8] ?? 0) <= 59 && !Number.isNaN(normalized.getTime())
-}
-
-function daysInMonth(year: number, month: number) {
-  if (month === 2) {
-    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31
-}
 
 function invalidRequest() {
   return new BackupRestoreApiError(

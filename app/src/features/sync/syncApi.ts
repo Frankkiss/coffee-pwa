@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { JsonObject, JsonValue } from '../../lib/jsonTypes'
+import { daysInMonth, isRfc3339 } from '../../lib/rfc3339'
 import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
@@ -393,24 +394,6 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function isRfc3339(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
-  if (!match) return false
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const hour = Number(match[4])
-  const minute = Number(match[5])
-  const second = Number(match[6])
-  const offsetHour = match[7] === undefined ? 0 : Number(match[7])
-  const offsetMinute = match[8] === undefined ? 0 : Number(match[8])
-  return month >= 1 && month <= 12 && day >= 1 &&
-    day <= daysInMonth(year, month) && hour <= 23 && minute <= 59 &&
-    second <= 59 && offsetHour <= 23 && offsetMinute <= 59 &&
-    Number.isFinite(Date.parse(value))
-}
-
 function nullableRfc3339(value: unknown): value is string | null { return value === null || isRfc3339(value) }
 function nullableString(value: unknown): value is string | null { return value === null || typeof value === 'string' }
 function isFiniteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) }
@@ -449,12 +432,4 @@ function fromSupabaseError(error: unknown, responseStatus?: number): SyncApiErro
       : Number(rawCode)
   const retryable = status === 408 || status === 429 || (status >= 500 && status <= 599) || /timeout|network|fetch|connection/i.test(message)
   return new SyncApiError(code, message, retryable)
-}
-
-function daysInMonth(year: number, month: number) {
-  if (month === 2) {
-    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
-    return leap ? 29 : 28
-  }
-  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31
 }

@@ -74,7 +74,7 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   const [isCompleteExporting, setIsCompleteExporting] = useState(false)
   const [isPreparingRollback, setIsPreparingRollback] = useState(false)
   const [csvExporting, setCsvExporting] = useState<'beans' | 'brews' | null>(null)
-  const [backupReminderDays, setBackupReminderDays] = useState(7)
+  const [reminderSettings, setReminderSettings] = useState({ ownerId: null as string | null, days: 7 })
   const [ownedReminder, setOwnedReminder] = useState(() =>
     createOwnedBackupReminderResolution(null),
   )
@@ -95,15 +95,19 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
       const token = ++generation
       try {
         const settings = await repository.getUserSettings()
-        if (active && token === generation) setBackupReminderDays(settings?.backup_reminder_days ?? 7)
+        if (active && token === generation) {
+          setReminderSettings({ ownerId: session.user.id, days: settings?.backup_reminder_days ?? 7 })
+        }
       } catch {
-        if (active && token === generation) setBackupReminderDays(7)
+        if (active && token === generation) {
+          setReminderSettings({ ownerId: session.user.id, days: 7 })
+        }
       }
     }
     void load()
     const unsubscribe = repository.subscribe(() => void load())
     return () => { active = false; generation += 1; unsubscribe() }
-  }, [runtime.repositories?.userSettings])
+  }, [runtime.repositories?.userSettings, session.user.id])
   useEffect(() => {
     let active = true
     let generation = 0
@@ -354,7 +358,7 @@ export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
   })
   const reminder = buildBackupReminderFromResolution(
     selectBackupReminderResolutionForOwner(ownedReminder, session.user.id),
-    new Date(), backupReminderDays,
+    new Date(), reminderSettings.ownerId === session.user.id ? reminderSettings.days : 7,
   )
 
   return (

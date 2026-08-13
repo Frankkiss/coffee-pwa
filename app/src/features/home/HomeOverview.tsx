@@ -82,7 +82,7 @@ export function HomeOverview({
   const beanRepository = runtime?.repositories?.beans ?? null
   const brewLogRepository = runtime?.repositories?.brewLogs ?? null
   const settingsRepository = runtime?.repositories?.userSettings ?? null
-  const [backupReminderDays, setBackupReminderDays] = useState(7)
+  const [reminderSettings, setReminderSettings] = useState({ ownerId: null as string | null, days: 7 })
   const [ownedReminder, setOwnedReminder] = useState(() =>
     createOwnedBackupReminderResolution(null),
   )
@@ -177,10 +177,12 @@ export function HomeOverview({
       try {
         const settings = await settingsRepository.getUserSettings()
         if (current && generation === loadGeneration) {
-          setBackupReminderDays(settings?.backup_reminder_days ?? 7)
+          setReminderSettings({ ownerId: session.user.id, days: settings?.backup_reminder_days ?? 7 })
         }
       } catch {
-        if (current && generation === loadGeneration) setBackupReminderDays(7)
+        if (current && generation === loadGeneration) {
+          setReminderSettings({ ownerId: session.user.id, days: 7 })
+        }
       }
     }
     void load()
@@ -190,7 +192,7 @@ export function HomeOverview({
       loadGeneration += 1
       unsubscribe()
     }
-  }, [settingsRepository])
+  }, [session.user.id, settingsRepository])
 
   useEffect(() => {
     let active = true
@@ -219,12 +221,12 @@ export function HomeOverview({
         backupReminder: buildBackupReminderFromResolution(
           selectBackupReminderResolutionForOwner(ownedReminder, session.user.id),
           new Date(),
-          backupReminderDays,
+          reminderSettings.ownerId === session.user.id ? reminderSettings.days : 7,
         ),
         email: session.user.email,
         syncState,
       }),
-    [backupReminderDays, ownedReminder, rows.beans, rows.brewLogs, session.user.email, session.user.id, syncState],
+    [ownedReminder, reminderSettings, rows.beans, rows.brewLogs, session.user.email, session.user.id, syncState],
   )
   const [beanStat, brewStat, recommendationStat] = overview.stats
   const recommendationPreview = overview.recommendationPreview
