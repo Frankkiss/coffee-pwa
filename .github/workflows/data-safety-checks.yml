@@ -30,12 +30,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   unit-quality:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,18 +67,18 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ inputs.vite_supabase_anon_key || 'ci-placeholder-anon-key' }}
           VITE_SYNC_ROLLOUT_MODE: ${{ inputs.vite_sync_rollout_mode || 'protection' }}
 
-      - name: Configure Pages
+      - name: Preserve verified frontend
         if: inputs.upload_pages_artifact
-        uses: actions/configure-pages@v5
-
-      - name: Upload verified Pages artifact
-        if: inputs.upload_pages_artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: verified-pages-dist
           path: app/dist
+          retention-days: 1
 
   local-supabase:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,6 +103,8 @@ jobs:
 
   edge-functions:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       SUPABASE_URL: http://127.0.0.1:54321
       SUPABASE_ANON_KEY: ci-placeholder-anon-key
@@ -125,3 +127,29 @@ jobs:
 
       - name: Test brew recommendation Edge Function
         run: deno test supabase/functions/recommend-brew/index.test.ts --allow-env
+
+  pages-artifact:
+    if: inputs.upload_pages_artifact
+    needs:
+      - unit-quality
+      - local-supabase
+      - edge-functions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Download verified frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-pages-dist
+          path: app/dist
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload verified Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
