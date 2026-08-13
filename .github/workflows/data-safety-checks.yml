@@ -1,0 +1,125 @@
+name: Data Safety Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - foundation
+  workflow_call:
+    inputs:
+      upload_pages_artifact:
+        description: Upload the verified frontend for the Pages deploy job.
+        required: false
+        default: false
+        type: boolean
+      vite_supabase_url:
+        description: Public Supabase URL embedded in a Pages build.
+        required: false
+        default: http://127.0.0.1:54321
+        type: string
+      vite_supabase_anon_key:
+        description: Public anon key embedded in a Pages build.
+        required: false
+        default: ci-placeholder-anon-key
+        type: string
+      vite_sync_rollout_mode:
+        description: Sync rollout mode embedded in a Pages build.
+        required: false
+        default: protection
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  unit-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Test
+        run: npm test
+        working-directory: app
+
+      - name: Lint
+        run: npm run lint
+        working-directory: app
+
+      - name: Build with non-secret values
+        run: npm run build
+        working-directory: app
+        env:
+          VITE_SUPABASE_URL: ${{ inputs.vite_supabase_url || 'http://127.0.0.1:54321' }}
+          VITE_SUPABASE_ANON_KEY: ${{ inputs.vite_supabase_anon_key || 'ci-placeholder-anon-key' }}
+          VITE_SYNC_ROLLOUT_MODE: ${{ inputs.vite_sync_rollout_mode || 'protection' }}
+
+      - name: Configure Pages
+        if: inputs.upload_pages_artifact
+        uses: actions/configure-pages@v5
+
+      - name: Upload verified Pages artifact
+        if: inputs.upload_pages_artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+  local-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 2.113.0
+
+      - name: Start local database
+        run: supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Reset local migrations
+        run: supabase db reset
+
+      - name: Run all database tests
+        run: supabase test db
+
+      - name: Stop local database
+        if: always()
+        run: supabase stop --no-backup
+
+  edge-functions:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: http://127.0.0.1:54321
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+      DEEPSEEK_API_KEY: ci-placeholder-deepseek-key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.5
+
+      - name: Test shared Edge Function guards
+        run: deno test supabase/functions/_shared/auth.test.ts supabase/functions/_shared/rateLimit.test.ts --allow-env
+
+      - name: Test import source Edge Function
+        run: deno test supabase/functions/import-source/index.test.ts --allow-env
+
+      - name: Test brew recommendation Edge Function
+        run: deno test supabase/functions/recommend-brew/index.test.ts --allow-env
