@@ -25,7 +25,6 @@ export function SourceImportPanel({
 }: SourceImportPanelProps) {
   const runtime = useOptionalSyncRuntime()
   const beanRepository = runtime?.repositories?.beans ?? null
-  const [url, setUrl] = useState('')
   const [pastedText, setPastedText] = useState('')
   const [form, setForm] = useState<BeanForm | null>(null)
   const [lastResponse, setLastResponse] = useState<SourceImportResponse | null>(null)
@@ -95,15 +94,14 @@ export function SourceImportPanel({
       setError(parseAvailability.message)
       return
     }
-    const sourceUrl = url.trim()
     const detailText = pastedText.trim()
     setStatus('')
     setError('')
     setForm(null)
     setLastResponse(null)
 
-    if (!sourceUrl && !detailText) {
-      setError('请粘贴链接或商品详情文本。')
+    if (!detailText) {
+      setError('请粘贴商品详情文本或先识别图片文字。')
       return
     }
 
@@ -111,7 +109,6 @@ export function SourceImportPanel({
 
     try {
       const response = await requestSourceImport(supabase, {
-        url: sourceUrl,
         pastedText: detailText,
       })
       setLastResponse(response)
@@ -120,7 +117,7 @@ export function SourceImportPanel({
         setError('DeepSeek API 尚未配置，暂时无法 AI 解析。')
         await recordSourceImport(supabase, {
           userId: session.user.id,
-          sourceUrl: response.sourceUrl || sourceUrl || 'manual://pasted-text',
+          sourceUrl: response.sourceUrl || 'manual://pasted-text',
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'DeepSeek API not configured',
@@ -132,7 +129,7 @@ export function SourceImportPanel({
         setError(response.error ?? '没有解析出可用的咖啡豆草稿。')
         await recordSourceImport(supabase, {
           userId: session.user.id,
-          sourceUrl: response.sourceUrl || sourceUrl || 'manual://pasted-text',
+          sourceUrl: response.sourceUrl || 'manual://pasted-text',
           status: 'failed',
           extractedPayload: response,
           errorMessage: response.error ?? 'No draft extracted',
@@ -171,7 +168,6 @@ export function SourceImportPanel({
       onBeanCreated(bean)
       setForm(null)
       setLastResponse(null)
-      setUrl('')
       setPastedText('')
       setSelectedImage(null)
       setOcrStatus('')
@@ -200,19 +196,10 @@ export function SourceImportPanel({
       <div>
         <p className="source-import__eyebrow">Source Import</p>
         <h3 id="source-import-title">来源导入</h3>
-        <p>粘贴链接或详情文本。</p>
+        <p>粘贴详情文本或识别图片文字。</p>
       </div>
 
       <div className="source-import__bar">
-        <label>
-          来源链接
-          <input
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="可选，商品页或烘焙商页面"
-            inputMode="url"
-          />
-        </label>
         <button type="button" onClick={handleParse} disabled={isParsing || !parseAvailability.enabled}>
           {isParsing ? '解析中' : 'AI 解析'}
         </button>

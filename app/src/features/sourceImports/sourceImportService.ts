@@ -17,7 +17,7 @@ export async function requestSourceImport(
   if (error) {
     return {
       configured: false,
-      sourceUrl: input.url,
+      sourceUrl: 'manual://pasted-text',
       draft: null,
       error: error.message,
     }
@@ -27,7 +27,7 @@ export async function requestSourceImport(
 
   return {
     ...response,
-    sourceUrl: response.sourceUrl || input.url,
+    sourceUrl: response.sourceUrl || 'manual://pasted-text',
     draft: response.draft ? normalizeSourceImportDraft(response.draft) : null,
   }
 }
@@ -41,7 +41,7 @@ export async function recordSourceImport(
     .insert({
       user_id: input.userId,
       source_url: input.sourceUrl,
-      source_type: 'single_url',
+      source_type: 'pasted_text',
       status: input.status,
       extracted_payload: input.extractedPayload,
       selected_payload: input.selectedPayload ?? {},

@@ -35,7 +35,6 @@ export type SourceImportResponse = {
 }
 
 export type SourceImportRequest = {
-  url: string
   pastedText: string
 }
 

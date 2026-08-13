@@ -1,9 +1,7 @@
 import { requireUser, type RequireUserResult } from "../_shared/auth.ts";
 import { consumeRateLimit } from "../_shared/rateLimit.ts";
-import { SafeFetchError, safeFetchText } from "../_shared/safeFetch.ts";
 
 type ImportRequest = {
-  url?: string;
   pastedText?: string;
 };
 
@@ -53,7 +51,6 @@ export type ImportSourceDependencies = {
   getApiKey: () => string | undefined;
   requireUser: (request: Request) => Promise<RequireUserResult>;
   consumeRateLimit: typeof consumeRateLimit;
-  safeFetchText: (url: string) => Promise<string>;
   requestDeepSeekDraft: typeof requestDeepSeekDraft;
 };
 
@@ -61,7 +58,6 @@ const defaultDependencies: ImportSourceDependencies = {
   getApiKey: () => Deno.env.get("DEEPSEEK_API_KEY"),
   requireUser,
   consumeRateLimit,
-  safeFetchText,
   requestDeepSeekDraft,
 };
 
@@ -97,12 +93,6 @@ export async function handleImportSourceRequest(
     return withCors(rateLimitResponse);
   }
 
-  const apiKey = dependencies.getApiKey();
-
-  if (!apiKey) {
-    return jsonResponse({ configured: false, draft: null });
-  }
-
   let payload: ImportRequest;
 
   try {
@@ -124,31 +114,37 @@ export async function handleImportSourceRequest(
     );
   }
 
-  const normalizedText = normalizePastedText(payload.pastedText);
-  const sourceUrl = normalizeUrl(payload.url);
-  const sourceForResponse = sourceUrl ?? manualSourceUrl;
+  if (Object.prototype.hasOwnProperty.call(payload, "url")) {
+    return jsonResponse({
+      configured: true,
+      sourceUrl: manualSourceUrl,
+      draft: null,
+      error: "SOURCE_URL_NOT_SUPPORTED",
+    }, 400);
+  }
 
-  if (!sourceUrl && !normalizedText) {
+  const apiKey = dependencies.getApiKey();
+  if (!apiKey) {
+    return jsonResponse({ configured: false, draft: null });
+  }
+
+  const normalizedText = normalizePastedText(payload.pastedText);
+  const sourceForResponse = manualSourceUrl;
+
+  if (!normalizedText) {
     return jsonResponse(
       {
         configured: true,
         sourceUrl: sourceForResponse,
         draft: null,
-        error: "Please provide a source URL or pasted product detail text",
+        error: "Please provide pasted product detail text",
       },
       400,
     );
   }
 
   try {
-    if (sourceUrl && isTaobaoLikeUrl(sourceUrl)) {
-      throw new Error(
-        "淘宝/天猫链接通常无法直接抓取，请粘贴商品详情文本后再解析。",
-      );
-    }
-
-    const sourceText = normalizedText ||
-      extractReadableText(await dependencies.safeFetchText(sourceUrl!));
+    const sourceText = normalizedText;
 
     if (sourceText.length < minTextLength) {
       return jsonResponse({
@@ -170,11 +166,10 @@ export async function handleImportSourceRequest(
     return jsonResponse({
       configured: true,
       sourceUrl: sourceForResponse,
-      draft: normalizeDraft({ ...draft, sourceUrl: sourceForResponse }),
+      draft: normalizeDraft({ ...draft, sourceUrl: "" }),
       rawTextLength: promptText.length,
     });
   } catch (error) {
-    const status = error instanceof SafeFetchError ? error.status : 200;
     return jsonResponse(
       {
         configured: true,
@@ -182,7 +177,7 @@ export async function handleImportSourceRequest(
         draft: null,
         error: error instanceof Error ? error.message : "Source import failed",
       },
-      status,
+      200,
     );
   }
 }
@@ -237,49 +232,6 @@ function normalizePastedText(value: unknown) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function normalizeUrl(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value.trim());
-
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return null;
-    }
-
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function isTaobaoLikeUrl(sourceUrl: string) {
-  try {
-    const hostname = new URL(sourceUrl).hostname.toLowerCase();
-    return hostname.includes("taobao.com") || hostname.includes("tmall.com");
-  } catch {
-    return false;
-  }
-}
-
-function extractReadableText(html: string) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 async function requestDeepSeekDraft(
   apiKey: string,
   sourceUrl: string,
@@ -297,7 +249,7 @@ async function requestDeepSeekDraft(
         {
           role: "system",
           content:
-            "你是谨慎的咖啡豆资料录入助手。只从用户提供的商品详情文本、OCR 文本或网页文本提取咖啡豆资料，不要编造。必须只返回 JSON，不要 Markdown。除专有名称外，所有面向用户展示的字段值都应尽量使用中文。",
+            "你是谨慎的咖啡豆资料录入助手。只从用户主动提供的商品详情文本或 OCR 已提取文本中提取咖啡豆资料，不要浏览网页或编造。必须只返回 JSON，不要 Markdown。除专有名称外，所有面向用户展示的字段值都应尽量使用中文。",
         },
         {
           role: "user",

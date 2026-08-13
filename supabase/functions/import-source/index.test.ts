@@ -1,5 +1,4 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { SafeFetchError } from "../_shared/safeFetch.ts";
 import { handleImportSourceRequest } from "./index.ts";
 
 const verifiedAuth = {
@@ -43,7 +42,6 @@ Deno.test("import-source requires authentication before reading configuration or
         rateLimitCalled = true;
         return Promise.resolve(null);
       },
-      safeFetchText: () => Promise.resolve("unused"),
       requestDeepSeekDraft: () => Promise.resolve({}),
     },
   );
@@ -75,7 +73,6 @@ Deno.test("import-source stops at the authenticated per-user rate limit", async 
           status: 429,
         }),
       ),
-    safeFetchText: () => Promise.resolve("unused"),
     requestDeepSeekDraft: () => Promise.resolve({}),
   });
 
@@ -83,21 +80,27 @@ Deno.test("import-source stops at the authenticated per-user rate limit", async 
   assertEquals(bodyRead, false);
 });
 
-Deno.test("import-source maps unsafe URL failures to 400", async () => {
+Deno.test("import-source rejects every URL field with 400 and no external fetch path", async () => {
+  let deepSeekCalled = false;
   const response = await handleImportSourceRequest(
-    request({ url: "http://127.0.0.1" }),
+    request({
+      url: "https://public.example/coffee",
+      pastedText: "valid pasted coffee details",
+    }),
     {
       getApiKey: () => "configured",
       requireUser: () => Promise.resolve(verifiedAuth),
       consumeRateLimit: () => Promise.resolve(null),
-      safeFetchText: () =>
-        Promise.reject(new SafeFetchError("UNSAFE_SOURCE_URL", 400)),
-      requestDeepSeekDraft: () => Promise.resolve({}),
+      requestDeepSeekDraft: () => {
+        deepSeekCalled = true;
+        return Promise.resolve({});
+      },
     },
   );
 
   assertEquals(response.status, 400);
-  assertEquals((await response.json()).error, "UNSAFE_SOURCE_URL");
+  assertEquals((await response.json()).error, "SOURCE_URL_NOT_SUPPORTED");
+  assertEquals(deepSeekCalled, false);
 });
 
 Deno.test("import-source rejects oversized request bodies before JSON parsing", async () => {
@@ -119,7 +122,6 @@ Deno.test("import-source rejects oversized request bodies before JSON parsing", 
     getApiKey: () => "configured",
     requireUser: () => Promise.resolve(verifiedAuth),
     consumeRateLimit: () => Promise.resolve(null),
-    safeFetchText: () => Promise.resolve("unused"),
     requestDeepSeekDraft: () => {
       deepSeekCalled = true;
       return Promise.resolve({});
@@ -138,9 +140,6 @@ Deno.test("import-source preserves pasted text flow and caps normalized prompt t
     getApiKey: () => "configured",
     requireUser: () => Promise.resolve(verifiedAuth),
     consumeRateLimit: () => Promise.resolve(null),
-    safeFetchText: () => {
-      throw new Error("pasted text must not fetch a URL");
-    },
     requestDeepSeekDraft: (_apiKey, _sourceUrl, sourceText) => {
       promptText = sourceText;
       return Promise.resolve({ name: "测试豆" });
