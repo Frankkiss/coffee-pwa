@@ -193,11 +193,11 @@ async function browserCodec(bytes: Uint8Array, mediaType: string, signal: AbortS
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: mediaType }))
-    throwIfAborted(signal)
   } catch {
     throw imageError('IMAGE_DECODE_FAILED')
   }
   try {
+    throwIfAborted(signal)
     const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height))
     const width = Math.max(1, Math.round(bitmap.width * scale))
     const height = Math.max(1, Math.round(bitmap.height * scale))

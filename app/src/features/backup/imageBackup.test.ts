@@ -110,6 +110,26 @@ describe('complete image backup', () => {
     expect(result.document.manifest.images.filter((item) => item.errorCode === 'IMAGE_DEADLINE_BUDGET')).toHaveLength(18)
   })
 
+  it('closes a bitmap that resolves after its deadline', async () => {
+    let resolveBitmap!: (bitmap: ImageBitmap) => void
+    const close = vi.fn()
+    const bitmapPromise = new Promise<ImageBitmap>((resolve) => { resolveBitmap = resolve })
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmapPromise))
+    try {
+      const result = await createCompleteBackup(
+        await backupWithImages(['https://img.example/a.jpg']),
+        async () => streamedResponse(jpeg, 'image/jpeg'),
+        { timeoutMs: 5 },
+      )
+      expect(result.document.manifest.images[0].errorCode).toBe('IMAGE_TIMEOUT')
+      resolveBitmap({ width: 2000, height: 1000, close } as unknown as ImageBitmap)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(close).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('sorts warning codes independently of concurrent completion order', async () => {
     const document = await backupWithImages(['https://img.example/slow.jpg', 'https://img.example/fast.jpg'])
     const run = async (reverse: boolean) => createCompleteBackup(document, async (url) => {
