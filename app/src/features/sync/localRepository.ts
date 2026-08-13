@@ -66,6 +66,7 @@ export type LocalRepositoryTestOptions = {
   beforeOutboxWrite?: () => void
   beforeCommit?: (operation: LocalRepositoryTestOperation) => void
   now?: () => Date
+  openDatabase?: () => Promise<IDBDatabase>
 }
 
 export type LocalRepository = SyncStorage & {
@@ -260,11 +261,12 @@ export function createLocalRepository(
       notifyEntityChange(userId, storeName)
       return result
     }),
-    listLocalEntities,
+    listLocalEntities: (storeName, userId) =>
+      listLocalEntitiesWithOptions(storeName, userId, testOptions),
     replaceServerSnapshot: (userId: string, snapshot: SyncSnapshot) =>
       replaceServerSnapshotWithOptions(userId, snapshot, testOptions)
         .then(() => notifySnapshotChange(userId)),
-    listOutbox,
+    listOutbox: (userId: string) => listOutboxWithOptions(userId, testOptions),
     acknowledgeMutations: (userId: string, mutationIds: string[]) =>
       acknowledgeMutationsWithOptions(userId, mutationIds, testOptions),
     acknowledgeMutationsAndReplaceSnapshot: (
@@ -333,7 +335,7 @@ export function createLocalRepository(
       message,
       testOptions,
     ),
-    readSyncEpoch,
+    readSyncEpoch: (userId: string) => readSyncEpochWithOptions(userId, testOptions),
     writeSyncMeta: (
       userId: string,
       input: { syncEpoch: number; lastSyncedAt: string },
@@ -384,6 +386,14 @@ export async function listLocalEntities<Store extends LocalEntityStoreName>(
   storeName: Store,
   userId: string,
 ): Promise<Array<EntityByStore[Store]>> {
+  return listLocalEntitiesWithOptions(storeName, userId, defaultOptions)
+}
+
+async function listLocalEntitiesWithOptions<Store extends LocalEntityStoreName>(
+  storeName: Store,
+  userId: string,
+  options: LocalRepositoryTestOptions,
+): Promise<Array<EntityByStore[Store]>> {
   assertEntityStoreName(storeName)
   return withDatabase((database) => {
     const transaction = database.transaction(storeName, 'readonly')
@@ -405,10 +415,17 @@ export async function listLocalEntities<Store extends LocalEntityStoreName>(
         }
       }
     }).then(() => entities.map((row) => row.value))
-  })
+  }, options.openDatabase)
 }
 
 export async function listOutbox(userId: string): Promise<SyncMutation[]> {
+  return listOutboxWithOptions(userId, defaultOptions)
+}
+
+async function listOutboxWithOptions(
+  userId: string,
+  options: LocalRepositoryTestOptions,
+): Promise<SyncMutation[]> {
   return withDatabase((database) => {
     const transaction = database.transaction(syncStoreNames.outbox, 'readonly')
     let mutations: SyncMutation[] = []
@@ -431,7 +448,7 @@ export async function listOutbox(userId: string): Promise<SyncMutation[]> {
         }
       }
     }).then(() => mutations)
-  })
+  }, options.openDatabase)
 }
 
 export function acknowledgeMutations(userId: string, mutationIds: string[]) {
@@ -540,6 +557,13 @@ export function replaceServerSnapshot(userId: string, snapshot: SyncSnapshot) {
 }
 
 export async function readSyncEpoch(userId: string): Promise<number> {
+  return readSyncEpochWithOptions(userId, defaultOptions)
+}
+
+async function readSyncEpochWithOptions(
+  userId: string,
+  options: LocalRepositoryTestOptions,
+): Promise<number> {
   return withDatabase((database) => {
     const transaction = database.transaction(syncStoreNames.syncMeta, 'readonly')
     let epoch = 1
@@ -559,7 +583,7 @@ export async function readSyncEpoch(userId: string): Promise<number> {
         }
       }
     }).then(() => epoch)
-  })
+  }, options.openDatabase)
 }
 
 export function writeSyncMeta(
@@ -1414,8 +1438,9 @@ async function writeSyncMetaWithOptions(
 
 async function withDatabase<Result>(
   work: (database: IDBDatabase) => Promise<Result>,
+  opener: () => Promise<IDBDatabase> = openSyncDatabase,
 ) {
-  const database = await openSyncDatabase()
+  const database = await opener()
   try {
     return await work(database)
   } finally {

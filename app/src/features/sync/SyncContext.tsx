@@ -17,6 +17,7 @@ import { createRecommendationRepository } from '../recommendations/recommendatio
 import { createUserSettingsRepository } from '../settings/userSettingsRepository'
 import { migrateLegacyOfflineData } from './legacyMigration'
 import { createLocalRepository, type LocalRepository } from './localRepository'
+import { openExistingSyncDatabase } from './syncDatabase'
 import { createSyncApi } from './syncApi'
 import { withSyncLock } from './syncLock'
 import {
@@ -141,7 +142,9 @@ function SessionSyncProvider({
     let current = true
     let unsubscribeState: (() => void) | null = null
     let unsubscribeEntityChanges: Array<() => void> = []
-    const localRepository = createLocalRepository()
+    const localRepository = createLocalRepository(syncMode === 'protection'
+      ? { openDatabase: openExistingSyncDatabase }
+      : undefined)
     readSyncEpochRef.current = () => localRepository.readSyncEpoch(userId)
     const migrationController = new AbortController()
     let deviceId = ''

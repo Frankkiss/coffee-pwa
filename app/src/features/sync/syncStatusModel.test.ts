@@ -6,8 +6,7 @@ describe('toSyncStatusView', () => {
     const view = toSyncStatusView({ kind: 'protection' })
     expect(view).toEqual({
       tone: 'warning',
-      title: '同步写入已暂停',
-      detail: '现有本地和云端数据仍可查看与导出，请等待恢复通知。',
+      title: '同步写入已暂停。现有本地和云端数据仍可查看与导出，请等待恢复通知。',
       canRetry: false,
     })
     expect(JSON.stringify(view)).not.toContain('已同步')

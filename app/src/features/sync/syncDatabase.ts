@@ -119,6 +119,52 @@ export function openSyncDatabase(): Promise<IDBDatabase> {
   })
 }
 
+export class SyncCacheUnavailableError extends Error {
+  readonly code = 'SYNC_CACHE_UNAVAILABLE'
+
+  constructor() {
+    super('Existing sync cache is unavailable without changing local storage')
+    this.name = 'SyncCacheUnavailableError'
+  }
+}
+
+export async function openExistingSyncDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') {
+    throw new SyncCacheUnavailableError()
+  }
+  const existing = (await indexedDB.databases()).find(
+    ({ name }) => name === syncDatabaseName,
+  )
+  if (existing?.version !== syncDatabaseVersion) {
+    throw new SyncCacheUnavailableError()
+  }
+
+  return new Promise((resolve, reject) => {
+    let request: IDBOpenDBRequest
+    try {
+      request = indexedDB.open(syncDatabaseName)
+    } catch {
+      reject(new SyncCacheUnavailableError())
+      return
+    }
+    request.onupgradeneeded = () => {
+      request.transaction?.abort()
+    }
+    request.onsuccess = () => {
+      const database = request.result
+      if (database.version !== syncDatabaseVersion) {
+        database.close()
+        reject(new SyncCacheUnavailableError())
+        return
+      }
+      database.onversionchange = () => database.close()
+      resolve(database)
+    }
+    request.onerror = () => reject(new SyncCacheUnavailableError())
+    request.onblocked = () => reject(new SyncCacheUnavailableError())
+  })
+}
+
 function normalizeOpenError(error: unknown) {
   return error instanceof DOMException || error instanceof Error
     ? error

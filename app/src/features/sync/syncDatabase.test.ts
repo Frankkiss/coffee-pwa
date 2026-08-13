@@ -4,6 +4,7 @@ import {
 } from '../../test/setupIndexedDb'
 import {
   openSyncDatabase,
+  openExistingSyncDatabase,
   syncDatabaseName,
   syncDatabaseVersion,
   syncStoreNames,
@@ -80,6 +81,26 @@ describe('syncDatabase', () => {
     vi.stubGlobal('indexedDB', undefined)
 
     await expect(openSyncDatabase()).rejects.toThrow('IndexedDB unavailable')
+  })
+
+  it('opens an existing current schema without creating or upgrading it', async () => {
+    const created = await openSyncDatabase()
+    created.close()
+    const openSpy = vi.spyOn(indexedDB, 'open')
+
+    const database = await openExistingSyncDatabase()
+
+    expect(database.version).toBe(syncDatabaseVersion)
+    expect(openSpy).toHaveBeenCalledWith(syncDatabaseName)
+    database.close()
+  })
+
+  it('does not create a database when protected reads have no existing cache', async () => {
+    await expect(openExistingSyncDatabase()).rejects.toMatchObject({
+      code: 'SYNC_CACHE_UNAVAILABLE',
+    })
+    expect((await indexedDB.databases()).some(({ name }) => name === syncDatabaseName))
+      .toBe(false)
   })
 
   it('deduplicates a blocked upgrade and closes the late connection', async () => {
