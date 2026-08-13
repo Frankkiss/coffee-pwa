@@ -82,6 +82,9 @@ select ok(
     and not has_function_privilege(
       'anon', 'public.restore_backup_v2(jsonb,text,text,uuid)', 'EXECUTE'
     )
+    and not has_function_privilege(
+      'anon', 'public.get_latest_backup_export()', 'EXECUTE'
+    )
     and not exists (
       select 1
       from pg_catalog.pg_proc as procedures
@@ -94,8 +97,9 @@ select ok(
       where procedures.oid in (
           'public.export_backup_v2(text,text)'::regprocedure,
           'public.preview_restore_v2(jsonb,text)'::regprocedure,
-      'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure,
-          'public.record_backup_download(text,text,jsonb)'::regprocedure
+          'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure,
+          'public.record_backup_download(text,text,jsonb)'::regprocedure,
+          'public.get_latest_backup_export()'::regprocedure
         )
         and privileges.grantee = 0
         and privileges.privilege_type = 'EXECUTE'
@@ -117,6 +121,11 @@ select ok(
     and has_function_privilege(
       'authenticated',
       'public.restore_backup_v2(jsonb,text,text,uuid)',
+      'EXECUTE'
+    )
+    and has_function_privilege(
+      'authenticated',
+      'public.get_latest_backup_export()',
       'EXECUTE'
     ),
   'authenticated can execute backup RPCs'
@@ -1413,18 +1422,55 @@ select lives_ok(
 
 select is(
   public.get_latest_backup_export(),
-  jsonb_build_object(
-    'exportedAt', (
-      select created_at
-      from public.backup_exports
-      where user_id = '70000000-0000-0000-0000-000000000001'::uuid
-        and deleted_at is null
-      order by created_at desc, id desc
-      limit 1
-    ),
-    'fileName', 'coffee-backup-2026-08-08.zip'
+  (
+    select jsonb_build_object('exportedAt', created_at, 'fileName', file_name)
+    from public.backup_exports
+    where user_id = '70000000-0000-0000-0000-000000000001'::uuid
+      and deleted_at is null
+    order by created_at desc, id desc
+    limit 1
   ),
   'latest backup metadata returns the newest current-user export'
+);
+
+create temporary table latest_safe_backup_fixture as
+select public.get_latest_backup_export() as metadata;
+
+reset role;
+insert into public.backup_exports (
+  user_id, export_type, includes_images, file_name, record_counts, created_at
+)
+values
+  (
+    '70000000-0000-0000-0000-000000000001', 'lightweight', false, '', '{}',
+    clock_timestamp() + interval '1 minute'
+  ),
+  (
+    '70000000-0000-0000-0000-000000000001', 'lightweight', false,
+    '../coffee-backup-2026-08-08.json', '{}', clock_timestamp() + interval '2 minutes'
+  ),
+  (
+    '70000000-0000-0000-0000-000000000001', 'lightweight', false,
+    E'coffee-backup-2026-08-08\n.json', '{}', clock_timestamp() + interval '3 minutes'
+  ),
+  (
+    '70000000-0000-0000-0000-000000000001', 'lightweight', false,
+    repeat('x', 129), '{}', clock_timestamp() + interval '4 minutes'
+  ),
+  (
+    '70000000-0000-0000-0000-000000000001', 'lightweight', false,
+    'coffee-backup-2026-99-99.json', '{}', clock_timestamp() + interval '5 minutes'
+  );
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '70000000-0000-0000-0000-000000000001',
+  true
+);
+select is(
+  public.get_latest_backup_export(),
+  (select metadata from latest_safe_backup_fixture),
+  'latest backup metadata skips unsafe legacy file names'
 );
 
 select set_config(
@@ -1451,8 +1497,8 @@ select is(
     from public.backup_exports
     where user_id = '70000000-0000-0000-0000-000000000001'
   ),
-  2::bigint,
-  'only successful current-user metadata calls insert rows'
+  7::bigint,
+  'successful metadata plus explicit legacy fixtures are the only current-user rows'
 );
 select is(
   (

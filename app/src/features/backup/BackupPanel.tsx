@@ -30,6 +30,7 @@ import {
   selectBackupReminderResolutionForOwner,
 } from './backupReminder'
 import './backup.css'
+import { requireDevelopmentFixture } from './backupFixturePolicy'
 
 type BackupPanelProps = {
   session: Session
@@ -46,11 +47,15 @@ type RestoreResult = SafeMergeRestoreResult | FullRollbackRestoreResult
 const appVersion = import.meta.env.VITE_APP_VERSION || '0.0.0'
 
 export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
+  const developmentFixture = requireDevelopmentFixture(fixture, import.meta.env.DEV)
   const contextRuntime = useOptionalSyncRuntime()
-  const runtime = requireBackupRuntime(fixture?.runtime ?? contextRuntime)
-  const api = useMemo(() => fixture?.api ?? createBackupRestoreApi(supabase), [fixture?.api, supabase])
-  const downloadText = fixture?.downloadText ?? downloadTextFile
-  const downloadBinary = fixture?.downloadBinary ?? downloadBinaryFile
+  const runtime = requireBackupRuntime(developmentFixture?.runtime ?? contextRuntime)
+  const api = useMemo(
+    () => developmentFixture?.api ?? createBackupRestoreApi(supabase),
+    [developmentFixture?.api, supabase],
+  )
+  const downloadText = developmentFixture?.downloadText ?? downloadTextFile
+  const downloadBinary = developmentFixture?.downloadBinary ?? downloadBinaryFile
   const guardRef = useRef(createBackupGenerationGuard(session.user.id))
   const exportGuardRef = useRef(createBackupGenerationGuard(session.user.id))
   const rollbackGuardRef = useRef(createBackupGenerationGuard(session.user.id))

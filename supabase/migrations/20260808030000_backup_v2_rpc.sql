@@ -1721,6 +1721,40 @@ begin
   where exports.user_id = v_user_id
     and exports.deleted_at is null
     and exports.file_name is not null
+    and pg_catalog.length(exports.file_name) between 1 and 128
+    and (
+      exports.file_name ~ '^coffee-(backup|pre-restore)-[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$'
+      or exports.file_name ~ '^coffee-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}\.zip$'
+    )
+    and (
+      select parts.year_value between 1 and 9999
+        and parts.month_value between 1 and 12
+        and parts.day_value between 1 and case parts.month_value
+          when 2 then case
+            when parts.year_value % 400 = 0
+              or (parts.year_value % 4 = 0 and parts.year_value % 100 <> 0)
+            then 29
+            else 28
+          end
+          when 4 then 30
+          when 6 then 30
+          when 9 then 30
+          when 11 then 30
+          else 31
+        end
+      from (
+        select
+          (date_parts.matches)[1]::integer as year_value,
+          (date_parts.matches)[2]::integer as month_value,
+          (date_parts.matches)[3]::integer as day_value
+        from (
+          select pg_catalog.regexp_match(
+            exports.file_name,
+            '([0-9]{4})-([0-9]{2})-([0-9]{2})'
+          ) as matches
+        ) as date_parts
+      ) as parts
+    )
   order by exports.created_at desc, exports.id desc
   limit 1;
 
