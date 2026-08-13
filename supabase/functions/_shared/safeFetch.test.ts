@@ -21,6 +21,7 @@ function dependencies(
     resolveDns?: DnsResolver;
     now?: () => number;
     controller?: AbortController;
+    pinnedAddresses?: string[];
   } = {},
 ): SafeFetchDependencies {
   return {
@@ -28,6 +29,13 @@ function dependencies(
     resolveDns: options.resolveDns ?? publicDns,
     now: options.now ?? (() => 0),
     createAbortController: () => options.controller ?? new AbortController(),
+    createPinnedHttpClient: (address) => {
+      options.pinnedAddresses?.push(address);
+      return {
+        client: { marker: address } as unknown as Deno.HttpClient,
+        close: () => undefined,
+      };
+    },
   };
 }
 
@@ -103,9 +111,14 @@ Deno.test("assertSafeHttpUrl rejects unsafe syntax, credentials, and DNS answers
 
 Deno.test("safeFetchText validates every redirect and permits at most three hops", async () => {
   const visited: string[] = [];
-  const fetchImpl = ((input: URL | RequestInfo) => {
+  const pinnedAddresses: string[] = [];
+  const fetchImpl = ((
+    input: URL | RequestInfo,
+    init?: RequestInit & { client?: Deno.HttpClient },
+  ) => {
     const url = String(input);
     visited.push(url);
+    assertEquals(Boolean(init?.client), true);
     const hop = visited.length;
     if (hop <= 3) {
       return Promise.resolve(
@@ -125,10 +138,14 @@ Deno.test("safeFetchText validates every redirect and permits at most three hops
   }) as typeof fetch;
 
   assertEquals(
-    await safeFetchText("https://hop1.example/one", dependencies(fetchImpl)),
+    await safeFetchText(
+      "https://hop1.example/one",
+      dependencies(fetchImpl, { pinnedAddresses }),
+    ),
     "coffee text",
   );
   assertEquals(visited.length, 4);
+  assertEquals(pinnedAddresses, Array(4).fill("93.184.216.34"));
 
   const endlessRedirect = (() =>
     Promise.resolve(
@@ -154,6 +171,33 @@ Deno.test("safeFetchText validates every redirect and permits at most three hops
     safeFetchText("https://public.example/", dependencies(redirectToPrivate))
   );
   assertEquals(forbiddenTargetFetched, false);
+});
+
+Deno.test("safeFetchText pins the connection to a previously validated DNS address", async () => {
+  const pinnedAddresses: string[] = [];
+  const resolveDns: DnsResolver = (_hostname, recordType) =>
+    Promise.resolve(recordType === "A" ? ["93.184.216.34"] : []);
+  const fetchImpl = ((
+    _input: URL | RequestInfo,
+    init?: RequestInit & { client?: Deno.HttpClient },
+  ) => {
+    assertEquals(
+      (init?.client as unknown as { marker: string }).marker,
+      "93.184.216.34",
+    );
+    return Promise.resolve(
+      new Response("pinned", { headers: { "Content-Type": "text/plain" } }),
+    );
+  }) as typeof fetch;
+
+  assertEquals(
+    await safeFetchText(
+      "https://rebind.example/",
+      dependencies(fetchImpl, { resolveDns, pinnedAddresses }),
+    ),
+    "pinned",
+  );
+  assertEquals(pinnedAddresses, ["93.184.216.34"]);
 });
 
 Deno.test("safeFetchText rejects malformed redirects, non-text media, and HTTP failures", async () => {

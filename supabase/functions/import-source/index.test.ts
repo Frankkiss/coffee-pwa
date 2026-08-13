@@ -100,6 +100,37 @@ Deno.test("import-source maps unsafe URL failures to 400", async () => {
   assertEquals((await response.json()).error, "UNSAFE_SOURCE_URL");
 });
 
+Deno.test("import-source rejects oversized request bodies before JSON parsing", async () => {
+  let deepSeekCalled = false;
+  const oversized = new Request("http://localhost/import-source", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer valid-token",
+      "Content-Type": "application/json",
+    },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(70_000));
+        controller.close();
+      },
+    }),
+  });
+  const response = await handleImportSourceRequest(oversized, {
+    getApiKey: () => "configured",
+    requireUser: () => Promise.resolve(verifiedAuth),
+    consumeRateLimit: () => Promise.resolve(null),
+    safeFetchText: () => Promise.resolve("unused"),
+    requestDeepSeekDraft: () => {
+      deepSeekCalled = true;
+      return Promise.resolve({});
+    },
+  });
+
+  assertEquals(response.status, 413);
+  assertEquals((await response.json()).error, "IMPORT_BODY_TOO_LARGE");
+  assertEquals(deepSeekCalled, false);
+});
+
 Deno.test("import-source preserves pasted text flow and caps normalized prompt text at 12,000 characters", async () => {
   let promptText = "";
   const pastedText = `  ${"coffee ".repeat(2_100)}  `;

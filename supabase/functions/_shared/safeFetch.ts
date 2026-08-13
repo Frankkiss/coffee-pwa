@@ -8,6 +8,10 @@ export type SafeFetchDependencies = {
   resolveDns: DnsResolver;
   now: () => number;
   createAbortController: () => AbortController;
+  createPinnedHttpClient: (
+    address: string,
+    port: number,
+  ) => { client: Deno.HttpClient; close: () => void };
 };
 
 export class SafeFetchError extends Error {
@@ -35,6 +39,13 @@ const defaultDependencies: SafeFetchDependencies = {
     Deno.resolveDns(hostname, recordType) as Promise<string[]>,
   now: () => performance.now(),
   createAbortController: () => new AbortController(),
+  createPinnedHttpClient: (address, port) => {
+    const client = Deno.createHttpClient({
+      proxy: { transport: "tcp", hostname: address, port },
+      poolMaxIdlePerHost: 0,
+    });
+    return { client, close: () => client.close() };
+  },
 };
 
 function unsafeUrl(): never {
@@ -142,6 +153,13 @@ export async function assertSafeHttpUrl(
   url: URL,
   resolveDns: DnsResolver,
 ): Promise<void> {
+  await resolveSafeHttpUrl(url, resolveDns);
+}
+
+async function resolveSafeHttpUrl(
+  url: URL,
+  resolveDns: DnsResolver,
+): Promise<string[]> {
   if (
     (url.protocol !== "http:" && url.protocol !== "https:") ||
     url.username !== "" ||
@@ -155,7 +173,7 @@ export async function assertSafeHttpUrl(
   const literalAddress = parseIpv4(url.hostname) ?? parseIpv6(url.hostname);
   if (literalAddress) {
     if (isForbiddenIpAddress(url.hostname)) unsafeUrl();
-    return;
+    return [url.hostname.replace(/^\[|\]$/g, "")];
   }
 
   let addresses: string[];
@@ -178,6 +196,7 @@ export async function assertSafeHttpUrl(
   ) {
     unsafeUrl();
   }
+  return addresses;
 }
 
 export async function safeFetchText(
@@ -217,84 +236,103 @@ export async function safeFetchText(
       redirectCount += 1
     ) {
       ensureBudget();
-      await assertSafeHttpUrl(currentUrl, dependencies.resolveDns);
+      const addresses = await resolveSafeHttpUrl(
+        currentUrl,
+        dependencies.resolveDns,
+      );
       ensureBudget();
 
-      let response: Response;
+      const port = currentUrl.port
+        ? Number(currentUrl.port)
+        : currentUrl.protocol === "https:"
+        ? 443
+        : 80;
+      const pinned = dependencies.createPinnedHttpClient(addresses[0], port);
+
       try {
-        response = await dependencies.fetchImpl(currentUrl, {
-          redirect: "manual",
-          signal: controller.signal,
-          headers: {
-            "User-Agent": "KaDayCoffeeImporter/1.0",
-            Accept: "text/html,application/xhtml+xml,text/plain",
-          },
-        });
-      } catch {
-        if (controller.signal.aborted) {
-          throw new SafeFetchError("SOURCE_TIMEOUT", 408);
-        }
-        throw new SafeFetchError("SOURCE_REQUEST_FAILED", 502);
-      }
-      ensureBudget();
-
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        if (redirectCount === maxRedirects) {
-          throw new SafeFetchError("SOURCE_TOO_MANY_REDIRECTS", 400);
-        }
-        const location = response.headers.get("Location");
-        if (!location) throw new SafeFetchError("SOURCE_INVALID_REDIRECT", 400);
+        let response: Response;
         try {
-          currentUrl = new URL(location, currentUrl);
+          response = await dependencies.fetchImpl(currentUrl, {
+            redirect: "manual",
+            signal: controller.signal,
+            client: pinned.client,
+            headers: {
+              "User-Agent": "KaDayCoffeeImporter/1.0",
+              Accept: "text/html,application/xhtml+xml,text/plain",
+            },
+          });
         } catch {
-          throw new SafeFetchError("SOURCE_INVALID_REDIRECT", 400);
-        }
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new SafeFetchError("SOURCE_UPSTREAM_ERROR", 502);
-      }
-
-      const mediaType = response.headers.get("Content-Type")?.split(";", 1)[0]
-        .trim().toLowerCase();
-      if (!mediaType || !acceptedMediaTypes.has(mediaType)) {
-        throw new SafeFetchError("SOURCE_UNSUPPORTED_MEDIA_TYPE", 415);
-      }
-
-      const contentLength = response.headers.get("Content-Length");
-      if (contentLength !== null && Number(contentLength) > maxResponseBytes) {
-        throw new SafeFetchError("SOURCE_TOO_LARGE", 413);
-      }
-      if (!response.body) return "";
-
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let byteCount = 0;
-      try {
-        while (true) {
-          ensureBudget();
-          const { done, value } = await reader.read();
-          ensureBudget();
-          if (done) break;
-          byteCount += value.byteLength;
-          if (byteCount > maxResponseBytes) {
-            await reader.cancel();
-            throw new SafeFetchError("SOURCE_TOO_LARGE", 413);
+          if (controller.signal.aborted) {
+            throw new SafeFetchError("SOURCE_TIMEOUT", 408);
           }
-          chunks.push(value);
+          throw new SafeFetchError("SOURCE_REQUEST_FAILED", 502);
         }
-      } finally {
-        reader.releaseLock();
-      }
+        ensureBudget();
 
-      const bytes = new Uint8Array(byteCount);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          if (redirectCount === maxRedirects) {
+            throw new SafeFetchError("SOURCE_TOO_MANY_REDIRECTS", 400);
+          }
+          const location = response.headers.get("Location");
+          if (!location) {
+            throw new SafeFetchError("SOURCE_INVALID_REDIRECT", 400);
+          }
+          try {
+            currentUrl = new URL(location, currentUrl);
+          } catch {
+            throw new SafeFetchError("SOURCE_INVALID_REDIRECT", 400);
+          }
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new SafeFetchError("SOURCE_UPSTREAM_ERROR", 502);
+        }
+
+        const mediaType = response.headers.get("Content-Type")?.split(";", 1)[0]
+          .trim().toLowerCase();
+        if (!mediaType || !acceptedMediaTypes.has(mediaType)) {
+          throw new SafeFetchError("SOURCE_UNSUPPORTED_MEDIA_TYPE", 415);
+        }
+
+        const contentLength = response.headers.get("Content-Length");
+        if (
+          contentLength !== null && Number(contentLength) > maxResponseBytes
+        ) {
+          throw new SafeFetchError("SOURCE_TOO_LARGE", 413);
+        }
+        if (!response.body) return "";
+
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let byteCount = 0;
+        try {
+          while (true) {
+            ensureBudget();
+            const { done, value } = await reader.read();
+            ensureBudget();
+            if (done) break;
+            byteCount += value.byteLength;
+            if (byteCount > maxResponseBytes) {
+              await reader.cancel();
+              throw new SafeFetchError("SOURCE_TOO_LARGE", 413);
+            }
+            chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const bytes = new Uint8Array(byteCount);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return new TextDecoder().decode(bytes);
+      } finally {
+        pinned.close();
       }
-      return new TextDecoder().decode(bytes);
     }
 
     throw new SafeFetchError("SOURCE_TOO_MANY_REDIRECTS", 400);
