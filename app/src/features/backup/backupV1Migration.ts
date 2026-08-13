@@ -20,7 +20,12 @@ export async function normalizeV1ForSafeMerge(
   const data = {
     profile: null,
     userSettings: null,
-    beans: source.data.beans,
+    beans: source.data.beans.map((bean) => ({
+      ...bean,
+      bean_type: bean.bean_type ?? 'single_origin' as const,
+      blend_components: bean.blend_components ?? [],
+      blend_notes: bean.blend_notes ?? null,
+    })),
     brewLogs: source.data.brewLogs,
     brewTemplates,
     aiRecommendations: [],

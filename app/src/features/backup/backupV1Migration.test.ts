@@ -49,5 +49,10 @@ describe('v1 backup migration', () => {
     expect(migrated.data.brewTemplates).toEqual([])
     expect(migrated.data.aiRecommendations).toEqual([])
     expect(migrated.data.sourceImports).toEqual([])
+    expect(migrated.data.beans[0]).toMatchObject({
+      bean_type: 'single_origin',
+      blend_components: [],
+      blend_notes: null,
+    })
   })
 })
