@@ -354,6 +354,12 @@ Assert safe merge:
 - does not delete current rows;
 - rejects an orphan relation;
 - rolls back all inserts if any selected row fails.
+- treats UUIDs case-insensitively and rejects duplicate IDs after UUID normalization;
+- skips a global ID collision even when the colliding row belongs to another user;
+- preserves nullable `profile` and `userSettings` semantics across all seven sections;
+- for v1-derived transports, processes only the declared authoritative subset of
+  `beans`, `brewLogs`, and `brewTemplates` and leaves every empty transport-only
+  section untouched.
 
 - [ ] **Step 2: Implement safe merge inside `restore_backup_v2`**
 
@@ -364,7 +370,23 @@ public.restore_backup_v2(p_backup jsonb, p_mode text, p_confirmation text defaul
 returns jsonb
 ```
 
-For `safe_merge`, acquire the per-user advisory lock, revalidate checksum and relations, insert only IDs that do not exist including soft-deleted IDs, and return inserted/skipped counts. Do not change `sync_epoch`.
+For `safe_merge`, acquire the same per-user advisory transaction lock as sync and
+revalidate the complete transport contract, canonical checksum, normalized UUID
+duplicates, and relations. Rewrite profile ownership and every `user_id` to
+`auth.uid()`. Insert in dependency order only when the record ID is absent globally;
+an active, soft-deleted, or cross-user collision is skipped and never updated,
+revived, or deleted. A relation may target only a bean inserted by this transaction
+or an active bean already owned by the caller. Do not change `sync_epoch`.
+
+Return exactly `{ "mode": "safe_merge", "counts": { ... } }`. `counts` has
+exactly the seven logical section keys and every value has exactly non-negative
+integer `inserted` and `skipped` fields. Their sum equals the selected record count;
+null profile/settings and non-authoritative v1 transport sections return zero for
+both fields. Any selected-row failure rolls back every insert in the transaction.
+
+Add the client `restore_backup_v2` wrapper only for `safe_merge`, with strict runtime
+validation of the request and the exact response. Task 5 must not expose a callable
+`full_rollback` restore path; Task 6 owns that capability.
 
 - [ ] **Step 3: Run SQL tests**
 
