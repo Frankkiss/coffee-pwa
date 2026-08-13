@@ -19,14 +19,15 @@ describe('complete image backup', () => {
     const first = await createCompleteBackup(document, fetchImpl, { codec })
     const second = await createCompleteBackup(document, fetchImpl, { codec })
     const files = unzipSync(first.zipBytes)
-    const archived = files['images/bean-001.webp']
+    const archivePath = first.document.manifest.images[0].archivePath as string
+    const archived = files[archivePath]
     const backup = JSON.parse(strFromU8(files['backup.json'])) as BackupV2Document
 
     expect(first.document.data).toBe(document.data)
     expect(first.document.manifest.backupMode).toBe('complete')
     expect(first.document.manifest.checksum).toBe(await sha256Hex(document.data))
     expect(first.document.manifest.images[0]).toMatchObject({
-      entityId: 'bean-1', archivePath: 'images/bean-001.webp', status: 'included',
+      entityId: 'bean-1', archivePath, status: 'included',
       mediaType: 'image/webp', byteLength: archived.length,
     })
     expect(first.document.manifest.images[0].checksum).toBe(await digestBytes(archived))
@@ -74,6 +75,29 @@ describe('complete image backup', () => {
     expect(unzipSync(result.zipBytes)['backup.json']).toBeDefined()
   })
 
+  it('applies the per-image deadline to a stalled codec', async () => {
+    const result = await createCompleteBackup(
+      await backupWithImages(['https://img.example/a.jpg']),
+      async () => streamedResponse(jpeg, 'image/jpeg'),
+      { timeoutMs: 5, codec: async () => new Promise(() => undefined) },
+    )
+    expect(result.document.manifest.images[0].errorCode).toBe('IMAGE_TIMEOUT')
+  })
+
+  it('sorts warning codes independently of concurrent completion order', async () => {
+    const document = await backupWithImages(['https://img.example/slow.jpg', 'https://img.example/fast.jpg'])
+    const run = async (reverse: boolean) => createCompleteBackup(document, async (url) => {
+      await new Promise((resolve) => setTimeout(resolve, url.includes(reverse ? 'fast' : 'slow') ? 4 : 0))
+      return url.includes('slow')
+        ? streamedResponse(jpeg, 'text/html')
+        : streamedResponse(png, 'image/jpeg')
+    })
+    const first = await run(false)
+    const second = await run(true)
+    expect(first.document.manifest.warnings).toEqual(['IMAGE_MAGIC_MISMATCH', 'IMAGE_TYPE_REJECTED'])
+    expect(first.zipBytes).toEqual(second.zipBytes)
+  })
+
   it('rejects unsafe initial and redirected URLs without leaking credentials', async () => {
     const fetchImpl = vi.fn(async () => streamedResponse(jpeg, 'image/jpeg', 'http://other.example/a.jpg'))
     const result = await createCompleteBackup(
@@ -95,7 +119,24 @@ describe('complete image backup', () => {
     expect(result.document.manifest.images.at(-1)?.errorCode).toBe('IMAGE_COUNT_LIMIT')
     const paths = result.document.manifest.images.flatMap((item) => item.archivePath ?? [])
     expect(new Set(paths).size).toBe(paths.length)
-    expect(paths.every((path) => /^images\/bean-\d{3}\.(jpeg|png|webp)$/.test(path))).toBe(true)
+    expect(paths.every((path) => /^images\/bean-[a-z0-9_-]+-[0-9a-f]{8}\.(jpeg|png|webp)$/.test(path))).toBe(true)
+  })
+
+  it('derives stable safe paths from entity IDs and resolves normalized collisions', async () => {
+    const document = await backupWithImages(['https://img.example/a.jpg', 'https://img.example/b.jpg'])
+    document.data.beans[0].id = '../Bean A'
+    document.data.beans[1].id = '..\\bean a'
+    const result = await createCompleteBackup(document, async () => streamedResponse(jpeg, 'image/jpeg'))
+    const archivePaths = result.document.manifest.images.map((item) => item.archivePath as string)
+    expect(archivePaths[0]).not.toBe(archivePaths[1])
+    expect(archivePaths.every((path) => !path.includes('..') && !path.includes('\\'))).toBe(true)
+  })
+
+  it('retains the original when a codec claims WebP but returns other bytes', async () => {
+    const result = await createCompleteBackup(await backupWithImages(['https://img.example/a.jpg']), async () => streamedResponse(jpeg, 'image/jpeg'), {
+      codec: async () => ({ bytes: png, mediaType: 'image/webp' }),
+    })
+    expect(result.document.manifest.images[0]).toMatchObject({ mediaType: 'image/jpeg' })
   })
 
   it('retains validated original bytes when codec is unavailable or produces a larger file', async () => {

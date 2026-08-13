@@ -52,13 +52,15 @@ export async function createCompleteBackup(
         const candidate = candidates[taskIndex]
         const originalUrl = candidate.bean.image_url as string
         try {
-          const collected = await collectImage(originalUrl, fetchImpl, options)
-          const final = await encodeImage(collected.bytes, collected.mediaType, options.codec)
+          const final = await withDeadline(async () => {
+            const collected = await collectImage(originalUrl, fetchImpl, options)
+            return encodeImage(collected.bytes, collected.mediaType, options.codec)
+          }, options.timeoutMs ?? IMAGE_TIMEOUT_MS)
           if (archivedBytes + final.bytes.length > MAX_ARCHIVED_BYTES) {
             throw imageError('IMAGE_TOTAL_BUDGET_EXCEEDED')
           }
           archivedBytes += final.bytes.length
-          const archivePath = `images/bean-${String(taskIndex + 1).padStart(3, '0')}.${extensionFor(final.mediaType)}`
+          const archivePath = await archivePathFor(candidate.bean.id, final.mediaType)
           entries.set(archivePath, final.bytes)
           manifest[taskIndex] = {
             entityType: 'bean', entityId: candidate.bean.id, originalUrl,
@@ -89,7 +91,7 @@ export async function createCompleteBackup(
       backupMode: 'complete',
       checksum: await sha256Hex(source.data),
       images: manifest,
-      warnings: [...source.manifest.warnings, ...warnings],
+      warnings: [...new Set([...source.manifest.warnings, ...warnings])].sort(),
     },
     data: source.data,
   }
@@ -177,7 +179,9 @@ async function readBounded(response: Response, limit: number, signal: AbortSigna
 
 async function encodeImage(bytes: Uint8Array, mediaType: string, codec = browserCodec) {
   const encoded = await codec(bytes, mediaType)
-  if (!encoded || encoded.bytes.length >= bytes.length) return { bytes, mediaType }
+  if (!encoded || encoded.bytes.length >= bytes.length
+    || encoded.mediaType !== 'image/webp'
+    || !matchesMagic(encoded.bytes, encoded.mediaType)) return { bytes, mediaType }
   return encoded
 }
 
@@ -237,6 +241,29 @@ function matchesMagic(bytes: Uint8Array, mediaType: string) {
 
 function extensionFor(mediaType: string) {
   return mediaType === 'image/jpeg' ? 'jpeg' : mediaType.split('/')[1]
+}
+
+async function archivePathFor(entityId: string, mediaType: string) {
+  const slug = entityId.toLowerCase().normalize('NFKD')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'item'
+  const suffix = (await digestBytes(new TextEncoder().encode(entityId))).slice(0, 8)
+  return `images/bean-${slug}-${suffix}.${extensionFor(mediaType)}`
+}
+
+async function withDeadline<T>(operation: () => Promise<T>, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(imageError('IMAGE_TIMEOUT')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
 }
 
 async function digestBytes(bytes: Uint8Array) {
