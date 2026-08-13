@@ -131,8 +131,8 @@ Expected: tests pass; unauthenticated curl receives 401; any URL field receives 
 - [ ] **Step 7: Commit safe fetching**
 
 ```powershell
-git add supabase/functions/_shared/safeFetch.ts supabase/functions/_shared/safeFetch.test.ts supabase/functions/import-source/index.ts
-git commit -m "fix: harden source import network access"
+git add -A supabase/functions/_shared/safeFetch.ts supabase/functions/_shared/safeFetch.test.ts supabase/functions/import-source app/src/features/sourceImports
+git commit -m "refactor: retire URL source imports"
 ```
 
 ### Task 3: Bound and authenticate AI recommendation calls
