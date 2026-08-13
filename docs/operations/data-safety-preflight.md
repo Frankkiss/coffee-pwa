@@ -101,3 +101,51 @@ supabase migration repair 20260615010000 --status applied --linked
 6. Re-run the read-only preflight and authenticated sync smoke before enabling the frontend.
 
 If an additive migration fails before commit, rely on its transaction rollback and stop. If a failure is discovered after commit, do not mark migrations reverted, truncate user tables, delete browser IndexedDB, or replay an older schema blindly. Put the frontend in `VITE_SYNC_ROLLOUT_MODE=protection`, preserve every device Outbox, export incident evidence and a fresh backup, then use a separately reviewed forward repair. A data rollback must use a verified backup, impact preview, pre-restore download, epoch invalidation, and explicit full-rollback approval. Edge-only regressions roll back by redeploying the previous function version without altering database data.
+
+## 2026-08-13 local Backup v2 Plan 2 release gate
+
+This record contains no user rows, access tokens, project secrets, or private backup locations.
+
+- Commits under review: `f347258` (contract), `12f0b14` (implementation), and `c0017e9` (strict timestamp fix)
+- Production database writes: **NOT RUN**
+- Production project link, migration push, and deployment: **NOT RUN**
+- Local scope: isolated Supabase PostgreSQL plus a development-only fake browser server
+
+### Verification results
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `supabase db reset` | PASS | Local migrations through `20260808030000_backup_v2_rpc.sql` applied successfully. |
+| `005_sync_foundation.test.sql` | PASS | pgTAP: 169 tests passed. |
+| `007_backup_v2.test.sql` | PASS | pgTAP: 102 tests passed, including current-user latest-export metadata and cross-user isolation. |
+| `npm test` | PASS | Vitest: 60 files, 524 tests passed. |
+| `npm run lint` | PASS | ESLint exited 0 with no findings. |
+| `npx tsc -b` | PASS | TypeScript project build exited 0. |
+| `npm run build` | PASS | Vite 8.0.16 built 173 modules; the existing chunk-size advisory is non-fatal. |
+| Real Chrome mobile backup flow | PASS | Chrome 151.0.7922.110 at 390x844; no production RPC was called. |
+| `git diff --check` | PASS | No whitespace errors before the evidence commit. |
+
+The real-browser flow used `app/backup-flow-smoke.html`, which is guarded by
+`import.meta.env.DEV`, and a deterministic local fixture with no real account data. It verified:
+
+1. file selection, strict v2 parsing and checksum validation, then safe-merge preview;
+2. double-click protection and one safe-merge result;
+3. clearing the selection, switching files and generating a fresh preview while offline;
+4. full-rollback fresh preview, mandatory pre-restore download, exact confirmation text and result;
+5. a new sync epoch after full rollback, with the fake runtime reporting epoch 2.
+
+The screenshot is stored locally at `app/output/playwright/backup-v2-mobile.png` and ignored by
+Git. It contains only deterministic fixture labels and no user data. The only Chrome console error
+was a missing development `favicon.ico` (HTTP 404); no backup, parsing, restore or React error was
+reported.
+
+`get_latest_backup_export()` was verified locally only. It takes no user identifier, derives the
+owner from `auth.uid()`, ignores soft-deleted rows, orders by `created_at desc, id desc`, and is not
+executable by `anon`. The client accepts only `null` or the exact safe metadata object. The legacy
+`kaday:last-json-backup` key is read only after a successful cloud `null`; the application no longer
+writes it. Cloud failure remains unavailable and cannot be presented as cloud or legacy success.
+
+Do not apply `20260808010000_sync_foundation.sql`, `20260808020000_sync_rpc.sql`, or
+`20260808030000_backup_v2_rpc.sql` to production until the production preflight is run privately,
+the migration history is reconciled, a production backup is confirmed, and the user explicitly
+approves the deployment.
