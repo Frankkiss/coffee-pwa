@@ -5,8 +5,12 @@ dist/
 .env.*
 
 supabase/.temp/
+supabase/.branches/
 supabase/supabase.exe
 supabase/supabase-go.exe
+
+app/.playwright-cli/
+app/output/playwright/
 
 app/node_modules/
 app/dist/

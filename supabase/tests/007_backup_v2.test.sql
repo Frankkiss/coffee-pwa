@@ -16,6 +16,7 @@ select has_function(
   'record_backup_download',
   array['text', 'text', 'jsonb']
 );
+select has_function('public', 'get_latest_backup_export', array[]::text[]);
 
 select volatility_is(
   'public', 'canonical_jsonb_text', array['jsonb'], 'immutable',
@@ -1410,6 +1411,22 @@ select lives_ok(
   'download metadata accepts canonical complete-backup ZIP metadata'
 );
 
+select is(
+  public.get_latest_backup_export(),
+  jsonb_build_object(
+    'exportedAt', (
+      select created_at
+      from public.backup_exports
+      where user_id = '70000000-0000-0000-0000-000000000001'::uuid
+        and deleted_at is null
+      order by created_at desc, id desc
+      limit 1
+    ),
+    'fileName', 'coffee-backup-2026-08-08.zip'
+  ),
+  'latest backup metadata returns the newest current-user export'
+);
+
 select set_config(
   'request.jwt.claim.sub',
   '70000000-0000-0000-0000-000000000002',
@@ -1419,6 +1436,11 @@ select is(
   (select count(*) from public.backup_exports),
   0::bigint,
   'RLS prevents another user from reading download metadata'
+);
+select is(
+  public.get_latest_backup_export(),
+  null::jsonb,
+  'latest backup metadata never exposes another user row'
 );
 
 reset role;

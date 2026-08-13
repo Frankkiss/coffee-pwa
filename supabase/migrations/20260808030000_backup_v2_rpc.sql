@@ -1697,6 +1697,37 @@ begin
 end;
 $$;
 
+create or replace function public.get_latest_backup_export()
+returns jsonb
+language plpgsql
+stable
+security invoker
+set search_path = pg_catalog, public, auth, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result jsonb;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
+  end if;
+
+  select pg_catalog.jsonb_build_object(
+    'exportedAt', exports.created_at,
+    'fileName', exports.file_name
+  )
+  into v_result
+  from public.backup_exports as exports
+  where exports.user_id = v_user_id
+    and exports.deleted_at is null
+    and exports.file_name is not null
+  order by exports.created_at desc, exports.id desc
+  limit 1;
+
+  return v_result;
+end;
+$$;
+
 revoke execute on function public.canonical_jsonb_text(jsonb)
 from public, anon, authenticated;
 revoke execute on function private.javascript_utf16_sort_key(text)
@@ -1717,6 +1748,8 @@ revoke execute on function public.restore_backup_v2(jsonb, text, text, uuid)
 from public, anon;
 revoke execute on function public.record_backup_download(text, text, jsonb)
 from public, anon;
+revoke execute on function public.get_latest_backup_export()
+from public, anon;
 
 grant execute on function public.export_backup_v2(text, text)
 to authenticated;
@@ -1725,6 +1758,8 @@ to authenticated;
 grant execute on function public.restore_backup_v2(jsonb, text, text, uuid)
 to authenticated;
 grant execute on function public.record_backup_download(text, text, jsonb)
+to authenticated;
+grant execute on function public.get_latest_backup_export()
 to authenticated;
 
 revoke select on table public.backup_exports from public, anon;

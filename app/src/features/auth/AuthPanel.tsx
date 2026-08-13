@@ -630,6 +630,7 @@ function AuthenticatedApp({
       return (
         <HomeOverview
           session={session}
+          supabase={authenticatedSupabase}
           onNavigate={onNavigate}
           onSignOut={handleSignOut}
           isSigningOut={isSigningOut}

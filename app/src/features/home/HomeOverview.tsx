@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import {
-  buildBackupReminder,
-  readBackupReminderMeta,
+  buildBackupReminderFromResolution,
+  createBackupReminderApi,
+  createOwnedBackupReminderResolution,
+  resolveBackupReminderMeta,
+  selectBackupReminderResolutionForOwner,
 } from '../backup/backupReminder'
 import type { SyncState } from '../sync/syncTypes'
 import { useOptionalSyncRuntime } from '../sync/SyncContext'
@@ -17,6 +20,7 @@ import './home.css'
 
 type HomeOverviewProps = {
   session: Session
+  supabase?: import('@supabase/supabase-js').SupabaseClient
   onNavigate: (view: HomeNavigationTarget) => void
   onSignOut: () => void
   isSigningOut?: boolean
@@ -66,6 +70,7 @@ const greetingNotes = [
 
 export function HomeOverview({
   session,
+  supabase,
   onNavigate,
   onSignOut,
   isSigningOut = false,
@@ -78,6 +83,9 @@ export function HomeOverview({
   const brewLogRepository = runtime?.repositories?.brewLogs ?? null
   const settingsRepository = runtime?.repositories?.userSettings ?? null
   const [backupReminderDays, setBackupReminderDays] = useState(7)
+  const [ownedReminder, setOwnedReminder] = useState(() =>
+    createOwnedBackupReminderResolution(null),
+  )
   const [ownedRows, setOwnedRows] = useState(() => createOwnedHomeRows(null))
   const [isLoading, setIsLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
@@ -184,21 +192,39 @@ export function HomeOverview({
     }
   }, [settingsRepository])
 
+  useEffect(() => {
+    let active = true
+    let generation = 0
+    const load = async () => {
+      const token = ++generation
+      const resolution = supabase
+        ? await resolveBackupReminderMeta(
+            createBackupReminderApi(supabase), window.localStorage,
+          )
+        : { status: 'ready', source: 'none', meta: null } as const
+      if (active && token === generation) {
+        setOwnedReminder(createOwnedBackupReminderResolution(session.user.id, resolution))
+      }
+    }
+    void load()
+    return () => { active = false; generation += 1 }
+  }, [session.user.id, supabase])
+
   const rows = selectHomeRowsForOwner(ownedRows, session.user.id)
   const overview = useMemo(
     () =>
       buildHomeOverview({
         beans: rows.beans,
         brewLogs: rows.brewLogs,
-        backupReminder: buildBackupReminder(
-          readBackupReminderMeta(window.localStorage),
+        backupReminder: buildBackupReminderFromResolution(
+          selectBackupReminderResolutionForOwner(ownedReminder, session.user.id),
           new Date(),
           backupReminderDays,
         ),
         email: session.user.email,
         syncState,
       }),
-    [backupReminderDays, rows.beans, rows.brewLogs, session.user.email, syncState],
+    [backupReminderDays, ownedReminder, rows.beans, rows.brewLogs, session.user.email, session.user.id, syncState],
   )
   const [beanStat, brewStat, recommendationStat] = overview.stats
   const recommendationPreview = overview.recommendationPreview

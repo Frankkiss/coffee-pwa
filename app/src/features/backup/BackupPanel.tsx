@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { buildBackupPreviewRows, type BackupRestorePreview } from './backupPreviewModel'
-import { createBackupRestoreApi, type FullRollbackRestoreResult, type SafeMergeRestoreResult } from './backupRestoreApi'
+import { createBackupRestoreApi, type BackupRestoreApi, type FullRollbackRestoreResult, type SafeMergeRestoreResult } from './backupRestoreApi'
 import { exportBackupV2ForDownload, exportCompleteBackupForDownload } from './backupExport'
 import { parseBackupDocument } from './backupImport'
 import {
@@ -21,23 +21,36 @@ import {
 } from './backupFlowModel'
 import type { ParsedBackupDocument } from './backupTypes'
 import { buildBeansCsv, buildBrewLogsCsv, createCsvFileName } from './csvExport'
-import { useSyncRuntime } from '../sync/SyncContext'
+import { useOptionalSyncRuntime, type SyncRuntimeValue } from '../sync/SyncContext'
 import {
-  buildBackupReminder,
-  readBackupReminderMeta,
-  writeBackupReminderMeta,
-  type BackupReminderMeta,
+  buildBackupReminderFromResolution,
+  createBackupReminderApi,
+  createOwnedBackupReminderResolution,
+  resolveBackupReminderMeta,
+  selectBackupReminderResolutionForOwner,
 } from './backupReminder'
 import './backup.css'
 
-type BackupPanelProps = { session: Session; supabase: SupabaseClient }
+type BackupPanelProps = {
+  session: Session
+  supabase: SupabaseClient
+  fixture?: {
+    api: BackupRestoreApi
+    runtime: Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'>
+    downloadText?: typeof downloadTextFile
+    downloadBinary?: typeof downloadBinaryFile
+  }
+}
 type RestoreResult = SafeMergeRestoreResult | FullRollbackRestoreResult
 
 const appVersion = import.meta.env.VITE_APP_VERSION || '0.0.0'
 
-export function BackupPanel({ session, supabase }: BackupPanelProps) {
-  const runtime = useSyncRuntime()
-  const api = useMemo(() => createBackupRestoreApi(supabase), [supabase])
+export function BackupPanel({ session, supabase, fixture }: BackupPanelProps) {
+  const contextRuntime = useOptionalSyncRuntime()
+  const runtime = requireBackupRuntime(fixture?.runtime ?? contextRuntime)
+  const api = useMemo(() => fixture?.api ?? createBackupRestoreApi(supabase), [fixture?.api, supabase])
+  const downloadText = fixture?.downloadText ?? downloadTextFile
+  const downloadBinary = fixture?.downloadBinary ?? downloadBinaryFile
   const guardRef = useRef(createBackupGenerationGuard(session.user.id))
   const exportGuardRef = useRef(createBackupGenerationGuard(session.user.id))
   const rollbackGuardRef = useRef(createBackupGenerationGuard(session.user.id))
@@ -62,8 +75,8 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
   const [isPreparingRollback, setIsPreparingRollback] = useState(false)
   const [csvExporting, setCsvExporting] = useState<'beans' | 'brews' | null>(null)
   const [backupReminderDays, setBackupReminderDays] = useState(7)
-  const [backupReminderMeta, setBackupReminderMeta] = useState<BackupReminderMeta | null>(() =>
-    typeof window === 'undefined' ? null : readBackupReminderMeta(window.localStorage),
+  const [ownedReminder, setOwnedReminder] = useState(() =>
+    createOwnedBackupReminderResolution(null),
   )
   const [notice, setNotice] = useState('')
   const selectedGeneration = flow.generation
@@ -91,6 +104,21 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     const unsubscribe = repository.subscribe(() => void load())
     return () => { active = false; generation += 1; unsubscribe() }
   }, [runtime.repositories?.userSettings])
+  useEffect(() => {
+    let active = true
+    let generation = 0
+    const load = async () => {
+      const token = ++generation
+      const resolution = await resolveBackupReminderMeta(
+        createBackupReminderApi(supabase), window.localStorage,
+      )
+      if (active && token === generation) {
+        setOwnedReminder(createOwnedBackupReminderResolution(session.user.id, resolution))
+      }
+    }
+    void load()
+    return () => { active = false; generation += 1 }
+  }, [session.user.id, supabase])
 
   function clearFullRollback() {
     rollbackGuardRef.current.invalidate()
@@ -121,13 +149,16 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     const token = exportGuardRef.current.begin()
     try {
       const result = await exportBackupV2ForDownload({
-        api, appVersion, now: new Date(), download: downloadTextFile,
+        api, appVersion, now: new Date(), download: downloadText,
         isCurrent: () => exportGuardRef.current.isCurrent(token, session.user.id),
       })
       if (!exportGuardRef.current.isCurrent(token, session.user.id)) return
-      const reminderMeta = { exportedAt: result.document.manifest.exportedAt, fileName: result.fileName }
-      writeBackupReminderMeta(window.localStorage, reminderMeta)
-      setBackupReminderMeta(reminderMeta)
+      if (result.metadataRecorded && result.recordedAt) {
+        setOwnedReminder(createOwnedBackupReminderResolution(session.user.id, {
+          status: 'ready', source: 'cloud',
+          meta: { exportedAt: result.recordedAt, fileName: result.fileName },
+        }))
+      }
       setNotice(result.metadataRecorded
         ? '备份已下载并记录。'
         : '备份文件已下载，但云端提醒记录暂未保存；无需重复下载。')
@@ -147,13 +178,16 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     const token = exportGuardRef.current.begin()
     try {
       const result = await exportCompleteBackupForDownload({
-        api, appVersion, now: new Date(), fetchImpl: fetch, download: downloadBinaryFile,
+        api, appVersion, now: new Date(), fetchImpl: fetch, download: downloadBinary,
         isCurrent: () => exportGuardRef.current.isCurrent(token, session.user.id),
       })
       if (!exportGuardRef.current.isCurrent(token, session.user.id)) return
-      const reminderMeta = { exportedAt: result.document.manifest.exportedAt, fileName: result.fileName }
-      writeBackupReminderMeta(window.localStorage, reminderMeta)
-      setBackupReminderMeta(reminderMeta)
+      if (result.metadataRecorded && result.recordedAt) {
+        setOwnedReminder(createOwnedBackupReminderResolution(session.user.id, {
+          status: 'ready', source: 'cloud',
+          meta: { exportedAt: result.recordedAt, fileName: result.fileName },
+        }))
+      }
       const missing = result.document.manifest.images.filter((image) => image.status === 'missing').length
       setNotice(`${result.metadataRecorded ? '完整备份已下载并记录' : '完整备份已下载，但云端提醒记录暂未保存'}；${missing} 张不可访问图片已写入清单。`)
     } catch {
@@ -257,7 +291,7 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       setFullPreviewGeneration(token)
       const fileName = `coffee-pre-restore-${new Date().toISOString().slice(0, 10)}.json`
       const exported = await exportBackupV2ForDownload({
-        api, appVersion, now: new Date(), fileName, download: downloadTextFile,
+        api, appVersion, now: new Date(), fileName, download: downloadText,
         isCurrent: () => isCurrentRollbackPreparation(token, preparationToken),
       })
       if (!isCurrentRollbackPreparation(token, preparationToken)) return
@@ -318,7 +352,10 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
     confirmation,
     invalidRelationCount: invalidCount,
   })
-  const reminder = buildBackupReminder(backupReminderMeta, new Date(), backupReminderDays)
+  const reminder = buildBackupReminderFromResolution(
+    selectBackupReminderResolutionForOwner(ownedReminder, session.user.id),
+    new Date(), backupReminderDays,
+  )
 
   return (
     <section id="backup" className="backup-panel" aria-labelledby="backup-title">
@@ -404,6 +441,13 @@ export function BackupPanel({ session, supabase }: BackupPanelProps) {
       </div>
     </section>
   )
+}
+
+function requireBackupRuntime(
+  runtime: Pick<SyncRuntimeValue, 'repositories' | 'run' | 'readSyncEpoch'> | null,
+) {
+  if (!runtime) throw new Error('备份面板需要同步运行环境。')
+  return runtime
 }
 
 function RestoreResultSummary({ result }: { result: RestoreResult }) {

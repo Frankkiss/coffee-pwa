@@ -48,6 +48,8 @@ export class BackupRestoreApiError extends Error {
   }
 }
 
+export type BackupRestoreApi = ReturnType<typeof createBackupRestoreApi>
+
 export function createBackupRestoreApi(supabase: SupabaseClient) {
   const rpc = supabase.rpc.bind(supabase) as unknown as (
     name: string,
