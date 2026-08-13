@@ -179,9 +179,9 @@ git commit -m "fix: harden AI recommendation requests"
 ```ts
 expect(resolveSyncRolloutMode({ buildValue: undefined, localOverride: null })).toBe('protection')
 expect(resolveSyncRolloutMode({ buildValue: 'pilot', localOverride: null })).toBe('protection')
-expect(resolveSyncRolloutMode({ buildValue: 'pilot', localOverride: 'enabled' })).toBe('enabled')
+expect(resolveSyncRolloutMode({ buildValue: 'pilot', localOverride: 'true' })).toBe('enabled')
 expect(resolveSyncRolloutMode({ buildValue: 'enabled', localOverride: null })).toBe('enabled')
-expect(resolveSyncRolloutMode({ buildValue: 'protection', localOverride: 'enabled' })).toBe('protection')
+expect(resolveSyncRolloutMode({ buildValue: 'protection', localOverride: 'true' })).toBe('protection')
 ```
 
 Protection mode always wins and cannot be overridden locally.

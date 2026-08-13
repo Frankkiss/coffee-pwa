@@ -625,6 +625,19 @@ AI 与解析结果仍是草稿或建议，必须由用户确认后才能成为�
 
 保护模式不是“已同步”。UI 必须说明写入暂停和用户现有数据仍可导出。
 
+### 15.1 同步灰度开关
+
+前端构建使用 `VITE_SYNC_ROLLOUT_MODE`，只接受 `pilot`、`enabled`、`protection` 三个值；缺失或非法值必须进入
+`protection`。`enabled` 对所有设备启用同步；`protection` 对所有设备强制保护模式，且任何本地覆盖都不能解除。
+
+`pilot` 构建只在浏览器 `localStorage` 的 `kaday:sync-pilot-enabled` 值**精确等于字符串 `true`**时启用同步，
+其他值（包括 `enabled`、大小写变体、空字符串或读取失败）均进入保护模式。该本地键只能被 `pilot` 构建读取，
+`enabled` 与 `protection` 构建必须忽略它。
+
+保护模式可以读取现有 IndexedDB 缓存、查看云端只读内容并导出 JSON、ZIP 或 CSV，但不得运行旧数据迁移、启动
+`SyncManager`、上传 Outbox，或执行 Repository 新增、编辑、删除、待处理项重试/放弃、备份安全合并和全量回滚等
+任何数据写入口。被拒绝的写入必须返回稳定的保护模式错误，不能修改 IndexedDB、Outbox 或云端数据。
+
 ## 16. 测试设计
 
 ### 16.1 单元测试
