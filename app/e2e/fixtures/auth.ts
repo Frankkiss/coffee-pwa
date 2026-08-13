@@ -30,22 +30,29 @@ export const test = base.extend<Fixtures>({
         Authorization: `Bearer ${serviceRoleKey}`,
       },
     })
-    const email = `coffee-e2e-${testInfo.workerIndex}-${Date.now()}@example.test`
-    const password = `Coffee-e2e-${crypto.randomUUID()}!`
-    const response = await api.post('/auth/v1/signup', { data: { email, password } })
-    expect(response.ok(), `local signup failed (${response.status()})`).toBeTruthy()
-    const body = await response.json() as { access_token?: string; user?: { id?: string } }
-    if (!body.access_token || !body.user?.id) {
-      throw new Error('Local Auth did not return a test session; email confirmation must be disabled locally.')
-    }
+    let userId: string | null = null
     try {
+      const email = `coffee-e2e-${testInfo.workerIndex}-${Date.now()}@example.test`
+      const password = `Coffee-e2e-${crypto.randomUUID()}!`
+      const response = await api.post('/auth/v1/signup', { data: { email, password } })
+      expect(response.ok(), `local signup failed (${response.status()})`).toBeTruthy()
+      const body = await response.json() as { access_token?: string; user?: { id?: string } }
+      if (!body.access_token || !body.user?.id) {
+        throw new Error('Local Auth did not return a test session; email confirmation must be disabled locally.')
+      }
+      userId = body.user.id
       await provide({
-        id: body.user.id, email, password, accessToken: body.access_token, api, adminApi,
+        id: userId, email, password, accessToken: body.access_token, api, adminApi,
       })
     } finally {
-      const deleted = await adminApi.delete(`/auth/v1/admin/users/${body.user.id}`)
-      expect(deleted.ok(), `local user cleanup failed (${deleted.status()})`).toBeTruthy()
-      await Promise.all([adminApi.dispose(), api.dispose()])
+      try {
+        if (userId) {
+          const deleted = await adminApi.delete(`/auth/v1/admin/users/${userId}`)
+          expect(deleted.ok(), `local user cleanup failed (${deleted.status()})`).toBeTruthy()
+        }
+      } finally {
+        await Promise.all([adminApi.dispose(), api.dispose()])
+      }
     }
   },
 })
