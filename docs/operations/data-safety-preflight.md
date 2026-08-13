@@ -106,7 +106,7 @@ If an additive migration fails before commit, rely on its transaction rollback a
 
 This record contains no user rows, access tokens, project secrets, or private backup locations.
 
-- Commits under review: `f347258` (contract), `12f0b14` (implementation), and `c0017e9` (strict timestamp fix)
+- Backup v2 Plan 2 range under review: `908b27d..adc5f23`, including Tasks 6–9 and Task 9 commits `f347258`, `12f0b14`, `c0017e9`
 - Production database writes: **NOT RUN**
 - Production project link, migration push, and deployment: **NOT RUN**
 - Local scope: isolated Supabase PostgreSQL plus a development-only fake browser server
@@ -149,3 +149,8 @@ Do not apply `20260808010000_sync_foundation.sql`, `20260808020000_sync_rpc.sql`
 `20260808030000_backup_v2_rpc.sql` to production until the production preflight is run privately,
 the migration history is reconciled, a production backup is confirmed, and the user explicitly
 approves the deployment.
+
+Because the agent thread limit prevented creation of a fresh Task 9 reviewer, the root controller
+performed the Critical/Important review and closed one Important strict-timestamp finding in
+`c0017e9`. A fresh independent retrospective review of Task 9 remains the first mandatory gate in
+the security rollout plan and must pass before any production approval package is prepared.
