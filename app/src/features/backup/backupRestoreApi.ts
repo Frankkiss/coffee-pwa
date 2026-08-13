@@ -24,6 +24,17 @@ export type SafeMergeRestoreResult = {
   mode: 'safe_merge'
   counts: Record<(typeof backupPreviewSections)[number], SafeMergeCount>
 }
+type FullRollbackCount = {
+  inserted: number
+  updated: number
+  revived: number
+  deleted: number
+}
+export type FullRollbackRestoreResult = {
+  mode: 'full_rollback'
+  syncEpoch: number
+  counts: Record<(typeof backupPreviewSections)[number], FullRollbackCount>
+}
 
 export class BackupRestoreApiError extends Error {
   readonly code: string
@@ -52,9 +63,36 @@ export function createBackupRestoreApi(supabase: SupabaseClient) {
         p_backup: backup,
         p_mode: 'safe_merge',
         p_confirmation: null,
+        p_restore_request_id: null,
       })
       assertRpcSuccess(response)
       return validateSafeMergeResponse(response.data)
+    },
+
+    async restoreFullRollback(
+      backup: BackupV2Document,
+      confirmation: string,
+      restoreRequestId: string,
+    ): Promise<FullRollbackRestoreResult> {
+      if (confirmation !== 'FULL RESTORE' || !isUuid(restoreRequestId)) {
+        throw invalidRequest()
+      }
+      try {
+        const validated = await validateBackupTransportDocument(backup)
+        if (Object.hasOwn(validated.manifest, 'sourceSchemaVersion')) {
+          throw invalidRequest()
+        }
+      } catch {
+        throw invalidRequest()
+      }
+      const response = await rpc('restore_backup_v2', {
+        p_backup: backup,
+        p_mode: 'full_rollback',
+        p_confirmation: confirmation,
+        p_restore_request_id: restoreRequestId,
+      })
+      assertRpcSuccess(response)
+      return validateFullRollbackResponse(response.data)
     },
 
     async preview(
@@ -141,6 +179,24 @@ function validateSafeMergeResponse(value: unknown): SafeMergeRestoreResult {
     return [section, { inserted: count.inserted, skipped: count.skipped }]
   })) as SafeMergeRestoreResult['counts']
   return { mode: 'safe_merge', counts }
+}
+
+function validateFullRollbackResponse(value: unknown): FullRollbackRestoreResult {
+  const row = exactRecord(value, ['mode', 'syncEpoch', 'counts'])
+  if (row.mode !== 'full_rollback'
+    || !Number.isSafeInteger(row.syncEpoch) || Number(row.syncEpoch) < 1
+    || !isPlainRecord(row.counts)
+    || !hasExactKeys(row.counts, [...backupPreviewSections])) {
+    throw invalidResponse()
+  }
+  const responseCounts = row.counts
+  const countKeys = ['inserted', 'updated', 'revived', 'deleted']
+  const counts = Object.fromEntries(backupPreviewSections.map((section) => {
+    const count = exactRecord(responseCounts[section], countKeys)
+    if (!Object.values(count).every(isNonNegativeInteger)) throw invalidResponse()
+    return [section, { ...count }]
+  })) as FullRollbackRestoreResult['counts']
+  return { mode: 'full_rollback', syncEpoch: Number(row.syncEpoch), counts }
 }
 
 async function validatePreviewRequest(

@@ -133,8 +133,31 @@ describe('backup restore API boundary', () => {
       p_backup: document,
       p_mode: 'safe_merge',
       p_confirmation: null,
+      p_restore_request_id: null,
     })
-    expect('restoreFullRollback' in api).toBe(false)
+    expect('restoreFullRollback' in api).toBe(true)
+  })
+
+  it('exposes a guarded full rollback request with a stable request ID', async () => {
+    const document = await backup()
+    const empty = { inserted: 0, updated: 0, revived: 0, deleted: 0 }
+    const result = {
+      mode: 'full_rollback', syncEpoch: 4,
+      counts: Object.fromEntries([
+        'profile', 'userSettings', 'beans', 'brewLogs', 'brewTemplates',
+        'aiRecommendations', 'sourceImports',
+      ].map((key) => [key, { ...empty }])),
+    }
+    const { client, rpc } = clientWith([{ data: result, error: null }])
+    await expect(createBackupRestoreApi(client).restoreFullRollback(
+      document, 'FULL RESTORE', '76000000-0000-4000-8000-000000000001',
+    )).resolves.toEqual(result)
+    expect(rpc).toHaveBeenCalledWith('restore_backup_v2', {
+      p_backup: document,
+      p_mode: 'full_rollback',
+      p_confirmation: 'FULL RESTORE',
+      p_restore_request_id: '76000000-0000-4000-8000-000000000001',
+    })
   })
 
   it.each([

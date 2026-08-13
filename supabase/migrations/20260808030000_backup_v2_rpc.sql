@@ -1,5 +1,23 @@
 create extension if not exists pgcrypto with schema extensions;
 
+create table public.backup_restore_receipts (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  restore_request_id uuid not null,
+  restore_mode text not null,
+  backup_checksum text not null,
+  result jsonb not null,
+  committed_at timestamptz not null default now(),
+  primary key (user_id, restore_request_id),
+  constraint backup_restore_receipts_mode_check
+    check (restore_mode = 'full_rollback'),
+  constraint backup_restore_receipts_checksum_check
+    check (backup_checksum ~ '^[0-9a-f]{64}$')
+);
+
+alter table public.backup_restore_receipts enable row level security;
+revoke all on table public.backup_restore_receipts
+from public, anon, authenticated;
+
 create or replace function private.javascript_utf16_sort_key(p_value text)
 returns bytea
 language plpgsql
@@ -43,6 +61,240 @@ begin
   end loop;
 
   return v_result;
+end;
+$$;
+
+create or replace function public.restore_backup_v2(
+  p_backup jsonb,
+  p_mode text,
+  p_confirmation text,
+  p_restore_request_id uuid
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_preview jsonb;
+  v_data jsonb;
+  v_checksum text;
+  v_receipt public.backup_restore_receipts%rowtype;
+  v_epoch bigint;
+  v_counts jsonb := '{}'::jsonb;
+  v_section text;
+  v_table text;
+  v_key text;
+  v_rows jsonb;
+  v_total integer;
+  v_inserted integer;
+  v_updated integer;
+  v_revived integer;
+  v_deleted integer;
+  v_columns text;
+  v_updates text;
+  v_result jsonb;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
+  end if;
+
+  if p_mode = 'safe_merge' then
+    if p_restore_request_id is not null then
+      raise exception using errcode = '22023', message = 'INVALID_RESTORE_REQUEST_ID';
+    end if;
+    return public.restore_backup_v2(p_backup, p_mode, p_confirmation);
+  end if;
+  if p_mode is null or p_mode <> 'full_rollback' then
+    raise exception using errcode = '22023', message = 'INVALID_RESTORE_MODE';
+  end if;
+  if p_confirmation is distinct from 'FULL RESTORE' then
+    raise exception using errcode = '22023', message = 'INVALID_RESTORE_CONFIRMATION';
+  end if;
+  if p_restore_request_id is null then
+    raise exception using errcode = '22023', message = 'INVALID_RESTORE_REQUEST_ID';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_user_id::text, 0)
+  );
+
+  -- Preview is the single strict transport validator. It verifies a native,
+  -- complete v2 document, checksum, row shapes, duplicate IDs and relations.
+  v_preview := public.preview_restore_v2(p_backup, 'full_rollback');
+  if pg_catalog.jsonb_array_length(v_preview->'invalidRelations') <> 0 then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
+  end if;
+  v_data := p_backup->'data';
+  v_checksum := p_backup #>> '{manifest,checksum}';
+
+  select * into v_receipt
+  from public.backup_restore_receipts
+  where user_id = v_user_id
+    and restore_request_id = p_restore_request_id;
+  if found then
+    if v_receipt.restore_mode <> p_mode
+      or v_receipt.backup_checksum <> v_checksum
+    then
+      raise exception using
+        errcode = '22023', message = 'RESTORE_REQUEST_REUSE_MISMATCH';
+    end if;
+    return v_receipt.result;
+  end if;
+
+  -- A globally keyed row owned by another user must never be overwritten.
+  if exists (
+    select 1 from (
+      select 'beans' section, id, user_id from public.beans
+      union all select 'brewLogs', id, user_id from public.brew_logs
+      union all select 'brewTemplates', id, user_id from public.brew_templates
+      union all select 'aiRecommendations', id, user_id from public.ai_recommendations
+      union all select 'sourceImports', id, user_id from public.source_imports
+    ) current_row
+    where current_row.user_id <> v_user_id
+      and exists (
+        select 1
+        from pg_catalog.jsonb_array_elements(v_data->current_row.section) backup_row
+        where (backup_row->>'id')::uuid = current_row.id
+      )
+  ) then
+    raise exception using errcode = '22023', message = 'BACKUP_CROSS_USER_ID_COLLISION';
+  end if;
+
+  insert into public.user_sync_state(user_id, sync_epoch)
+  values (v_user_id, 1)
+  on conflict (user_id) do nothing;
+  select sync_epoch into v_epoch
+  from public.user_sync_state
+  where user_id = v_user_id
+  for update;
+
+  -- Profile and settings have nullable section semantics and no tombstone.
+  if v_data->'profile' = 'null'::jsonb then
+    delete from public.profiles where id = v_user_id;
+    get diagnostics v_deleted = row_count;
+    v_counts := v_counts || pg_catalog.jsonb_build_object(
+      'profile', pg_catalog.jsonb_build_object(
+        'inserted', 0, 'updated', 0, 'revived', 0, 'deleted', v_deleted));
+  else
+    select count(*)::integer into v_updated from public.profiles where id = v_user_id;
+    insert into public.profiles
+    select (pg_catalog.jsonb_populate_record(
+      null::public.profiles,
+      v_data->'profile' || pg_catalog.jsonb_build_object('id', v_user_id)
+    )).*
+    on conflict (id) do update set
+      display_name = excluded.display_name,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at,
+      schema_version = excluded.schema_version;
+    v_counts := v_counts || pg_catalog.jsonb_build_object(
+      'profile', pg_catalog.jsonb_build_object(
+        'inserted', 1-v_updated, 'updated', v_updated,
+        'revived', 0, 'deleted', 0));
+  end if;
+
+  if v_data->'userSettings' = 'null'::jsonb then
+    delete from public.user_settings where user_id = v_user_id;
+    get diagnostics v_deleted = row_count;
+    v_counts := v_counts || pg_catalog.jsonb_build_object(
+      'userSettings', pg_catalog.jsonb_build_object(
+        'inserted', 0, 'updated', 0, 'revived', 0, 'deleted', v_deleted));
+  else
+    select count(*)::integer into v_updated from public.user_settings where user_id = v_user_id;
+    insert into public.user_settings
+    select (pg_catalog.jsonb_populate_record(
+      null::public.user_settings,
+      v_data->'userSettings' || pg_catalog.jsonb_build_object('user_id', v_user_id)
+    )).*
+    on conflict (user_id) do update set
+      preferred_units = excluded.preferred_units,
+      default_gear = excluded.default_gear,
+      taste_preferences = excluded.taste_preferences,
+      backup_reminder_days = excluded.backup_reminder_days,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at,
+      schema_version = excluded.schema_version;
+    v_counts := v_counts || pg_catalog.jsonb_build_object(
+      'userSettings', pg_catalog.jsonb_build_object(
+        'inserted', 1-v_updated, 'updated', v_updated,
+        'revived', 0, 'deleted', 0));
+  end if;
+
+  -- All array sections share the same exact restore algorithm. Columns are
+  -- discovered from catalog metadata for the five fixed, trusted table names.
+  for v_section, v_table in
+    select * from (values
+      ('beans','beans'), ('brewTemplates','brew_templates'),
+      ('brewLogs','brew_logs'), ('aiRecommendations','ai_recommendations'),
+      ('sourceImports','source_imports')
+    ) sections(section_name, table_name)
+  loop
+    v_rows := v_data->v_section;
+    execute pg_catalog.format(
+      'select count(*) filter (where c.id is null),
+              count(*) filter (where c.id is not null and c.deleted_at is null),
+              count(*) filter (where c.deleted_at is not null)
+       from pg_catalog.jsonb_array_elements($1) b
+       left join public.%I c on c.id=(b->>''id'')::uuid and c.user_id=$2',
+      v_table
+    ) into v_inserted, v_updated, v_revived using v_rows, v_user_id;
+
+    select pg_catalog.string_agg(pg_catalog.format('%I', attname), ', ' order by attnum),
+      pg_catalog.string_agg(pg_catalog.format('%1$I=excluded.%1$I', attname), ', ' order by attnum)
+        filter (where attname <> 'id')
+    into v_columns, v_updates
+    from pg_catalog.pg_attribute
+    where attrelid = pg_catalog.to_regclass('public.' || v_table)
+      and attnum > 0 and not attisdropped;
+
+    execute pg_catalog.format(
+      'insert into public.%1$I (%2$s)
+       select %3$s from pg_catalog.jsonb_array_elements($1) row_data
+       cross join lateral pg_catalog.jsonb_populate_record(
+         null::public.%1$I,
+         row_data || pg_catalog.jsonb_build_object(''user_id'', $2, ''deleted_at'', null)
+       ) populated
+       on conflict (id) do update set %4$s',
+      v_table, v_columns,
+      (select pg_catalog.string_agg(pg_catalog.format('populated.%I', attname), ', ' order by attnum)
+       from pg_catalog.pg_attribute
+       where attrelid = pg_catalog.to_regclass('public.' || v_table)
+         and attnum > 0 and not attisdropped),
+      v_updates
+    ) using v_rows, v_user_id;
+
+    execute pg_catalog.format(
+      'update public.%I c set deleted_at=pg_catalog.clock_timestamp()
+       where c.user_id=$1 and c.deleted_at is null
+         and not exists (select 1 from pg_catalog.jsonb_array_elements($2) b
+           where (b->>''id'')::uuid=c.id)', v_table
+    ) using v_user_id, v_rows;
+    get diagnostics v_deleted = row_count;
+    v_counts := v_counts || pg_catalog.jsonb_build_object(
+      v_section, pg_catalog.jsonb_build_object(
+        'inserted', v_inserted, 'updated', v_updated,
+        'revived', v_revived, 'deleted', v_deleted));
+  end loop;
+
+  update public.user_sync_state
+  set sync_epoch = sync_epoch + 1
+  where user_id = v_user_id
+  returning sync_epoch into v_epoch;
+
+  v_result := pg_catalog.jsonb_build_object(
+    'mode', 'full_rollback', 'syncEpoch', v_epoch, 'counts', v_counts);
+  insert into public.backup_restore_receipts(
+    user_id, restore_request_id, restore_mode, backup_checksum, result
+  ) values (v_user_id, p_restore_request_id, p_mode, v_checksum, v_result);
+  return v_result;
+exception
+  when invalid_text_representation or datetime_field_overflow
+    or numeric_value_out_of_range or null_value_not_allowed
+  then
+    raise exception using errcode = '22023', message = 'BACKUP_FORMAT_INVALID';
 end;
 $$;
 
@@ -1414,6 +1666,8 @@ from public, anon;
 revoke execute on function public.preview_restore_v2(jsonb, text)
 from public, anon;
 revoke execute on function public.restore_backup_v2(jsonb, text, text)
+from public, anon, authenticated;
+revoke execute on function public.restore_backup_v2(jsonb, text, text, uuid)
 from public, anon;
 revoke execute on function public.record_backup_download(text, text, jsonb)
 from public, anon;
@@ -1422,7 +1676,7 @@ grant execute on function public.export_backup_v2(text, text)
 to authenticated;
 grant execute on function public.preview_restore_v2(jsonb, text)
 to authenticated;
-grant execute on function public.restore_backup_v2(jsonb, text, text)
+grant execute on function public.restore_backup_v2(jsonb, text, text, uuid)
 to authenticated;
 grant execute on function public.record_backup_download(text, text, jsonb)
 to authenticated;

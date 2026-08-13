@@ -325,6 +325,21 @@ describe('SyncManager cycles', () => {
     expect(h.storage.acknowledgeMutations).not.toHaveBeenCalled()
   })
 
+  it('never resubmits quarantined old-epoch mutations on a later cycle', async () => {
+    const h = harness([mutation(), mutation({
+      mutationId: '61000000-0000-4000-8000-000000000099',
+    })])
+    h.api.applyBatch.mockRejectedValueOnce(new SyncApiError('STALE_SYNC_EPOCH', 'stale', false))
+    h.api.getSnapshot.mockResolvedValue(snapshot(4))
+    const manager = createSyncManager(h.deps)
+    await manager.run()
+    await manager.run()
+    expect(h.storage.quarantineOlderEpoch).toHaveBeenCalledOnce()
+    expect(h.api.applyBatch).toHaveBeenCalledOnce()
+    expect(h.storage.acknowledgeMutations).not.toHaveBeenCalled()
+    expect(manager.getState().kind).toBe('needs_attention')
+  })
+
   it('stays offline without taking the lock or calling APIs', async () => {
     const h = harness([mutation()])
     h.setOnline(false)

@@ -9,7 +9,7 @@ select has_function('public', 'canonical_jsonb_text', array['jsonb']);
 select has_function('public', 'export_backup_v2', array['text', 'text']);
 select has_function('public', 'preview_restore_v2', array['jsonb', 'text']);
 select has_function(
-  'public', 'restore_backup_v2', array['jsonb', 'text', 'text']
+  'public', 'restore_backup_v2', array['jsonb', 'text', 'text', 'uuid']
 );
 select has_function(
   'public',
@@ -79,7 +79,7 @@ select ok(
       'anon', 'public.record_backup_download(text,text,jsonb)', 'EXECUTE'
     )
     and not has_function_privilege(
-      'anon', 'public.restore_backup_v2(jsonb,text,text)', 'EXECUTE'
+      'anon', 'public.restore_backup_v2(jsonb,text,text,uuid)', 'EXECUTE'
     )
     and not exists (
       select 1
@@ -93,7 +93,7 @@ select ok(
       where procedures.oid in (
           'public.export_backup_v2(text,text)'::regprocedure,
           'public.preview_restore_v2(jsonb,text)'::regprocedure,
-          'public.restore_backup_v2(jsonb,text,text)'::regprocedure,
+      'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure,
           'public.record_backup_download(text,text,jsonb)'::regprocedure
         )
         and privileges.grantee = 0
@@ -115,10 +115,18 @@ select ok(
     )
     and has_function_privilege(
       'authenticated',
-      'public.restore_backup_v2(jsonb,text,text)',
+      'public.restore_backup_v2(jsonb,text,text,uuid)',
       'EXECUTE'
     ),
   'authenticated can execute backup RPCs'
+);
+select ok(
+  not has_table_privilege('anon', 'public.backup_restore_receipts', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.backup_restore_receipts', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.backup_restore_receipts', 'INSERT')
+  and (select relrowsecurity from pg_catalog.pg_class
+    where oid='public.backup_restore_receipts'::regclass),
+  'restore receipts are private infrastructure with RLS enabled'
 );
 select ok(
   (
@@ -164,7 +172,7 @@ select ok(
         false
       )
     from pg_catalog.pg_proc
-    where oid = 'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+    where oid = 'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure
   ),
   'restore RPC is definer-owned and search-path hardened'
 );
@@ -1052,13 +1060,169 @@ select is(
 );
 delete from public.beans where id = '71000000-0000-0000-0000-000000000099';
 
+create temporary table full_rollback_fixtures (
+  name text primary key,
+  document jsonb not null
+) on commit drop;
+
+with base as materialized (
+  select public.export_backup_v2('0.0.0-test', 'lightweight') as document
+), changed as (
+  select pg_catalog.jsonb_set(
+    pg_catalog.jsonb_set(
+      document,
+      '{data,beans,0,name}',
+      '"restored bean name"'::jsonb
+    ),
+    '{data,userSettings,backup_reminder_days}',
+    '21'::jsonb
+  ) as document
+  from base
+)
+insert into full_rollback_fixtures (name, document)
+select 'valid', private.test_rechecksum_backup(document) from changed;
+
+insert into public.beans (id, user_id, name, flavor_tags, bean_type, blend_components)
+values ('71000000-0000-4000-8000-000000000199',
+  '70000000-0000-0000-0000-000000000001', 'absent after backup', '{}',
+  'single_origin', '[]'::jsonb);
+update public.user_settings set backup_reminder_days = 3
+where user_id = '70000000-0000-0000-0000-000000000001';
+
+create temporary table full_rollback_epoch_before on commit drop as
+select coalesce((select sync_epoch from public.user_sync_state
+where user_id = '70000000-0000-0000-0000-000000000001'), 1::bigint) as sync_epoch;
+
 select throws_ok(
   $$select public.restore_backup_v2(
-    (select document from safe_merge_fixtures where name = 'complete'),
-    'full_rollback', 'FULL RESTORE'
+    (select document from full_rollback_fixtures where name = 'valid'),
+    'full_rollback', null, '76000000-0000-4000-8000-000000000001'
   )$$,
-  '22023', 'INVALID_RESTORE_MODE',
-  'Task 5 restore endpoint cannot execute full rollback'
+  '22023', 'INVALID_RESTORE_CONFIRMATION',
+  'full rollback requires exact confirmation text'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    (select document from restore_preview_fixtures where name = 'derived-v1'),
+    'full_rollback', 'FULL RESTORE', '76000000-0000-4000-8000-000000000001'
+  )$$,
+  '22023', 'BACKUP_FULL_ROLLBACK_NOT_ELIGIBLE',
+  'full rollback rejects v1-derived backup'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    (select document from full_rollback_fixtures where name = 'valid'),
+    'full_rollback', 'FULL RESTORE', null
+  )$$,
+  '22023', 'INVALID_RESTORE_REQUEST_ID',
+  'full rollback requires a restore request ID'
+);
+
+create temporary table full_rollback_result on commit drop as
+select public.restore_backup_v2(
+  (select document from full_rollback_fixtures where name = 'valid'),
+  'full_rollback', 'FULL RESTORE',
+  '76000000-0000-4000-8000-000000000001'
+) as result;
+
+select ok(
+  (select name = 'restored bean name' from public.beans
+    where id = ((select document #>> '{data,beans,0,id}' from full_rollback_fixtures where name = 'valid'))::uuid)
+  and (select backup_reminder_days = 21 from public.user_settings
+    where user_id = '70000000-0000-0000-0000-000000000001')
+  and (select deleted_at is not null from public.beans
+    where id = '71000000-0000-4000-8000-000000000199'),
+  'full rollback updates backup rows, restores settings and soft-deletes absent rows'
+);
+select is(
+  (select sync_epoch from public.user_sync_state where user_id = '70000000-0000-0000-0000-000000000001'),
+  (select sync_epoch + 1 from full_rollback_epoch_before),
+  'full rollback increments sync epoch exactly once'
+);
+select is(
+  public.restore_backup_v2(
+    (select document from full_rollback_fixtures where name = 'valid'),
+    'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000001'
+  ),
+  (select result from full_rollback_result),
+  'response-loss retry returns the stored response'
+);
+select is(
+  (select sync_epoch from public.user_sync_state where user_id = '70000000-0000-0000-0000-000000000001'),
+  (select sync_epoch + 1 from full_rollback_epoch_before),
+  'response-loss retry does not increment epoch again'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(pg_catalog.jsonb_set(
+      (select document from full_rollback_fixtures where name = 'valid'),
+      '{data,profile,display_name}', '"different"'::jsonb
+    )), 'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000001'
+  )$$,
+  '22023', 'RESTORE_REQUEST_REUSE_MISMATCH',
+  'restore request ID cannot be reused for different content'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    pg_catalog.jsonb_set(
+      (select document from full_rollback_fixtures where name = 'valid'),
+      '{manifest,checksum}', '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'::jsonb
+    ), 'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000002'
+  )$$,
+  '22023', 'BACKUP_CHECKSUM_MISMATCH',
+  'full rollback rejects a checksum mismatch'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    (select document #- '{data,sourceImports}' from full_rollback_fixtures where name = 'valid'),
+    'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000003'
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'full rollback rejects an incomplete logical backup'
+);
+
+create temporary table rollback_failure_before on commit drop as
+select (select sync_epoch from public.user_sync_state
+  where user_id='70000000-0000-0000-0000-000000000001') epoch,
+  (select name from public.beans
+  where id=((select document #>> '{data,beans,0,id}' from full_rollback_fixtures where name='valid'))::uuid) bean_name;
+alter table public.profiles add constraint profiles_restore_injected_failure
+check (display_name is distinct from '__FAIL_RESTORE__');
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(pg_catalog.jsonb_set(
+      (select document from full_rollback_fixtures where name = 'valid'),
+      '{data,profile,display_name}', '"__FAIL_RESTORE__"'::jsonb
+    )), 'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000004'
+  )$$,
+  '23514',
+  'new row for relation "profiles" violates check constraint "profiles_restore_injected_failure"',
+  'constraint failure aborts full rollback'
+);
+select ok(
+  (select sync_epoch=(select epoch from rollback_failure_before)
+    from public.user_sync_state where user_id='70000000-0000-0000-0000-000000000001')
+  and (select name=(select bean_name from rollback_failure_before)
+    from public.beans where id=((select document #>> '{data,beans,0,id}' from full_rollback_fixtures where name='valid'))::uuid)
+  and not exists (select 1 from public.backup_restore_receipts
+    where restore_request_id='76000000-0000-4000-8000-000000000004'),
+  'failed full rollback leaves business rows, epoch and receipt unchanged'
+);
+alter table public.profiles drop constraint profiles_restore_injected_failure;
+
+select is(
+  (public.restore_backup_v2(
+    (select document from full_rollback_fixtures where name = 'valid'),
+    'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000005'
+  )->>'syncEpoch')::bigint,
+  (select sync_epoch from full_rollback_epoch_before) + 2,
+  'a new request ID permits a later intentional restore of the same backup'
 );
 
 select set_config(
