@@ -11,6 +11,8 @@ supabase/supabase-go.exe
 
 app/.playwright-cli/
 app/output/playwright/
+app/test-results/
+app/playwright-report/
 
 app/node_modules/
 app/dist/
