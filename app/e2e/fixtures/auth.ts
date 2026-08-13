@@ -38,12 +38,15 @@ export const test = base.extend<Fixtures>({
     if (!body.access_token || !body.user?.id) {
       throw new Error('Local Auth did not return a test session; email confirmation must be disabled locally.')
     }
-    await provide({
-      id: body.user.id, email, password, accessToken: body.access_token, api, adminApi,
-    })
-    await adminApi.delete(`/auth/v1/admin/users/${body.user.id}`)
-    await adminApi.dispose()
-    await api.dispose()
+    try {
+      await provide({
+        id: body.user.id, email, password, accessToken: body.access_token, api, adminApi,
+      })
+    } finally {
+      const deleted = await adminApi.delete(`/auth/v1/admin/users/${body.user.id}`)
+      expect(deleted.ok(), `local user cleanup failed (${deleted.status()})`).toBeTruthy()
+      await Promise.all([adminApi.dispose(), api.dispose()])
+    }
   },
 })
 

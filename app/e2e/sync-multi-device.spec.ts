@@ -23,6 +23,10 @@ test('desktop and phone safely merge online and offline edits', async ({ browser
     await phone.context.setOffline(false)
     await phone.page.evaluate(() => window.dispatchEvent(new Event('online')))
     await waitForOutbox(phone.page, 0)
+    await waitForOutbox(desktop.page, 0)
+    await phone.page.reload()
+    await openBeans(phone.page)
+    await expect(phone.page.locator('.bean-card h3').filter({ hasText: 'Desktop edited bean' })).toBeVisible()
     await expect.poll(async () => (await restRows<{ notes: string }>(
       testUser, `brew_logs?user_id=eq.${testUser.id}&notes=eq.Phone%20offline%20brew&select=notes`,
     )).length).toBe(1)

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { test, expect } from './fixtures/auth'
+import { test, expect, restRows } from './fixtures/auth'
 import { closeContexts, createBean, editBean, openBeans, signedInContext, waitForOutbox } from './helpers'
 
 test('backup v2, legacy merge and full rollback preserve the safety gates', async ({ browser, testUser }) => {
@@ -31,8 +31,8 @@ test('backup v2, legacy merge and full rollback preserve the safety gates', asyn
     await expect(desktop.page.locator('.backup-error')).toContainText('文件可能损坏')
 
     const v1Bean = {
-      id: '11111111-1111-4111-8111-111111111111', user_id: testUser.id,
-      name: 'Legacy missing bean', roaster: null, origin: null,
+      id: backup.data.beans[0].id, user_id: testUser.id,
+      name: 'Legacy must not overwrite', roaster: null, origin: null,
       farm_or_station: null, process: null, variety: null, altitude_meters: null,
       roast_date: null, roast_level: null, flavor_tags: [], flavor_notes: null,
       net_weight_grams: null, price: null, purchase_date: null, source_url: null,
@@ -65,15 +65,24 @@ test('backup v2, legacy merge and full rollback preserve the safety gates', asyn
     ]).then(([download]) => download)
     expect(preRestore.suggestedFilename()).toMatch(/^coffee-pre-restore-/)
     const confirmation = desktop.page.locator('.backup-rollback input')
+    const confirmButton = desktop.page.getByRole('button', { name: '确认全量回滚' })
     await expect(confirmation).toBeEnabled()
+    await expect(confirmButton).toBeDisabled()
+    await confirmation.fill('FULL RESTORE!')
+    await expect(confirmButton).toBeDisabled()
     await confirmation.fill('FULL RESTORE')
-    await desktop.page.getByRole('button', { name: '确认全量回滚' }).click()
+    await expect(confirmButton).toBeEnabled()
+    await confirmButton.click()
     await expect(desktop.page.locator('.backup-result')).toContainText('新同步代次 2')
 
     await phone.context.setOffline(false)
     await phone.page.evaluate(() => window.dispatchEvent(new Event('online')))
     await expect(phone.page.locator('.sync-attention')).toBeVisible()
     await expect(phone.page.locator('.sync-attention')).toContainText('需要处理')
+    await expect.poll(async () => (await restRows<{ id: string }>(
+      testUser, `beans?user_id=eq.${testUser.id}&name=eq.Stale%20phone%20bean&select=id`,
+    )).length).toBe(0)
+    await waitForOutbox(phone.page, 1)
   } finally {
     await closeContexts(desktop.context, phone.context)
   }
