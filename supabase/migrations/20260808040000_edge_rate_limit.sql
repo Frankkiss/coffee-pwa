@@ -15,6 +15,9 @@ create table private.edge_rate_limits (
 alter table private.edge_rate_limits enable row level security;
 revoke all on table private.edge_rate_limits from public, anon, authenticated;
 
+create index edge_rate_limits_window_started_at_idx
+on private.edge_rate_limits (window_started_at);
+
 create or replace function public.consume_edge_rate_limit(
   p_action text,
   p_max_requests integer,
@@ -52,6 +55,17 @@ begin
   if p_window_seconds is null or p_window_seconds not between 10 and 3600 then
     raise exception using errcode = '22023', message = 'INVALID_EDGE_RATE_WINDOW';
   end if;
+
+  if (p_action = 'import-source'
+      and (p_max_requests <> 10 or p_window_seconds <> 600))
+    or (p_action = 'recommend-brew'
+      and (p_max_requests <> 20 or p_window_seconds <> 600))
+  then
+    raise exception using errcode = '22023', message = 'INVALID_EDGE_RATE_POLICY';
+  end if;
+
+  delete from private.edge_rate_limits
+  where window_started_at < v_now - interval '1 hour';
 
   v_window_started_at := pg_catalog.to_timestamp(
     pg_catalog.floor(extract(epoch from v_now) / p_window_seconds)
