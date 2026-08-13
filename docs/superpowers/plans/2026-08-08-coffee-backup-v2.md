@@ -475,7 +475,7 @@ Add `backupFlowModel.ts` and test transitions `idle -> parsing -> preview -> res
 
 - [ ] **Step 3: Implement safe-merge UI as the default**
 
-After file selection show version, checksum state, every entity count, duplicate/deleted/invalid relation counts, and the primary button `安全合并缺失数据`. Do not preselect full rollback.
+After file selection show version, checksum state, every entity count, duplicate/deleted/invalid relation counts, and the primary button `安全合并缺失数据`. Do not preselect full rollback. Safe merge remains disabled while any invalid relation exists.
 
 - [ ] **Step 4: Implement the guarded full-rollback flow**
 
@@ -488,6 +488,14 @@ When the user opens `全量回滚`:
 5. call restore;
 6. force `SyncManager` to pull a new snapshot;
 7. show the new epoch and effect counts.
+
+File parsing, previews, exports, and restores use a monotonically increasing generation token (and abort when supported). A stale completion after another file selection, account change, cancel, or unmount must not change UI state. Replacing or clearing a file invalidates every full-rollback prerequisite.
+
+The pre-restore download, the latest full-rollback preview, and exact `FULL RESTORE` text are all required for the same selected backup generation. Each newly confirmed rollback creates one `restoreRequestId`; a lost response is retried with that same ID, while a later deliberate rollback uses a new ID. Restore actions are single-flight.
+
+After a full rollback response, force the sync runtime to run and wait until the runtime reports a newly pulled epoch before announcing success. Do not present a committed rollback as fully refreshed while the local snapshot still belongs to the old epoch.
+
+For normal exports, call `export_backup_v2`, verify the checksum in the browser, initiate a real download, then call `record_backup_download`. Checksum or download-initiation failure must not record metadata. If metadata recording alone fails, report that the file was downloaded but its reminder record could not be saved; do not call the export a download failure or encourage a duplicate download.
 
 - [ ] **Step 5: Remove the old additive import service**
 
