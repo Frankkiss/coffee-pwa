@@ -587,6 +587,14 @@ Assert the latest `backup_exports.created_at` wins across devices and old `local
 
 Add `get_latest_backup_export()` or a restricted select through existing RLS. Use `userSettings.backup_reminder_days`, defaulting to 7. Stop writing `kaday:last-json-backup`; retain one read-only fallback and mark it for removal after a stable release.
 
+The RPC takes no user identifier and returns `null` or exactly
+`{ "exportedAt": <RFC3339>, "fileName": <non-empty safe file name> }`. It filters by
+`auth.uid()`, ignores soft-deleted rows, and orders by `created_at desc, id desc`.
+The client must reject every other response shape. Read the deprecated localStorage key only
+after a successful RPC result of `null`; RPC failure remains an unavailable cloud state and
+must never be presented as local or cloud success. Account changes and stale async completions
+must not publish reminder metadata from a previous user.
+
 - [ ] **Step 3: Run all local quality gates**
 
 ```powershell
