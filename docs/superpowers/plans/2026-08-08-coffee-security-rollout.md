@@ -298,12 +298,12 @@ git commit -m "test: cover multi-device sync and restore"
 
 - [ ] **Step 2: Add local Supabase SQL tests**
 
-Use `supabase/setup-cli@v2` with CLI version `2.101.0`, start the local stack, reset migrations, and run all files in `supabase/tests`.
+Use the current official `supabase/setup-cli@v3` action with the reviewed CLI version `2.101.0`, start the local stack, reset migrations, and run all files in `supabase/tests`.
 Do not link the production project in CI.
 
 - [ ] **Step 3: Add Edge Function tests**
 
-Install Deno through the official setup action and run shared and function `deno test` commands with only test environment values.
+Install Deno `2.9.5` through the official `denoland/setup-deno@v2` action and run shared and function `deno test` commands with only test environment values.
 
 - [ ] **Step 4: Gate Pages deployment**
 
