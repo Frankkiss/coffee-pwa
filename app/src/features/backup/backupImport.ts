@@ -4,26 +4,12 @@ import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import { canonicalJson, verifyBackupChecksum } from './backupChecksum'
 import { normalizeV1ForSafeMerge } from './backupV1Migration'
 import type {
-  BackupDocument,
-  BackupImportPreview,
   BackupInvalidRelation,
   BackupV1Document,
   BackupV2Document,
   MigratedV1SafeMergeDocument,
   ParsedBackupDocument,
 } from './backupTypes'
-
-type ExistingBackupIds = {
-  beanIds: Set<string>
-  brewLogIds: Set<string>
-  brewTemplateIds?: Set<string>
-}
-
-type BackupImportPayloads = {
-  beans: Bean[]
-  brewLogs: BrewLog[]
-  brewTemplates: UserBrewTemplateRow[]
-}
 
 export class BackupImportError extends Error {
   readonly code: 'BACKUP_FORMAT_INVALID' | 'BACKUP_CHECKSUM_MISMATCH'
@@ -107,100 +93,6 @@ export async function validateBackupTransportDocument(
     throw new BackupImportError('BACKUP_CHECKSUM_MISMATCH')
   }
   return document
-}
-
-export function createBackupImportPreview(
-  backup: Pick<BackupDocument | BackupV2Document, 'data'>,
-  existingIds: ExistingBackupIds,
-): BackupImportPreview {
-  const backupBrewTemplates = backup.data.brewTemplates ?? []
-  const existingBeanIds = normalizeUuidSet(existingIds.beanIds)
-  const existingBrewLogIds = normalizeUuidSet(existingIds.brewLogIds)
-  const existingTemplateIds = normalizeUuidSet(
-    existingIds.brewTemplateIds ?? new Set(),
-  )
-  const importableBeanIds = new Set(
-    backup.data.beans
-      .filter((bean) => !existingBeanIds.has(normalizeUuid(bean.id)))
-      .map((bean) => bean.id),
-  )
-  const importableBrewLogIds = new Set(
-    backup.data.brewLogs
-      .filter((brewLog) => !existingBrewLogIds.has(normalizeUuid(brewLog.id)))
-      .map((brewLog) => brewLog.id),
-  )
-  const importableBrewTemplateIds = new Set(
-    backupBrewTemplates
-      .filter((template) => !existingTemplateIds.has(normalizeUuid(template.id)))
-      .map((template) => template.id),
-  )
-
-  return {
-    total: {
-      beans: backup.data.beans.length,
-      brewLogs: backup.data.brewLogs.length,
-      brewTemplates: backupBrewTemplates.length,
-    },
-    duplicates: {
-      beans: backup.data.beans.length - importableBeanIds.size,
-      brewLogs: backup.data.brewLogs.length - importableBrewLogIds.size,
-      brewTemplates: backupBrewTemplates.length - importableBrewTemplateIds.size,
-    },
-    importable: {
-      beans: importableBeanIds.size,
-      brewLogs: importableBrewLogIds.size,
-      brewTemplates: importableBrewTemplateIds.size,
-    },
-    importableBeanIds,
-    importableBrewLogIds,
-    importableBrewTemplateIds,
-  }
-}
-
-export function buildBackupImportPayloads(
-  backup: Pick<BackupDocument | BackupV2Document, 'data'>,
-  preview: BackupImportPreview,
-  userId: string,
-  options: {
-    existingBeanIds: Set<string>
-  },
-): BackupImportPayloads {
-  const availableBeanIds = normalizeUuidSet(new Set([
-    ...options.existingBeanIds,
-    ...preview.importableBeanIds,
-  ]))
-  const beans = backup.data.beans
-    .filter((bean) => preview.importableBeanIds.has(bean.id))
-    .map((bean) => ({
-      ...bean,
-      user_id: userId,
-      deleted_at: null,
-    }))
-  const brewLogs = backup.data.brewLogs
-    .filter(
-      (brewLog) =>
-        preview.importableBrewLogIds.has(brewLog.id) &&
-        (brewLog.bean_id === null
-          || availableBeanIds.has(normalizeUuid(brewLog.bean_id))),
-    )
-    .map((brewLog) => ({
-      ...brewLog,
-      user_id: userId,
-      deleted_at: null,
-    }))
-  const brewTemplates = (backup.data.brewTemplates ?? [])
-    .filter((template) => preview.importableBrewTemplateIds.has(template.id))
-    .map((template) => ({
-      ...template,
-      user_id: userId,
-      deleted_at: null,
-    }))
-
-  return {
-    beans,
-    brewLogs,
-    brewTemplates,
-  }
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -432,10 +324,6 @@ function assertUniqueIds(rows: Array<{ id: string }>) {
 }
 
 function normalizeUuid(value: string) { return value.toLowerCase() }
-function normalizeUuidSet(values: Set<string>) {
-  return new Set([...values].map(normalizeUuid))
-}
-
 function exactKeys(value: Record<string, unknown>, required: string[], optional: string[] = []) {
   if (!hasExactKeys(value, required, optional)) throw invalidFormat()
 }

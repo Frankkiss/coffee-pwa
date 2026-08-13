@@ -48,6 +48,7 @@ export type SyncRuntimeValue = {
   repositories: SyncRepositories | null
   state: SyncState
   run: () => Promise<void>
+  readSyncEpoch: () => Promise<number>
   pendingCount: number
   outboxLoaded: boolean
   attentionItems: SyncMutation[]
@@ -110,6 +111,7 @@ function SessionSyncProvider({
   const [outboxLoaded, setOutboxLoaded] = useState(false)
   const [runtimeGenerationId, setRuntimeGenerationId] = useState(0)
   const managerRef = useRef<RuntimeManager | null>(null)
+  const readSyncEpochRef = useRef<() => Promise<number>>(unavailable)
   const refreshRef = useRef<() => Promise<void>>(async () => undefined)
   const stopRuntimeRef = useRef<() => void>(() => undefined)
   const [suspensionController] = useState(() =>
@@ -129,6 +131,7 @@ function SessionSyncProvider({
     let unsubscribeState: (() => void) | null = null
     let unsubscribeEntityChanges: Array<() => void> = []
     const localRepository = createLocalRepository()
+    readSyncEpochRef.current = () => localRepository.readSyncEpoch(userId)
     const migrationController = new AbortController()
     let deviceId = ''
 
@@ -221,6 +224,7 @@ function SessionSyncProvider({
       unsubscribeEntityChanges = []
       generation.stop()
       managerRef.current = null
+      readSyncEpochRef.current = unavailable
     }
     stopRuntimeRef.current = stopRuntime
     void generation.start()
@@ -238,6 +242,9 @@ function SessionSyncProvider({
     if (!manager) return unavailable()
     await manager.run()
     await refreshRef.current()
+  }, [])
+  const readCurrentSyncEpoch = useCallback(async () => {
+    return readSyncEpochRef.current()
   }, [])
   const retryMutation = useCallback(
     async (mutationId: string, options?: { confirmLegacyCreate?: boolean }) => {
@@ -263,6 +270,7 @@ function SessionSyncProvider({
     repositories,
     state,
     run,
+    readSyncEpoch: readCurrentSyncEpoch,
     pendingCount: outboxView.pendingCount,
     outboxLoaded,
     attentionItems: outboxView.attentionItems,
@@ -277,6 +285,7 @@ function SessionSyncProvider({
     outboxView,
     outboxLoaded,
     repositories,
+    readCurrentSyncEpoch,
     retryMutation,
     run,
     state,

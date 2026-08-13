@@ -5,7 +5,10 @@ import {
   buildBackupDocument,
   createBackupFileName,
   createRestorePointFileName,
+  exportBackupV2ForDownload,
 } from './backupExport'
+import { vi } from 'vitest'
+import type { BackupV2Document } from './backupTypes'
 
 describe('backup export', () => {
   it('builds a versioned JSON backup document with record counts', () => {
@@ -142,4 +145,86 @@ describe('backup export', () => {
       createRestorePointFileName(new Date('2026-06-15T03:00:00.000Z')),
     ).toBe('coffee-restore-point-2026-06-15.json')
   })
+
+  it('downloads a verified RPC export before recording metadata', async () => {
+    const order: string[] = []
+    const document = await emptyV2Backup()
+    const api = {
+      exportBackup: vi.fn(async () => document),
+      recordBackupDownload: vi.fn(async () => {
+        order.push('record')
+        return '2026-08-12T08:00:00.000Z'
+      }),
+    }
+    const result = await exportBackupV2ForDownload({
+      api,
+      appVersion: '0.0.0',
+      now: new Date('2026-08-12T08:00:00.000Z'),
+      download: () => order.push('download'),
+    })
+    expect(order).toEqual(['download', 'record'])
+    expect(result).toMatchObject({ fileName: 'coffee-backup-2026-08-12.json', metadataRecorded: true })
+  })
+
+  it('never records metadata when checksum or download initiation fails', async () => {
+    const valid = await emptyV2Backup()
+    const bad = { ...valid, manifest: { ...valid.manifest, checksum: '0'.repeat(64) } }
+    for (const [document, download] of [
+      [bad, vi.fn()],
+      [valid, vi.fn(() => { throw new Error('blocked') })],
+    ] as const) {
+      const api = {
+        exportBackup: vi.fn(async () => document),
+        recordBackupDownload: vi.fn(async () => '2026-08-12T08:00:00.000Z'),
+      }
+      await expect(exportBackupV2ForDownload({
+        api, appVersion: '0.0.0', now: new Date('2026-08-12T08:00:00.000Z'), download,
+      })).rejects.toBeDefined()
+      expect(api.recordBackupDownload).not.toHaveBeenCalled()
+    }
+  })
+
+  it('reports a downloaded file separately when only metadata recording fails', async () => {
+    const document = await emptyV2Backup()
+    const result = await exportBackupV2ForDownload({
+      api: {
+        exportBackup: async () => document,
+        recordBackupDownload: async () => { throw new Error('metadata unavailable') },
+      },
+      appVersion: '0.0.0',
+      now: new Date('2026-08-12T08:00:00.000Z'),
+      download: vi.fn(),
+    })
+    expect(result).toMatchObject({ metadataRecorded: false })
+  })
+
+  it('does not download or record a stale export completion', async () => {
+    const document = await emptyV2Backup()
+    const download = vi.fn()
+    const recordBackupDownload = vi.fn(async () => '2026-08-12T08:00:00.000Z')
+    await expect(exportBackupV2ForDownload({
+      api: { exportBackup: async () => document, recordBackupDownload },
+      appVersion: '0.0.0', now: new Date('2026-08-12T08:00:00.000Z'), download,
+      isCurrent: () => false,
+    })).rejects.toMatchObject({ code: 'BACKUP_OPERATION_STALE' })
+    expect(download).not.toHaveBeenCalled()
+    expect(recordBackupDownload).not.toHaveBeenCalled()
+  })
 })
+
+async function emptyV2Backup(): Promise<BackupV2Document> {
+  const { sha256Hex } = await import('./backupChecksum')
+  const data = {
+    profile: null, userSettings: null, beans: [], brewLogs: [], brewTemplates: [],
+    aiRecommendations: [], sourceImports: [],
+  }
+  return {
+    schemaVersion: 2,
+    manifest: {
+      exportedAt: '2026-08-12T08:00:00.000Z', appVersion: '0.0.0', backupMode: 'lightweight',
+      recordCounts: { profile: 0, userSettings: 0, beans: 0, brewLogs: 0, brewTemplates: 0, aiRecommendations: 0, sourceImports: 0 },
+      checksumAlgorithm: 'SHA-256', checksum: await sha256Hex(data), images: [], warnings: [],
+    },
+    data,
+  }
+}

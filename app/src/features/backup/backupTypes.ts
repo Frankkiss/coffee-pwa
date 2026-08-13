@@ -121,18 +121,3 @@ export type BuildBackupDocumentInput = {
   brewLogs: BrewLog[]
   brewTemplates?: UserBrewTemplateRow[]
 }
-
-export type BackupImportCounts = {
-  beans: number
-  brewLogs: number
-  brewTemplates: number
-}
-
-export type BackupImportPreview = {
-  total: BackupImportCounts
-  duplicates: BackupImportCounts
-  importable: BackupImportCounts
-  importableBeanIds: Set<string>
-  importableBrewLogIds: Set<string>
-  importableBrewTemplateIds: Set<string>
-}
