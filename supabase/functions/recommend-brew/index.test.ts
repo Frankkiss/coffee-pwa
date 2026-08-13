@@ -160,9 +160,14 @@ Deno.test("recommend-brew rejects malformed JSON and invalid recommendation shap
       null,
       { references: [] },
       validBody({ targetBean: [] }),
+      validBody({ targetBean: {} }),
+      validBody({ primaryRecommendation: "not-an-object" }),
       validBody({ references: "not-an-array" }),
       validBody({ templateCandidates: {} }),
       validBody({ beanAdjustmentReasons: ["ok", 7] }),
+      validBody({ confidence: ["high"] }),
+      validBody({ baseSource: 7 }),
+      validBody({ unexpectedPromptField: "arbitrary prompt input" }),
     ]
   ) {
     const response = await handleRecommendBrewRequest(
@@ -197,7 +202,7 @@ Deno.test("recommend-brew aborts DeepSeek after 30000ms and returns a stable tim
 
   assertEquals(timeoutDelay, 30_000);
   assertEquals(signalWasAborted, true);
-  assertEquals(response.status, 504);
+  assertEquals(response.status, 200);
   assertEquals((await response.json()).error, "AI_TIMEOUT");
 });
 
@@ -221,10 +226,38 @@ Deno.test("recommend-brew caps AI content at 50000 characters before parsing and
   assertEquals(body.structured, null);
 });
 
+Deno.test("recommend-brew bounds the upstream body before parsing JSON", async () => {
+  let cancelled = false;
+  const response = await handleRecommendBrewRequest(
+    request(validBody()),
+    dependencies({
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array(262_145));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+          ),
+        ),
+    }),
+  );
+
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).error, "AI_UPSTREAM_ERROR");
+  assertEquals(cancelled, true);
+});
+
 Deno.test("recommend-brew redacts secrets, prompts, and upstream bodies from responses and logs", async () => {
   const logs: string[] = [];
   const response = await handleRecommendBrewRequest(
-    request(validBody({ targetBean: { name: "PRIVATE PROMPT CONTENT" } })),
+    request(validBody({
+      targetBean: { id: "bean-1", name: "PRIVATE PROMPT CONTENT" },
+    })),
     dependencies({
       now: (() => {
         let current = 100;
@@ -238,14 +271,14 @@ Deno.test("recommend-brew redacts secrets, prompts, and upstream bodies from res
   const responseText = await response.text();
   const combined = `${responseText}\n${logs.join("\n")}`;
 
-  assertEquals(response.status, 502);
+  assertEquals(response.status, 200);
   assertStringIncludes(responseText, "AI_UPSTREAM_ERROR");
   assertEquals(combined.includes("secret-bearer-token"), false);
   assertEquals(combined.includes("deepseek-secret"), false);
   assertEquals(combined.includes("PRIVATE PROMPT CONTENT"), false);
   assertEquals(combined.includes("PRIVATE UPSTREAM BODY"), false);
   assertStringIncludes(combined, '"requestId":"request-id"');
-  assertStringIncludes(combined, '"status":502');
+  assertStringIncludes(combined, '"status":200');
   assertStringIncludes(combined, '"elapsedMs":25');
   assertEquals(logs.length, 1);
   assertEquals(Object.keys(JSON.parse(logs[0])).sort(), [

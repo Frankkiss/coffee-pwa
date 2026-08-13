@@ -27,6 +27,7 @@ const corsHeaders = {
 };
 
 const maxRequestBodyBytes = 262_144;
+const maxDeepSeekResponseBytes = 262_144;
 const maxAiTextCharacters = 50_000;
 const deepSeekTimeoutMs = 30_000;
 
@@ -171,13 +172,13 @@ export async function handleRecommendBrewRequest(
     );
 
     if (!deepSeekResponse.ok) {
-      return finish(aiErrorResponse("AI_UPSTREAM_ERROR", 502));
+      return finish(aiErrorResponse("AI_UPSTREAM_ERROR"));
     }
 
-    const data = await deepSeekResponse.json();
+    const data = await readBoundedJsonResponse(deepSeekResponse);
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string") {
-      return finish(aiErrorResponse("AI_UPSTREAM_ERROR", 502));
+      return finish(aiErrorResponse("AI_UPSTREAM_ERROR"));
     }
 
     const suggestion = content.slice(0, maxAiTextCharacters);
@@ -186,15 +187,16 @@ export async function handleRecommendBrewRequest(
     return finish(jsonResponse({ configured: true, suggestion, structured }));
   } catch (error) {
     if (controller.signal.aborted || isAbortError(error)) {
-      return finish(aiErrorResponse("AI_TIMEOUT", 504));
+      return finish(aiErrorResponse("AI_TIMEOUT"));
     }
-    return finish(aiErrorResponse("AI_UPSTREAM_ERROR", 502));
+    return finish(aiErrorResponse("AI_UPSTREAM_ERROR"));
   } finally {
     dependencies.clearTimeout(timeout);
   }
 }
 
 class RecommendationBodyTooLargeError extends Error {}
+class DeepSeekResponseTooLargeError extends Error {}
 
 async function readBoundedRecommendationBody(
   request: Request,
@@ -241,8 +243,41 @@ async function readBoundedRecommendationBody(
 function isRecommendationRequest(
   value: unknown,
 ): value is RecommendationRequest {
-  if (!isRecord(value) || !isRecord(value.targetBean)) return false;
+  if (!isRecord(value)) return false;
+  const allowedKeys = new Set([
+    "targetBean",
+    "primaryRecommendation",
+    "finalRuleRecommendation",
+    "confidence",
+    "baseSource",
+    "beanAdjustmentReasons",
+    "references",
+    "templateCandidates",
+  ]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) return false;
+  if (
+    !isRecord(value.targetBean) ||
+    !isNonEmptyString(value.targetBean.id) ||
+    !isNonEmptyString(value.targetBean.name)
+  ) return false;
   if (!Object.prototype.hasOwnProperty.call(value, "primaryRecommendation")) {
+    return false;
+  }
+  if (
+    value.primaryRecommendation !== null &&
+    !isRecord(value.primaryRecommendation)
+  ) return false;
+  if (
+    value.finalRuleRecommendation !== undefined &&
+    !isRecord(value.finalRuleRecommendation)
+  ) return false;
+  if (
+    value.confidence !== undefined &&
+    value.confidence !== "high" &&
+    value.confidence !== "medium" &&
+    value.confidence !== "low"
+  ) return false;
+  if (value.baseSource !== undefined && !isBaseSource(value.baseSource)) {
     return false;
   }
   if (!isRecordArray(value.references)) return false;
@@ -264,6 +299,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isRecordArray(value: unknown): value is Record<string, unknown>[] {
   return Array.isArray(value) && value.every(isRecord);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isBaseSource(value: unknown) {
+  if (!isRecord(value) || !isNonEmptyString(value.label)) return false;
+  if (value.type === "history") return isNonEmptyString(value.brewLogId);
+  if (value.type === "template") return isNonEmptyString(value.templateId);
+  return false;
+}
+
+async function readBoundedJsonResponse(response: Response) {
+  const declaredLength = response.headers.get("Content-Length");
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (
+      !Number.isInteger(parsedLength) || parsedLength < 0 ||
+      parsedLength > maxDeepSeekResponseBytes
+    ) {
+      throw new DeepSeekResponseTooLargeError();
+    }
+  }
+  if (!response.body) throw new SyntaxError("missing upstream body");
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteCount = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteCount += value.byteLength;
+      if (byteCount > maxDeepSeekResponseBytes) {
+        await reader.cancel();
+        throw new DeepSeekResponseTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteCount);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
 function isAbortError(error: unknown) {
@@ -289,16 +375,13 @@ function invalidInputResponse() {
   }, 400);
 }
 
-function aiErrorResponse(
-  error: "AI_TIMEOUT" | "AI_UPSTREAM_ERROR",
-  status: number,
-) {
+function aiErrorResponse(error: "AI_TIMEOUT" | "AI_UPSTREAM_ERROR") {
   return jsonResponse({
     configured: true,
     suggestion: null,
     structured: null,
     error,
-  }, status);
+  });
 }
 
 function buildPrompt(payload: RecommendationRequest) {
