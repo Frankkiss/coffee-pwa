@@ -408,24 +408,29 @@ git commit -m "feat: add transactional safe backup merge"
 **Files:**
 - Modify: `supabase/migrations/20260808030000_backup_v2_rpc.sql`
 - Modify: `supabase/tests/007_backup_v2.test.sql`
+- Modify: `app/src/features/backup/backupRestoreApi.ts`
+- Modify: `app/src/features/backup/backupRestoreApi.test.ts`
 - Modify: `app/src/features/sync/syncManager.ts`
 - Modify: `app/src/features/sync/syncManager.test.ts`
 
 - [ ] **Step 1: Write failing full-rollback tests**
 
-Assert `full_rollback` rejects v1, missing confirmation, checksum mismatch, and incomplete logical sections. For a valid v2 fixture assert it updates backup IDs, revives backup rows currently soft-deleted, soft-deletes active current rows absent from backup, restores settings, increments epoch exactly once, and rolls back all effects on an injected constraint failure.
+Assert `full_rollback` rejects v1, missing confirmation, missing/invalid restore request ID, checksum mismatch, and incomplete logical sections. For a valid v2 fixture assert it updates backup IDs, revives backup rows currently soft-deleted, soft-deletes active current rows absent from backup, restores settings, increments epoch exactly once, and rolls back all effects on an injected constraint failure. Assert a response-loss retry with the same request ID and checksum returns the stored response without another epoch increment or write, reuse with different content is rejected, and a new request ID permits a later intentional restore of the same backup.
 
 - [ ] **Step 2: Implement confirmation and restore transaction**
 
-Require exact confirmation text `FULL RESTORE`. Under the shared advisory lock:
+Require exact confirmation text `FULL RESTORE` and a client-generated UUID `restoreRequestId`. Under the shared advisory lock:
 
-1. re-read and lock `user_sync_state`;
-2. validate every section and relation;
-3. upsert profile-visible fields, settings, beans, templates, brews, recommendations, and imports;
-4. set `deleted_at = clock_timestamp()` for current deletable rows absent from backup;
-5. set `deleted_at = null` for active rows present in backup;
-6. increment `sync_epoch` once;
-7. return the new epoch and effect counts.
+1. check the user-scoped restore receipt; return its exact stored response only when mode and checksum match;
+2. re-read and lock `user_sync_state`;
+3. validate every section and relation before the first business write;
+4. upsert profile-visible fields, settings, beans, templates, brews, recommendations, and imports;
+5. set `deleted_at = clock_timestamp()` for current deletable rows absent from backup;
+6. set `deleted_at = null` for active rows present in backup;
+7. increment `sync_epoch` once;
+8. insert the restore receipt in the same transaction and return the new epoch and effect counts.
+
+The receipt key is `(user_id, restore_request_id)` and binds the mode and backup checksum. Reusing an ID with different content fails. A later intentional restore uses a new ID. Add a strict client full-rollback wrapper that requires the request ID; do not add Task 7 UI yet.
 
 - [ ] **Step 3: Verify manager quarantine behavior**
 
@@ -444,7 +449,7 @@ Expected: full rollback and stale-device quarantine tests pass.
 - [ ] **Step 5: Commit full rollback**
 
 ```powershell
-git add supabase/migrations/20260808030000_backup_v2_rpc.sql supabase/tests/007_backup_v2.test.sql app/src/features/sync/syncManager.ts app/src/features/sync/syncManager.test.ts
+git add supabase/migrations/20260808030000_backup_v2_rpc.sql supabase/tests/007_backup_v2.test.sql app/src/features/backup/backupRestoreApi.ts app/src/features/backup/backupRestoreApi.test.ts app/src/features/sync/syncManager.ts app/src/features/sync/syncManager.test.ts
 git commit -m "feat: add guarded full backup rollback"
 ```
 
