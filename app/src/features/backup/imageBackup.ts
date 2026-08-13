@@ -11,6 +11,7 @@ const ZIP_DATE = new Date('1980-01-01T00:00:00.000Z')
 const acceptedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const stableErrorCodes = new Set([
   'IMAGE_CANVAS_FAILED', 'IMAGE_COUNT_LIMIT', 'IMAGE_DECODE_FAILED',
+  'IMAGE_DEADLINE_BUDGET',
   'IMAGE_HTTP_FAILED', 'IMAGE_MAGIC_MISMATCH', 'IMAGE_NETWORK_FAILED',
   'IMAGE_READ_FAILED', 'IMAGE_REDIRECT_REJECTED', 'IMAGE_TIMEOUT',
   'IMAGE_TOO_LARGE', 'IMAGE_TOTAL_BUDGET_EXCEEDED', 'IMAGE_TYPE_REJECTED',
@@ -22,6 +23,7 @@ type EncodedImage = { bytes: Uint8Array; mediaType: 'image/webp' }
 export type ImageBackupCodec = (
   bytes: Uint8Array,
   mediaType: string,
+  signal: AbortSignal,
 ) => Promise<EncodedImage | null>
 
 export type CompleteBackupOptions = {
@@ -52,9 +54,9 @@ export async function createCompleteBackup(
         const candidate = candidates[taskIndex]
         const originalUrl = candidate.bean.image_url as string
         try {
-          const final = await withDeadline(async () => {
-            const collected = await collectImage(originalUrl, fetchImpl, options)
-            return encodeImage(collected.bytes, collected.mediaType, options.codec)
+          const final = await withDeadline(async (signal) => {
+            const collected = await collectImage(originalUrl, fetchImpl, options, signal)
+            return encodeImage(collected.bytes, collected.mediaType, signal, options.codec)
           }, options.timeoutMs ?? IMAGE_TIMEOUT_MS)
           if (archivedBytes + final.bytes.length > MAX_ARCHIVED_BYTES) {
             throw imageError('IMAGE_TOTAL_BUDGET_EXCEEDED')
@@ -71,11 +73,20 @@ export async function createCompleteBackup(
           const code = stableErrorCode(error)
           warnings.add(code)
           manifest[taskIndex] = missingEntry(candidate.bean.id, originalUrl, code)
+          if (code === 'IMAGE_TIMEOUT') break
         }
       }
     },
   )
   await Promise.all(workers)
+
+  for (let index = 0; index < Math.min(candidates.length, MAX_IMAGES); index += 1) {
+    if (manifest[index]) continue
+    const { bean } = candidates[index]
+    const code = 'IMAGE_DEADLINE_BUDGET'
+    warnings.add(code)
+    manifest[index] = missingEntry(bean.id, bean.image_url as string, code)
+  }
 
   for (let index = MAX_IMAGES; index < candidates.length; index += 1) {
     const { bean } = candidates[index]
@@ -108,23 +119,18 @@ async function collectImage(
   url: string,
   fetchImpl: FetchImage,
   options: CompleteBackupOptions,
+  signal: AbortSignal,
 ) {
   if (!isAllowedUrl(url, options.origin)) throw imageError('IMAGE_URL_REJECTED')
-  const controller = new AbortController()
-  let timedOut = false
-  const timeout = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, options.timeoutMs ?? IMAGE_TIMEOUT_MS)
   try {
     const response = await Promise.race([
       fetchImpl(url, {
-        signal: controller.signal,
+        signal,
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
         redirect: 'follow',
       }),
-      abortPromise(controller.signal),
+      abortPromise(signal),
     ])
     if (response.url && !isAllowedUrl(response.url, options.origin)) {
       throw imageError('IMAGE_REDIRECT_REJECTED')
@@ -136,16 +142,12 @@ async function collectImage(
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
       throw imageError('IMAGE_TOO_LARGE')
     }
-    const bytes = await readBounded(response, MAX_RESPONSE_BYTES, controller.signal)
+    const bytes = await readBounded(response, MAX_RESPONSE_BYTES, signal)
     if (!matchesMagic(bytes, mediaType)) throw imageError('IMAGE_MAGIC_MISMATCH')
     return { bytes, mediaType }
   } catch (error) {
-    if (timedOut) throw imageError('IMAGE_TIMEOUT')
     if (isImageError(error)) throw error
     throw imageError('IMAGE_NETWORK_FAILED')
-  } finally {
-    clearTimeout(timeout)
-    controller.abort()
   }
 }
 
@@ -177,19 +179,21 @@ async function readBounded(response: Response, limit: number, signal: AbortSigna
   return bytes
 }
 
-async function encodeImage(bytes: Uint8Array, mediaType: string, codec = browserCodec) {
-  const encoded = await codec(bytes, mediaType)
+async function encodeImage(bytes: Uint8Array, mediaType: string, signal: AbortSignal, codec = browserCodec) {
+  const encoded = await codec(bytes, mediaType, signal)
   if (!encoded || encoded.bytes.length >= bytes.length
     || encoded.mediaType !== 'image/webp'
     || !matchesMagic(encoded.bytes, encoded.mediaType)) return { bytes, mediaType }
   return encoded
 }
 
-async function browserCodec(bytes: Uint8Array, mediaType: string): Promise<EncodedImage | null> {
+async function browserCodec(bytes: Uint8Array, mediaType: string, signal: AbortSignal): Promise<EncodedImage | null> {
+  throwIfAborted(signal)
   if (typeof createImageBitmap !== 'function') return null
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: mediaType }))
+    throwIfAborted(signal)
   } catch {
     throw imageError('IMAGE_DECODE_FAILED')
   }
@@ -203,6 +207,7 @@ async function browserCodec(bytes: Uint8Array, mediaType: string): Promise<Encod
       if (!context) throw imageError('IMAGE_CANVAS_FAILED')
       context.drawImage(bitmap, 0, 0, width, height)
       const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.82 })
+      throwIfAborted(signal)
       return { bytes: new Uint8Array(await blob.arrayBuffer()), mediaType: 'image/webp' }
     }
     if (typeof document === 'undefined') return null
@@ -213,6 +218,7 @@ async function browserCodec(bytes: Uint8Array, mediaType: string): Promise<Encod
     if (!context) throw imageError('IMAGE_CANVAS_FAILED')
     context.drawImage(bitmap, 0, 0, width, height)
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82))
+    throwIfAborted(signal)
     if (!blob) throw imageError('IMAGE_CANVAS_FAILED')
     return { bytes: new Uint8Array(await blob.arrayBuffer()), mediaType: 'image/webp' }
   } catch (error) {
@@ -252,18 +258,29 @@ async function archivePathFor(entityId: string, mediaType: string) {
   return `images/bean-${slug}-${suffix}.${extensionFor(mediaType)}`
 }
 
-async function withDeadline<T>(operation: () => Promise<T>, timeoutMs: number) {
+async function withDeadline<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number) {
+  const controller = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
+  const running = operation(controller.signal)
   try {
     return await Promise.race([
-      operation(),
+      running,
       new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(imageError('IMAGE_TIMEOUT')), timeoutMs)
+        timeout = setTimeout(() => {
+          controller.abort()
+          reject(imageError('IMAGE_TIMEOUT'))
+        }, timeoutMs)
       }),
     ])
   } finally {
     if (timeout) clearTimeout(timeout)
+    controller.abort()
+    void running.catch(() => undefined)
   }
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) throw imageError('IMAGE_TIMEOUT')
 }
 
 async function digestBytes(bytes: Uint8Array) {

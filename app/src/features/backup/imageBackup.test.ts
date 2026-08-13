@@ -84,6 +84,32 @@ describe('complete image backup', () => {
     expect(result.document.manifest.images[0].errorCode).toBe('IMAGE_TIMEOUT')
   })
 
+  it('does not expand stalled codec work after the two workers time out', async () => {
+    let started = 0
+    let active = 0
+    let maxActive = 0
+    const result = await createCompleteBackup(
+      await backupWithImages(Array.from({ length: 20 }, (_, index) => `https://img.example/${index}.jpg`)),
+      async () => streamedResponse(jpeg, 'image/jpeg'),
+      {
+        timeoutMs: 5,
+        codec: async (_bytes, _type, signal) => {
+          started += 1
+          active += 1
+          maxActive = Math.max(maxActive, active)
+          await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+          active -= 1
+          return null
+        },
+      },
+    )
+    expect(started).toBe(2)
+    expect(maxActive).toBe(2)
+    expect(active).toBe(0)
+    expect(result.document.manifest.images.filter((item) => item.errorCode === 'IMAGE_TIMEOUT')).toHaveLength(2)
+    expect(result.document.manifest.images.filter((item) => item.errorCode === 'IMAGE_DEADLINE_BUDGET')).toHaveLength(18)
+  })
+
   it('sorts warning codes independently of concurrent completion order', async () => {
     const document = await backupWithImages(['https://img.example/slow.jpg', 'https://img.example/fast.jpg'])
     const run = async (reverse: boolean) => createCompleteBackup(document, async (url) => {
