@@ -9,6 +9,9 @@ select has_function('public', 'canonical_jsonb_text', array['jsonb']);
 select has_function('public', 'export_backup_v2', array['text', 'text']);
 select has_function('public', 'preview_restore_v2', array['jsonb', 'text']);
 select has_function(
+  'public', 'restore_backup_v2', array['jsonb', 'text', 'text']
+);
+select has_function(
   'public',
   'record_backup_download',
   array['text', 'text', 'jsonb']
@@ -75,6 +78,9 @@ select ok(
     and not has_function_privilege(
       'anon', 'public.record_backup_download(text,text,jsonb)', 'EXECUTE'
     )
+    and not has_function_privilege(
+      'anon', 'public.restore_backup_v2(jsonb,text,text)', 'EXECUTE'
+    )
     and not exists (
       select 1
       from pg_catalog.pg_proc as procedures
@@ -87,6 +93,7 @@ select ok(
       where procedures.oid in (
           'public.export_backup_v2(text,text)'::regprocedure,
           'public.preview_restore_v2(jsonb,text)'::regprocedure,
+          'public.restore_backup_v2(jsonb,text,text)'::regprocedure,
           'public.record_backup_download(text,text,jsonb)'::regprocedure
         )
         and privileges.grantee = 0
@@ -104,6 +111,11 @@ select ok(
     and has_function_privilege(
       'authenticated',
       'public.record_backup_download(text,text,jsonb)',
+      'EXECUTE'
+    )
+    and has_function_privilege(
+      'authenticated',
+      'public.restore_backup_v2(jsonb,text,text)',
       'EXECUTE'
     ),
   'authenticated can execute backup RPCs'
@@ -145,6 +157,18 @@ select ok(
   'preview RPC is definer-owned and search-path hardened'
 );
 select ok(
+  (
+    select prosecdef
+      and coalesce(
+        proconfig @> array['search_path=pg_catalog, pg_temp']::text[],
+        false
+      )
+    from pg_catalog.pg_proc
+    where oid = 'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+  ),
+  'restore RPC is definer-owned and search-path hardened'
+);
+select ok(
   pg_catalog.pg_get_functiondef(
     'public.export_backup_v2(text,text)'::regprocedure
   ) like '%pg_advisory_xact_lock%hashtextextended(v_user_id::text, 0)%',
@@ -155,6 +179,59 @@ select ok(
     'public.preview_restore_v2(jsonb,text)'::regprocedure
   ) like '%pg_advisory_xact_lock%hashtextextended(v_user_id::text, 0)%',
   'preview uses the same per-user transaction lock as sync'
+);
+select ok(
+  pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+  ) like '%pg_advisory_xact_lock%hashtextextended(v_user_id::text, 0)%',
+  'restore uses the same per-user transaction lock as sync'
+);
+select is(
+  (
+    select pg_catalog.count(*)
+    from pg_catalog.regexp_matches(
+      pg_catalog.pg_get_functiondef(
+        'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+      ),
+      'on conflict \(id\) do nothing',
+      'g'
+    )
+  ),
+  5::bigint,
+  'every globally keyed array insert safely skips a concurrent ID collision'
+);
+select ok(
+  pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+  ) like '%pg_advisory_xact_lock%hashtextextended(''backup-bean:'' || v_bean_id::text, 0)%'
+  and (
+    select pg_catalog.count(*)
+    from pg_catalog.regexp_matches(
+      pg_catalog.pg_get_functiondef(
+        'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+      ),
+      'preview_restore_v2\(p_backup, ''safe_merge''\)',
+      'g'
+    )
+  ) = 2,
+  'restore serializes global bean IDs and revalidates after collision locks'
+);
+select ok(
+  pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+  ) like '%actual post-insert state before any dependent write%'
+  and pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+    ),
+    'actual post-insert state before any dependent write'
+  ) < pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'public.restore_backup_v2(jsonb,text,text)'::regprocedure
+    ),
+    'insert into public.brew_logs'
+  ),
+  'restore checks actual bean ownership after insert and before dependents'
 );
 
 select is(
@@ -769,6 +846,219 @@ select throws_ok(
   )$$,
   '22023', 'BACKUP_FORMAT_INVALID',
   'v1-derived backup rejects forged eligibility'
+);
+
+create temporary table safe_merge_fixtures (
+  name text primary key,
+  document jsonb not null
+) on commit drop;
+
+with base as materialized (
+  select public.export_backup_v2('0.0.0-test', 'lightweight') as document
+), changed as (
+  select pg_catalog.jsonb_set(
+    pg_catalog.jsonb_set(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          pg_catalog.jsonb_set(
+            document,
+            '{data,beans}',
+            pg_catalog.jsonb_build_array(
+              (document #> '{data,beans,0}')
+                || '{"user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"must not update active"}'::jsonb,
+              (document #> '{data,beans,0}')
+                || '{"id":"71000000-0000-0000-0000-000000000003","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"must not revive deleted"}'::jsonb,
+              (document #> '{data,beans,0}')
+                || '{"id":"71000000-0000-0000-0000-000000000004","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"must not expose cross-user collision"}'::jsonb,
+              (document #> '{data,beans,0}')
+                || '{"id":"71000000-0000-4000-8000-000000000101","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"safe merged bean"}'::jsonb
+            )
+          ),
+          '{data,brewLogs}',
+          pg_catalog.jsonb_build_array(
+            (document #> '{data,brewLogs,0}')
+              || '{"id":"72000000-0000-4000-8000-000000000101","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","bean_id":"71000000-0000-4000-8000-000000000101"}'::jsonb
+          )
+        ),
+        '{data,brewTemplates}',
+        pg_catalog.jsonb_build_array(
+          (document #> '{data,brewTemplates,0}')
+            || '{"id":"73000000-0000-4000-8000-000000000101","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"safe merged template"}'::jsonb
+        )
+      ),
+      '{data,aiRecommendations}',
+      pg_catalog.jsonb_build_array(
+        (document #> '{data,aiRecommendations,0}')
+          || '{"id":"74000000-0000-4000-8000-000000000101","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","bean_id":"71000000-0000-4000-8000-000000000101"}'::jsonb
+      )
+    ),
+    '{data,sourceImports}',
+    pg_catalog.jsonb_build_array(
+      (document #> '{data,sourceImports,0}')
+        || '{"id":"75000000-0000-4000-8000-000000000101","user_id":"ffffffff-ffff-4fff-8fff-ffffffffffff","source_url":"https://example.invalid/safe-merge"}'::jsonb
+    )
+  ) as document
+  from base
+), counted as (
+  select pg_catalog.jsonb_set(
+    document,
+    '{manifest,recordCounts}',
+    (document #> '{manifest,recordCounts}')
+      || '{"beans":4,"brewLogs":1,"brewTemplates":1,"aiRecommendations":1,"sourceImports":1}'::jsonb
+  ) as document
+  from changed
+)
+insert into safe_merge_fixtures (name, document)
+select 'complete', private.test_rechecksum_backup(document) from counted;
+
+create temporary table safe_merge_epoch_before on commit drop as
+select sync_epoch from public.user_sync_state
+where user_id = '70000000-0000-0000-0000-000000000001';
+
+select is(
+  public.restore_backup_v2(
+    (select document from safe_merge_fixtures where name = 'complete'),
+    'safe_merge',
+    null
+  ),
+  '{"mode":"safe_merge","counts":{"profile":{"inserted":0,"skipped":1},"userSettings":{"inserted":0,"skipped":1},"beans":{"inserted":1,"skipped":3},"brewLogs":{"inserted":1,"skipped":0},"brewTemplates":{"inserted":1,"skipped":0},"aiRecommendations":{"inserted":1,"skipped":0},"sourceImports":{"inserted":1,"skipped":0}}}'::jsonb,
+  'safe merge returns exact inserted and skipped counts for seven sections'
+);
+select ok(
+  (select user_id = '70000000-0000-0000-0000-000000000001'::uuid
+     from public.beans where id = '71000000-0000-4000-8000-000000000101')
+  and (select user_id = '70000000-0000-0000-0000-000000000001'::uuid
+     from public.brew_logs where id = '72000000-0000-4000-8000-000000000101')
+  and (select user_id = '70000000-0000-0000-0000-000000000001'::uuid
+     from public.brew_templates where id = '73000000-0000-4000-8000-000000000101')
+  and (select user_id = '70000000-0000-0000-0000-000000000001'::uuid
+     from public.ai_recommendations where id = '74000000-0000-4000-8000-000000000101')
+  and (select user_id = '70000000-0000-0000-0000-000000000001'::uuid
+     from public.source_imports where id = '75000000-0000-4000-8000-000000000101'),
+  'safe merge inserts dependencies first and rewrites every supplied owner'
+);
+select ok(
+  (select name = 'Own bean A' from public.beans where id = '71000000-0000-0000-0000-000000000001')
+  and (select name = 'Deleted own bean' and deleted_at is not null from public.beans where id = '71000000-0000-0000-0000-000000000003')
+  and (select user_id = '70000000-0000-0000-0000-000000000002'::uuid and name = 'Other bean' from public.beans where id = '71000000-0000-0000-0000-000000000004'),
+  'safe merge never updates, revives, or takes ownership of global ID collisions'
+);
+select is(
+  (select sync_epoch from public.user_sync_state where user_id = '70000000-0000-0000-0000-000000000001'),
+  (select sync_epoch from safe_merge_epoch_before),
+  'safe merge does not change sync epoch'
+);
+
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          (select document from safe_merge_fixtures where name = 'complete'),
+          '{data,brewLogs,0,bean_id}',
+          '"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"'::jsonb
+        ),
+        '{manifest,recordCounts,beans}',
+        '4'::jsonb
+      )
+    ), 'safe_merge', null
+  )$$,
+  '22023', 'BACKUP_INVALID_RELATIONS',
+  'safe merge rejects orphan relations instead of weakening them'
+);
+
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          pg_catalog.jsonb_set(
+            (select document from safe_merge_fixtures where name = 'complete'),
+            '{data,beans}',
+            pg_catalog.jsonb_build_array(
+              ((select document #> '{data,beans,3}' from safe_merge_fixtures where name = 'complete')
+                || '{"id":"71000000-0000-4000-8000-000000000102"}'::jsonb)
+            )
+          ),
+          '{data,brewTemplates,0}',
+          ((select document #> '{data,brewTemplates,0}' from safe_merge_fixtures where name = 'complete')
+            || '{"id":"73000000-0000-4000-8000-000000000102","dose_grams":-1}'::jsonb)
+        ),
+        '{manifest,recordCounts,beans}', '1'::jsonb
+      )
+    ), 'safe_merge', null
+  )$$,
+  '23514',
+  'new row for relation "brew_templates" violates check constraint "brew_templates_measurements_check"',
+  'a later selected-row constraint failure aborts the whole restore statement'
+);
+select is(
+  (select count(*) from public.beans where id = '71000000-0000-4000-8000-000000000102'),
+  0::bigint,
+  'safe merge rolls back earlier dependency inserts after a later failure'
+);
+
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          (select document from safe_merge_fixtures where name = 'complete'),
+          '{data,beans}',
+          pg_catalog.jsonb_build_array(
+            ((select document #> '{data,beans,3}' from safe_merge_fixtures where name = 'complete') || '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}'::jsonb),
+            ((select document #> '{data,beans,3}' from safe_merge_fixtures where name = 'complete') || '{"id":"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"}'::jsonb)
+          )
+        ),
+        '{manifest,recordCounts,beans}', '2'::jsonb
+      )
+    ), 'safe_merge', null
+  )$$,
+  '22023', 'BACKUP_FORMAT_INVALID',
+  'safe merge rejects duplicate UUIDs after case normalization'
+);
+
+select is(
+  public.restore_backup_v2(
+    private.test_rechecksum_backup(
+      pg_catalog.jsonb_set(
+        pg_catalog.jsonb_set(
+          (select document from safe_merge_fixtures where name = 'complete'),
+          '{data}',
+          '{"profile":null,"userSettings":null,"beans":[],"brewLogs":[],"brewTemplates":[],"aiRecommendations":[],"sourceImports":[]}'::jsonb
+        ),
+        '{manifest,recordCounts}',
+        '{"profile":0,"userSettings":0,"beans":0,"brewLogs":0,"brewTemplates":0,"aiRecommendations":0,"sourceImports":0}'::jsonb
+      )
+    ), 'safe_merge', null
+  ),
+  '{"mode":"safe_merge","counts":{"profile":{"inserted":0,"skipped":0},"userSettings":{"inserted":0,"skipped":0},"beans":{"inserted":0,"skipped":0},"brewLogs":{"inserted":0,"skipped":0},"brewTemplates":{"inserted":0,"skipped":0},"aiRecommendations":{"inserted":0,"skipped":0},"sourceImports":{"inserted":0,"skipped":0}}}'::jsonb,
+  'safe merge preserves nullable profile/settings and empty seven-section semantics'
+);
+
+delete from public.brew_logs where id = '72000000-0000-4000-8000-000000000101';
+delete from public.ai_recommendations where id = '74000000-0000-4000-8000-000000000101';
+delete from public.brew_templates where id = '73000000-0000-4000-8000-000000000101';
+delete from public.source_imports where id = '75000000-0000-4000-8000-000000000101';
+delete from public.beans where id = '71000000-0000-4000-8000-000000000101';
+
+select is(
+  public.restore_backup_v2(
+    (select document from restore_preview_fixtures where name = 'derived-v1'),
+    'safe_merge', null
+  ) #> '{counts}',
+  '{"profile":{"inserted":0,"skipped":0},"userSettings":{"inserted":0,"skipped":0},"beans":{"inserted":1,"skipped":2},"brewLogs":{"inserted":0,"skipped":0},"brewTemplates":{"inserted":0,"skipped":0},"aiRecommendations":{"inserted":0,"skipped":0},"sourceImports":{"inserted":0,"skipped":0}}'::jsonb,
+  'v1-derived safe merge writes only its declared authoritative sections'
+);
+delete from public.beans where id = '71000000-0000-0000-0000-000000000099';
+
+select throws_ok(
+  $$select public.restore_backup_v2(
+    (select document from safe_merge_fixtures where name = 'complete'),
+    'full_rollback', 'FULL RESTORE'
+  )$$,
+  '22023', 'INVALID_RESTORE_MODE',
+  'Task 5 restore endpoint cannot execute full rollback'
 );
 
 select set_config(

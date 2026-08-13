@@ -19,6 +19,11 @@ type BackupTransport = BackupV2Document | MigratedV1SafeMergeDocument
 type RpcResult = { data: unknown; error: unknown; status?: number }
 type BackupMode = 'lightweight' | 'complete'
 type V2Counts = BackupV2Document['manifest']['recordCounts']
+type SafeMergeCount = { inserted: number; skipped: number }
+export type SafeMergeRestoreResult = {
+  mode: 'safe_merge'
+  counts: Record<(typeof backupPreviewSections)[number], SafeMergeCount>
+}
 
 export class BackupRestoreApiError extends Error {
   readonly code: string
@@ -39,6 +44,19 @@ export function createBackupRestoreApi(supabase: SupabaseClient) {
   ) => Promise<RpcResult>
 
   return {
+    async restoreSafeMerge(
+      backup: BackupTransport,
+    ): Promise<SafeMergeRestoreResult> {
+      await validateSafeMergeRequest(backup)
+      const response = await rpc('restore_backup_v2', {
+        p_backup: backup,
+        p_mode: 'safe_merge',
+        p_confirmation: null,
+      })
+      assertRpcSuccess(response)
+      return validateSafeMergeResponse(response.data)
+    },
+
     async preview(
       backup: BackupTransport,
       mode: BackupRestoreMode,
@@ -98,6 +116,31 @@ export function createBackupRestoreApi(supabase: SupabaseClient) {
       return response.data
     },
   }
+}
+
+async function validateSafeMergeRequest(backup: BackupTransport) {
+  try {
+    await validateBackupTransportDocument(backup)
+  } catch {
+    throw invalidRequest()
+  }
+}
+
+function validateSafeMergeResponse(value: unknown): SafeMergeRestoreResult {
+  const row = exactRecord(value, ['mode', 'counts'])
+  if (row.mode !== 'safe_merge'
+    || !isPlainRecord(row.counts)
+    || !hasExactKeys(row.counts, [...backupPreviewSections])) {
+    throw invalidResponse()
+  }
+  const responseCounts = row.counts
+  const counts = Object.fromEntries(backupPreviewSections.map((section) => {
+    const count = exactRecord(responseCounts[section], ['inserted', 'skipped'])
+    if (!isNonNegativeInteger(count.inserted)
+      || !isNonNegativeInteger(count.skipped)) throw invalidResponse()
+    return [section, { inserted: count.inserted, skipped: count.skipped }]
+  })) as SafeMergeRestoreResult['counts']
+  return { mode: 'safe_merge', counts }
 }
 
 async function validatePreviewRequest(

@@ -103,6 +103,18 @@ function preview() {
   }
 }
 
+function safeMergeResult() {
+  const empty = { inserted: 0, skipped: 0 }
+  return {
+    mode: 'safe_merge',
+    counts: {
+      profile: { ...empty }, userSettings: { ...empty }, beans: { ...empty },
+      brewLogs: { ...empty }, brewTemplates: { ...empty },
+      aiRecommendations: { ...empty }, sourceImports: { ...empty },
+    },
+  }
+}
+
 function clientWith(results: unknown[]) {
   const rpc = vi.fn()
   for (const result of results) rpc.mockResolvedValueOnce(result)
@@ -110,6 +122,43 @@ function clientWith(results: unknown[]) {
 }
 
 describe('backup restore API boundary', () => {
+  it('exposes only a strictly validated safe-merge restore request', async () => {
+    const document = await backup()
+    const result = safeMergeResult()
+    const { client, rpc } = clientWith([{ data: result, error: null }])
+    const api = createBackupRestoreApi(client)
+
+    await expect(api.restoreSafeMerge(document)).resolves.toEqual(result)
+    expect(rpc).toHaveBeenCalledWith('restore_backup_v2', {
+      p_backup: document,
+      p_mode: 'safe_merge',
+      p_confirmation: null,
+    })
+    expect('restoreFullRollback' in api).toBe(false)
+  })
+
+  it.each([
+    ['unknown root', { ...safeMergeResult(), surprise: true }],
+    ['wrong mode', { ...safeMergeResult(), mode: 'full_rollback' }],
+    ['missing section', { ...safeMergeResult(), counts: { ...safeMergeResult().counts, beans: undefined } }],
+    ['unknown count field', { ...safeMergeResult(), counts: { ...safeMergeResult().counts, beans: { inserted: 0, skipped: 0, total: 0 } } }],
+    ['negative count', { ...safeMergeResult(), counts: { ...safeMergeResult().counts, beans: { inserted: -1, skipped: 1 } } }],
+    ['fractional count', { ...safeMergeResult(), counts: { ...safeMergeResult().counts, beans: { inserted: 0.5, skipped: 0 } } }],
+  ])('rejects malformed safe-merge response: %s', async (_name, data) => {
+    const { client } = clientWith([{ data, error: null }])
+    await expect(createBackupRestoreApi(client).restoreSafeMerge(await backup()))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+  })
+
+  it('validates v1-derived safe-merge transport before restore RPC', async () => {
+    const document = await derivedBackup()
+    const malformed = { ...document, hidden: true }
+    const { client, rpc } = clientWith([])
+    await expect(createBackupRestoreApi(client).restoreSafeMerge(malformed as never))
+      .rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it('sends only the validated preview request and accepts the exact response', async () => {
     const document = await backup()
     const result = preview()

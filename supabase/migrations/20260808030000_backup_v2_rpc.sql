@@ -976,6 +976,325 @@ exception
 end;
 $$;
 
+create or replace function public.restore_backup_v2(
+  p_backup jsonb,
+  p_mode text,
+  p_confirmation text default null
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_preview jsonb;
+  v_manifest jsonb;
+  v_data jsonb;
+  v_is_v1 boolean;
+  v_authoritative text[] := array[]::text[];
+  v_bean_id uuid;
+  v_inserted integer;
+  v_total integer;
+  v_counts jsonb := '{}'::jsonb;
+begin
+  if v_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
+  end if;
+  if p_mode is null or p_mode <> 'safe_merge' then
+    raise exception using errcode = '22023', message = 'INVALID_RESTORE_MODE';
+  end if;
+  if p_confirmation is not null then
+    raise exception using errcode = '22023', message = 'INVALID_RESTORE_CONFIRMATION';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(v_user_id::text, 0)
+  );
+
+  -- Preview owns the complete transport validation contract. Calling it inside
+  -- this transaction deliberately revalidates the document after the lock is
+  -- held instead of trusting any earlier browser preview.
+  v_preview := public.preview_restore_v2(p_backup, 'safe_merge');
+  if pg_catalog.jsonb_array_length(v_preview->'invalidRelations') <> 0 then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
+  end if;
+
+  v_manifest := p_backup->'manifest';
+  v_data := p_backup->'data';
+  v_is_v1 := v_manifest ? 'sourceSchemaVersion';
+  if v_is_v1 then
+    select coalesce(pg_catalog.array_agg(section), array[]::text[])
+    into v_authoritative
+    from pg_catalog.jsonb_array_elements_text(
+      v_manifest->'authoritativeSections'
+    ) section;
+  end if;
+
+  -- User locks do not serialize two different owners importing the same global
+  -- bean UUID. Lock every selected bean ID in canonical order, then re-run the
+  -- complete validation against a fresh READ COMMITTED statement snapshot.
+  -- This closes the race where a bean conflict is skipped but a dependent row
+  -- would otherwise point at the other user's newly committed bean.
+  if not v_is_v1 or 'beans' = any(v_authoritative) then
+    for v_bean_id in
+      select (row_data->>'id')::uuid
+      from pg_catalog.jsonb_array_elements(v_data->'beans') row_data
+      order by (row_data->>'id')::uuid
+    loop
+      perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('backup-bean:' || v_bean_id::text, 0)
+      );
+    end loop;
+  end if;
+  v_preview := public.preview_restore_v2(p_backup, 'safe_merge');
+  if pg_catalog.jsonb_array_length(v_preview->'invalidRelations') <> 0 then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
+  end if;
+
+  -- A relation may use only a bean that this transaction can really insert or
+  -- an existing active bean owned by this caller. A backup bean shadowed by a
+  -- cross-user/global or soft-deleted collision cannot satisfy the relation.
+  if exists (
+    select 1
+    from (
+      select row_data
+      from pg_catalog.jsonb_array_elements(v_data->'brewLogs') row_data
+      where not v_is_v1 or 'brewLogs' = any(v_authoritative)
+      union all
+      select row_data
+      from pg_catalog.jsonb_array_elements(v_data->'aiRecommendations') row_data
+      where not v_is_v1
+    ) dependent
+    where dependent.row_data->'bean_id' <> 'null'::jsonb
+      and not exists (
+        select 1 from public.beans current_bean
+        where current_bean.id = (dependent.row_data->>'bean_id')::uuid
+          and current_bean.user_id = v_user_id
+          and current_bean.deleted_at is null
+      )
+      and not exists (
+        select 1
+        from pg_catalog.jsonb_array_elements(v_data->'beans') backup_bean
+        where (backup_bean->>'id')::uuid =
+            (dependent.row_data->>'bean_id')::uuid
+          and backup_bean->'deleted_at' = 'null'::jsonb
+          and not exists (
+            select 1 from public.beans any_current_bean
+            where any_current_bean.id = (backup_bean->>'id')::uuid
+          )
+      )
+  ) then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
+  end if;
+
+  v_total := case when v_data->'profile' = 'null'::jsonb then 0 else 1 end;
+  if v_total = 1 then
+    insert into public.profiles
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.profiles,
+        v_data->'profile' || pg_catalog.jsonb_build_object('id', v_user_id)
+      )
+    ).*
+    where not exists (select 1 from public.profiles where id = v_user_id);
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'profile', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  v_total := case when v_data->'userSettings' = 'null'::jsonb then 0 else 1 end;
+  if v_total = 1 then
+    insert into public.user_settings
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.user_settings,
+        v_data->'userSettings'
+          || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    where not exists (
+      select 1 from public.user_settings where user_id = v_user_id
+    );
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'userSettings', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  v_total := case when not v_is_v1 or 'beans' = any(v_authoritative)
+    then pg_catalog.jsonb_array_length(v_data->'beans') else 0 end;
+  if v_total > 0 then
+    insert into public.beans
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.beans,
+        row_data || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    from pg_catalog.jsonb_array_elements(v_data->'beans') row_data
+    where not exists (
+      select 1 from public.beans current_row
+      where current_row.id = (row_data->>'id')::uuid
+    )
+    on conflict (id) do nothing;
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'beans', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  -- Check the actual post-insert state before any dependent write. This also
+  -- covers concurrent bean writers that do not participate in restore locks:
+  -- ON CONFLICT may have skipped our candidate, but its dependents must never
+  -- be allowed to bind to another owner or a soft-deleted row.
+  if exists (
+    select 1
+    from (
+      select row_data
+      from pg_catalog.jsonb_array_elements(v_data->'brewLogs') row_data
+      where not v_is_v1 or 'brewLogs' = any(v_authoritative)
+      union all
+      select row_data
+      from pg_catalog.jsonb_array_elements(v_data->'aiRecommendations') row_data
+      where not v_is_v1
+    ) dependent
+    where dependent.row_data->'bean_id' <> 'null'::jsonb
+      and not exists (
+        select 1 from public.beans actual_bean
+        where actual_bean.id = (dependent.row_data->>'bean_id')::uuid
+          and actual_bean.user_id = v_user_id
+          and actual_bean.deleted_at is null
+      )
+  ) then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
+  end if;
+
+  v_total := case when not v_is_v1 or 'brewTemplates' = any(v_authoritative)
+    then pg_catalog.jsonb_array_length(v_data->'brewTemplates') else 0 end;
+  if v_total > 0 then
+    insert into public.brew_templates
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.brew_templates,
+        row_data || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    from pg_catalog.jsonb_array_elements(v_data->'brewTemplates') row_data
+    where not exists (
+      select 1 from public.brew_templates current_row
+      where current_row.id = (row_data->>'id')::uuid
+    )
+    on conflict (id) do nothing;
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'brewTemplates', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  v_total := case when not v_is_v1 or 'brewLogs' = any(v_authoritative)
+    then pg_catalog.jsonb_array_length(v_data->'brewLogs') else 0 end;
+  if v_total > 0 then
+    insert into public.brew_logs
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.brew_logs,
+        row_data || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    from pg_catalog.jsonb_array_elements(v_data->'brewLogs') row_data
+    where not exists (
+      select 1 from public.brew_logs current_row
+      where current_row.id = (row_data->>'id')::uuid
+    )
+    on conflict (id) do nothing;
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'brewLogs', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  v_total := case when v_is_v1 then 0
+    else pg_catalog.jsonb_array_length(v_data->'aiRecommendations') end;
+  if v_total > 0 then
+    insert into public.ai_recommendations
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.ai_recommendations,
+        row_data || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    from pg_catalog.jsonb_array_elements(v_data->'aiRecommendations') row_data
+    where not exists (
+      select 1 from public.ai_recommendations current_row
+      where current_row.id = (row_data->>'id')::uuid
+    )
+    on conflict (id) do nothing;
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'aiRecommendations', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  v_total := case when v_is_v1 then 0
+    else pg_catalog.jsonb_array_length(v_data->'sourceImports') end;
+  if v_total > 0 then
+    insert into public.source_imports
+    select (
+      pg_catalog.jsonb_populate_record(
+        null::public.source_imports,
+        row_data || pg_catalog.jsonb_build_object('user_id', v_user_id)
+      )
+    ).*
+    from pg_catalog.jsonb_array_elements(v_data->'sourceImports') row_data
+    where not exists (
+      select 1 from public.source_imports current_row
+      where current_row.id = (row_data->>'id')::uuid
+    )
+    on conflict (id) do nothing;
+    get diagnostics v_inserted = row_count;
+  else
+    v_inserted := 0;
+  end if;
+  v_counts := v_counts || pg_catalog.jsonb_build_object(
+    'sourceImports', pg_catalog.jsonb_build_object(
+      'inserted', v_inserted, 'skipped', v_total - v_inserted
+    )
+  );
+
+  return pg_catalog.jsonb_build_object(
+    'mode', 'safe_merge',
+    'counts', v_counts
+  );
+end;
+$$;
+
 create or replace function public.record_backup_download(
   p_file_name text,
   p_backup_mode text,
@@ -1094,12 +1413,16 @@ revoke execute on function public.export_backup_v2(text, text)
 from public, anon;
 revoke execute on function public.preview_restore_v2(jsonb, text)
 from public, anon;
+revoke execute on function public.restore_backup_v2(jsonb, text, text)
+from public, anon;
 revoke execute on function public.record_backup_download(text, text, jsonb)
 from public, anon;
 
 grant execute on function public.export_backup_v2(text, text)
 to authenticated;
 grant execute on function public.preview_restore_v2(jsonb, text)
+to authenticated;
+grant execute on function public.restore_backup_v2(jsonb, text, text)
 to authenticated;
 grant execute on function public.record_backup_download(text, text, jsonb)
 to authenticated;
