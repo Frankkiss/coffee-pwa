@@ -96,6 +96,7 @@ declare
   v_columns text;
   v_updates text;
   v_result jsonb;
+  v_entity_lock_key text;
 begin
   if v_user_id is null then
     raise exception using errcode = '42501', message = 'AUTH_REQUIRED';
@@ -121,6 +122,25 @@ begin
     pg_catalog.hashtextextended(v_user_id::text, 0)
   );
 
+  -- A receipt hit deliberately precedes the evolving backup validator. This
+  -- is the response-loss path: only the immutable request binding is needed.
+  v_checksum := p_backup #>> '{manifest,checksum}';
+  select * into v_receipt
+  from public.backup_restore_receipts
+  where user_id = v_user_id
+    and restore_request_id = p_restore_request_id;
+  if found then
+    if v_checksum is null
+      or v_checksum !~ '^[0-9a-f]{64}$'
+      or v_receipt.restore_mode <> p_mode
+      or v_receipt.backup_checksum <> v_checksum
+    then
+      raise exception using
+        errcode = '22023', message = 'RESTORE_REQUEST_REUSE_MISMATCH';
+    end if;
+    return v_receipt.result;
+  end if;
+
   -- Preview is the single strict transport validator. It verifies a native,
   -- complete v2 document, checksum, row shapes, duplicate IDs and relations.
   v_preview := public.preview_restore_v2(p_backup, 'full_rollback');
@@ -128,20 +148,34 @@ begin
     raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
   end if;
   v_data := p_backup->'data';
-  v_checksum := p_backup #>> '{manifest,checksum}';
 
-  select * into v_receipt
-  from public.backup_restore_receipts
-  where user_id = v_user_id
-    and restore_request_id = p_restore_request_id;
-  if found then
-    if v_receipt.restore_mode <> p_mode
-      or v_receipt.backup_checksum <> v_checksum
-    then
-      raise exception using
-        errcode = '22023', message = 'RESTORE_REQUEST_REUSE_MISMATCH';
-    end if;
-    return v_receipt.result;
+  -- Serialize restore writers for every globally keyed ID in canonical order.
+  -- Non-restore writers are also contained by the ownership-qualified conflict
+  -- clause and the post-write ownership assertion below.
+  for v_entity_lock_key in
+    select section || ':' || normalized_id
+    from (
+      select section, (row_data->>'id')::uuid::text normalized_id
+      from (values
+        ('beans'), ('brewLogs'), ('brewTemplates'),
+        ('aiRecommendations'), ('sourceImports')
+      ) sections(section)
+      cross join lateral pg_catalog.jsonb_array_elements(
+        v_data -> section
+      ) row_data
+    ) selected
+    order by section, normalized_id
+  loop
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('backup-entity:' || v_entity_lock_key, 0)
+    );
+  end loop;
+
+  -- Revalidate after acquiring global-ID locks; READ COMMITTED supplies a new
+  -- statement snapshot and closes the check/use window between restores.
+  v_preview := public.preview_restore_v2(p_backup, 'full_rollback');
+  if pg_catalog.jsonb_array_length(v_preview->'invalidRelations') <> 0 then
+    raise exception using errcode = '22023', message = 'BACKUP_INVALID_RELATIONS';
   end if;
 
   -- A globally keyed row owned by another user must never be overwritten.
@@ -244,20 +278,21 @@ begin
 
     select pg_catalog.string_agg(pg_catalog.format('%I', attname), ', ' order by attnum),
       pg_catalog.string_agg(pg_catalog.format('%1$I=excluded.%1$I', attname), ', ' order by attnum)
-        filter (where attname <> 'id')
+        filter (where attname not in ('id', 'user_id'))
     into v_columns, v_updates
     from pg_catalog.pg_attribute
     where attrelid = pg_catalog.to_regclass('public.' || v_table)
       and attnum > 0 and not attisdropped;
 
     execute pg_catalog.format(
-      'insert into public.%1$I (%2$s)
+      'insert into public.%1$I as restore_target (%2$s)
        select %3$s from pg_catalog.jsonb_array_elements($1) row_data
        cross join lateral pg_catalog.jsonb_populate_record(
          null::public.%1$I,
          row_data || pg_catalog.jsonb_build_object(''user_id'', $2, ''deleted_at'', null)
        ) populated
-       on conflict (id) do update set %4$s',
+       on conflict (id) do update set %4$s
+       where restore_target.user_id=$2',
       v_table, v_columns,
       (select pg_catalog.string_agg(pg_catalog.format('populated.%I', attname), ', ' order by attnum)
        from pg_catalog.pg_attribute
@@ -265,6 +300,17 @@ begin
          and attnum > 0 and not attisdropped),
       v_updates
     ) using v_rows, v_user_id;
+
+    execute pg_catalog.format(
+      'select count(*) from pg_catalog.jsonb_array_elements($1) b
+       where not exists (select 1 from public.%I c
+         where c.id=(b->>''id'')::uuid and c.user_id=$2 and c.deleted_at is null)',
+      v_table
+    ) into v_total using v_rows, v_user_id;
+    if v_total <> 0 then
+      raise exception using
+        errcode = '22023', message = 'BACKUP_CROSS_USER_ID_COLLISION';
+    end if;
 
     execute pg_catalog.format(
       'update public.%I c set deleted_at=pg_catalog.clock_timestamp()

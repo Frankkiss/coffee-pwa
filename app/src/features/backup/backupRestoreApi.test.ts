@@ -160,6 +160,27 @@ describe('backup restore API boundary', () => {
     })
   })
 
+  it('rejects derived backups, bad confirmation, request IDs and malformed full responses', async () => {
+    const document = await backup()
+    const derived = await derivedBackup()
+    const invalidClient = clientWith([])
+    const invalidApi = createBackupRestoreApi(invalidClient.client)
+    await expect(invalidApi.restoreFullRollback(
+      derived as never, 'FULL RESTORE', '76000000-0000-4000-8000-000000000001',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    await expect(invalidApi.restoreFullRollback(
+      document, 'full restore', 'not-a-uuid',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_REQUEST' })
+    expect(invalidClient.rpc).not.toHaveBeenCalled()
+
+    const malformed = clientWith([{ data: {
+      mode: 'full_rollback', syncEpoch: 0, counts: {},
+    }, error: null }])
+    await expect(createBackupRestoreApi(malformed.client).restoreFullRollback(
+      document, 'FULL RESTORE', '76000000-0000-4000-8000-000000000001',
+    )).rejects.toMatchObject({ code: 'INVALID_BACKUP_RPC_RESPONSE' })
+  })
+
   it.each([
     ['unknown root', { ...safeMergeResult(), surprise: true }],
     ['wrong mode', { ...safeMergeResult(), mode: 'full_rollback' }],

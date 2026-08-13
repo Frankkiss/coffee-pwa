@@ -129,6 +129,18 @@ select ok(
   'restore receipts are private infrastructure with RLS enabled'
 );
 select ok(
+  pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure
+  ) like '%backup-entity:%'
+  and pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure
+  ) like '%where restore_target.user_id=$2%'
+  and pg_catalog.pg_get_functiondef(
+    'public.restore_backup_v2(jsonb,text,text,uuid)'::regprocedure
+  ) like '%BACKUP_CROSS_USER_ID_COLLISION%',
+  'full rollback combines global ID serialization, guarded conflict update and post-write ownership assertion'
+);
+select ok(
   (
     select prosecdef
       and coalesce(
@@ -1149,6 +1161,18 @@ select is(
   'response-loss retry returns the stored response'
 );
 select is(
+  public.restore_backup_v2(
+    pg_catalog.jsonb_set(
+      (select document from full_rollback_fixtures where name = 'valid'),
+      '{data}', 'null'::jsonb
+    ),
+    'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000001'
+  ),
+  (select result from full_rollback_result),
+  'receipt hit bypasses later transport validation and returns exact response'
+);
+select is(
   (select sync_epoch from public.user_sync_state where user_id = '70000000-0000-0000-0000-000000000001'),
   (select sync_epoch + 1 from full_rollback_epoch_before),
   'response-loss retry does not increment epoch again'
@@ -1163,6 +1187,23 @@ select throws_ok(
   )$$,
   '22023', 'RESTORE_REQUEST_REUSE_MISMATCH',
   'restore request ID cannot be reused for different content'
+);
+select throws_ok(
+  $$select public.restore_backup_v2(
+    private.test_rechecksum_backup(pg_catalog.jsonb_set(
+      (select document from full_rollback_fixtures where name = 'valid'),
+      '{data,beans,1,id}', '"71000000-0000-0000-0000-000000000004"'::jsonb
+    )), 'full_rollback', 'FULL RESTORE',
+    '76000000-0000-4000-8000-000000000006'
+  )$$,
+  '22023', 'BACKUP_CROSS_USER_ID_COLLISION',
+  'full rollback rejects a globally keyed row owned by another user'
+);
+select ok(
+  (select user_id='70000000-0000-0000-0000-000000000002'::uuid
+      and name='Other bean'
+    from public.beans where id='71000000-0000-0000-0000-000000000004'),
+  'cross-user collision never changes ownership or content'
 );
 select throws_ok(
   $$select public.restore_backup_v2(
