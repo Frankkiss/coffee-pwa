@@ -298,7 +298,7 @@ git commit -m "test: cover multi-device sync and restore"
 
 - [ ] **Step 2: Add local Supabase SQL tests**
 
-Use the current official `supabase/setup-cli@v3` action with the reviewed CLI version `2.101.0`, start the local stack, reset migrations, and run all files in `supabase/tests`.
+Use the current official `supabase/setup-cli@v3` action with the reviewed CLI version `2.113.0`, start the local stack, reset migrations, and run all files in `supabase/tests`.
 Do not link the production project in CI.
 
 - [ ] **Step 3: Add Edge Function tests**
