@@ -1,5 +1,12 @@
 # Data Safety Preflight
 
+Production rollout and incident response are governed by:
+
+- [`data-safety-rollout.md`](./data-safety-rollout.md)
+- [`data-safety-rollback.md`](./data-safety-rollback.md)
+
+The dated sections below are immutable local evidence snapshots. A historical `BLOCKED` dependency result does not override a newer dated PASS, and no local PASS authorizes a production link, migration, function deployment, or frontend enablement.
+
 1. Run `004_data_safety_preflight.sql` against the linked Supabase project before any migration.
 2. Save the unedited output with the execution date outside the public repository if it contains user data.
 3. Record table counts, RLS state, policy count, orphan count, and invalid-range count in the rollout checklist.
