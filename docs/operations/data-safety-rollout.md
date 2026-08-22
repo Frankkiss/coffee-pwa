@@ -74,6 +74,8 @@ Confirm these release artifacts before production approval:
 5. The later global-enable change is a reviewed one-line workflow change from `pilot` to `enabled`, not an ad-hoc production edit.
 6. Any Edge rollback commit is independently reviewed in advance to retain JWT authentication, database rate limiting, bounded inputs/upstream responses, URL-field rejection with zero page fetch, and redacted logs. If none qualifies, record `none` and use protection plus a forward fix.
 
+Local release-candidate records: [2026-08-22 evidence](./data-safety-rc-2026-08-22.md) and [production approval package](./data-safety-production-approval-2026-08-22.md). Production is **NOT RUN** and all production approval checkboxes remain unchecked.
+
 ## Phase 1: identify production without changing it
 
 Do not run these commands until Task 9 has explicit user approval for linking and read-only production inspection.
