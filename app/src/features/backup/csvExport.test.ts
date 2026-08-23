@@ -55,6 +55,10 @@ function createBrewLog(overrides: Partial<BrewLog> = {}): BrewLog {
     dripper: 'Hario',
     filter_paper: null,
     grinder: 'C40',
+    brew_mode: 'espresso',
+    brew_variant: null,
+    ice_grams: null,
+    beverage_grams: 30,
     grind_setting: '22 clicks',
     coffee_grams: 15,
     water_grams: 240,
@@ -99,6 +103,8 @@ describe('CSV export', () => {
 
     expect(csv).toContain('咖啡豆ID,冲煮时间,方式')
     expect(csv).toContain('citrus、honey')
+    expect(csv).toContain('冲煮模式,冷萃类型,冰量,意式出液克数')
+    expect(csv).toContain('espresso,,,30')
     expect(csv).toContain('"clean ""sweet"" cup"')
   })
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isBrewMode, normalizeBrewVariant } from '../brews/brewMode'
 import type { JsonObject, JsonValue } from '../../lib/jsonTypes'
 import { daysInMonth, isRfc3339 } from '../../lib/rfc3339'
 import type { ServerBeanRow } from '../beans/beanTypes'
@@ -146,6 +147,9 @@ const brewMutableKeys = [
   'bitterness', 'astringency', 'body', 'aftertaste', 'flavor_tags',
   'is_pinned_recipe', 'notes', 'schema_version',
 ] as const
+const brewMethodKeys = [
+  'brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams',
+] as const
 const templateMutableKeys = [
   'name', 'category', 'difficulty', 'brewer', 'filter', 'dose_grams',
   'water_grams', 'ratio', 'water_temperature_min', 'water_temperature_max',
@@ -188,13 +192,17 @@ function rebuildBeanPayload(value: unknown): BeanUpsertPayload {
 }
 
 function rebuildBrewPayload(value: unknown): BrewLogUpsertPayload {
-  const row = exactRecord(value, brewMutableKeys, 'brew payload')
+  const row = recordWithOptional(value, brewMutableKeys, brewMethodKeys, 'brew payload')
   assertBrewMutable(row)
   return {
     bean_id: row.bean_id as string | null,
     brewed_at: row.brewed_at as string,
     method: row.method as string | null,
     dripper: row.dripper as string | null,
+    ...(Object.hasOwn(row, 'brew_mode') ? { brew_mode: row.brew_mode as BrewLogUpsertPayload['brew_mode'] } : {}),
+    ...(Object.hasOwn(row, 'brew_variant') ? { brew_variant: row.brew_variant as BrewLogUpsertPayload['brew_variant'] } : {}),
+    ...(Object.hasOwn(row, 'ice_grams') ? { ice_grams: row.ice_grams as number | null } : {}),
+    ...(Object.hasOwn(row, 'beverage_grams') ? { beverage_grams: row.beverage_grams as number | null } : {}),
     filter_paper: row.filter_paper as string | null,
     grinder: row.grinder as string | null,
     grind_setting: row.grind_setting as string | null,
@@ -303,7 +311,7 @@ function validateBeanRow(value: unknown): ServerBeanRow {
 }
 
 function validateBrewRow(value: unknown): BrewLog {
-  const row = exactRecord(value, ['id', 'user_id', ...brewMutableKeys.slice(0, -1), 'created_at', 'updated_at', 'deleted_at', 'schema_version'], 'brew row', invalidResponse)
+  const row = recordWithOptional(value, ['id', 'user_id', ...brewMutableKeys.slice(0, -1), 'created_at', 'updated_at', 'deleted_at', 'schema_version'], brewMethodKeys, 'brew row', invalidResponse)
   assertOwnedServerFields(row, true)
   assertBrewMutable(row, invalidResponse)
   return structuredClone(row) as BrewLog
@@ -341,6 +349,22 @@ function assertBeanMutable(row: Record<string, unknown>, failure = invalidOperat
 
 function assertBrewMutable(row: Record<string, unknown>, failure = invalidOperation): void {
   if (!nullableUuid(row.bean_id) || !isRfc3339(row.brewed_at) || !nullableString(row.method) || !nullableString(row.dripper) || !nullableString(row.filter_paper) || !nullableString(row.grinder) || !nullableString(row.grind_setting) || !nullableFinite(row.coffee_grams) || !nullableFinite(row.water_grams) || !nullableString(row.ratio) || !nullableFinite(row.water_temperature_c) || !nullableFinite(row.total_time_seconds) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isJsonValue) || !nullableFinite(row.rating) || !nullableFinite(row.acidity) || !nullableFinite(row.sweetness) || !nullableFinite(row.bitterness) || !nullableFinite(row.astringency) || !nullableFinite(row.body) || !nullableFinite(row.aftertaste) || !stringArray(row.flavor_tags) || typeof row.is_pinned_recipe !== 'boolean' || !nullableString(row.notes) || row.schema_version !== 1) throw failure()
+  const mode = row.brew_mode
+  const variant = row.brew_variant
+  const ice = row.ice_grams
+  const beverage = row.beverage_grams
+  if ((mode !== undefined && mode !== null && !isBrewMode(mode))
+    || (variant !== undefined && variant !== null && normalizeBrewVariant('cold_brew', variant) !== variant)
+    || (ice !== undefined && (!nullableFinite(ice) || (ice !== null && ice < 0)))
+    || (beverage !== undefined && (!nullableFinite(beverage) || (beverage !== null && beverage < 0)))
+    || (variant != null && mode !== 'cold_brew')
+    || (ice != null && mode !== 'iced_pourover')
+    || (beverage != null && mode !== 'espresso')) throw failure()
+}
+
+function recordWithOptional(value: unknown, required: readonly string[], optional: readonly string[], label: string, failure: (message?: string) => SyncApiError = invalidOperation) {
+  if (!isPlainRecord(value) || !required.every((key) => Object.hasOwn(value, key)) || !Object.keys(value).every((key) => required.includes(key) || optional.includes(key))) throw failure(`${label} has invalid fields`)
+  return value
 }
 
 function assertTemplateMutable(row: Record<string, unknown>, failure = invalidOperation): void {

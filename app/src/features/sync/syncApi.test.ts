@@ -47,6 +47,8 @@ function snapshot() {
     beans: [{ id: ids.bean, user_id: ids.user, ...beanPayload(), created_at: time, updated_at: time, deleted_at: null }],
     brewLogs: [{
       id: ids.brew, user_id: ids.user, bean_id: ids.bean, brewed_at: time,
+      brew_mode: 'iced_pourover', brew_variant: null,
+      ice_grams: 90, beverage_grams: null,
       method: null, dripper: null, filter_paper: null, grinder: null,
       grind_setting: null, coffee_grams: 15, water_grams: 250, ratio: null,
       water_temperature_c: 92, total_time_seconds: 180, pour_steps: [{ water: 50 }],
@@ -209,6 +211,10 @@ describe('sync API boundary', () => {
     ['unsupported brew schema', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], schema_version: 2 }] }],
     ['unsupported template schema', { ...snapshot(), brewTemplates: [{ ...snapshot().brewTemplates[0], schema_version: 2 }] }],
     ['unsupported settings schema', { ...snapshot(), userSettings: { ...snapshot().userSettings, schema_version: 2 } }],
+    ['bad brew mode', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], brew_mode: 'moka' }] }],
+    ['negative ice weight', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], ice_grams: -1 }] }],
+    ['non-finite output weight', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], brew_mode: 'espresso', ice_grams: null, beverage_grams: Infinity }] }],
+    ['mode-incompatible output weight', { ...snapshot(), brewLogs: [{ ...snapshot().brewLogs[0], beverage_grams: 30 }] }],
     ['unsupported recommendation schema', { ...snapshot(), aiRecommendations: [{ ...snapshot().aiRecommendations[0], schema_version: 2 }] }],
   ])('rejects malformed snapshot: %s', async (_name, data) => {
     const { client } = clientWith([{ data, error: null }])

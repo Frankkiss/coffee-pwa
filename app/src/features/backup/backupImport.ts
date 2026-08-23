@@ -267,12 +267,17 @@ function isBlendComponent(value: unknown) {
 function isBrewLog(value: unknown): value is BrewLog {
   if (!isRecord(value)) return false
   const keys = ['id', 'user_id', 'bean_id', 'brewed_at', 'method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'coffee_grams', 'water_grams', 'ratio', 'water_temperature_c', 'total_time_seconds', 'pour_steps', 'rating', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste', 'flavor_tags', 'is_pinned_recipe', 'notes', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
-  if (!hasExactKeys(value, keys)) return false
+  const methodKeys = ['brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams']
+  if (!hasExactKeys(value, keys, methodKeys)) return false
   return isUuid(value.id) && isUuid(value.user_id) && (value.bean_id === null || isUuid(value.bean_id)) && isTimestamp(value.brewed_at) &&
     ['method', 'dripper', 'filter_paper', 'grinder', 'grind_setting', 'ratio', 'notes'].every((key) => isNullableString(value[key])) && isNullableTimestamp(value.deleted_at) &&
     ['coffee_grams', 'water_grams', 'water_temperature_c', 'rating'].every((key) => isNullableNumber(value[key])) &&
     ['total_time_seconds', 'acidity', 'sweetness', 'bitterness', 'astringency', 'body', 'aftertaste'].every((key) => isNullableSafeInteger(value[key])) &&
-    Array.isArray(value.pour_steps) && isJsonValue(value.pour_steps) && isStringArray(value.flavor_tags) && typeof value.is_pinned_recipe === 'boolean' && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version)
+    Array.isArray(value.pour_steps) && isJsonValue(value.pour_steps) && isStringArray(value.flavor_tags) && typeof value.is_pinned_recipe === 'boolean' && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version) &&
+    (value.brew_mode === undefined || value.brew_mode === null || ['hot_pourover', 'iced_pourover', 'cold_brew', 'espresso'].includes(String(value.brew_mode))) &&
+    (value.brew_variant === undefined || value.brew_variant === null || ['ready_to_drink', 'concentrate'].includes(String(value.brew_variant))) &&
+    (value.ice_grams === undefined || (isNullableNumber(value.ice_grams) && (value.ice_grams === null || value.ice_grams >= 0))) && (value.beverage_grams === undefined || (isNullableNumber(value.beverage_grams) && (value.beverage_grams === null || value.beverage_grams >= 0))) &&
+    (value.brew_variant == null || value.brew_mode === 'cold_brew') && (value.ice_grams == null || value.brew_mode === 'iced_pourover') && (value.beverage_grams == null || value.brew_mode === 'espresso')
 }
 
 function isBrewTemplate(value: unknown): value is UserBrewTemplateRow {

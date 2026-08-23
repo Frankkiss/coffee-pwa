@@ -632,6 +632,30 @@ describe('localRepository Outbox isolation and state transitions', () => {
     )
   })
 
+  it.each([
+    ['invalid mode', { brew_mode: 'moka' }],
+    ['negative ice', { brew_mode: 'iced_pourover', ice_grams: -1 }],
+    ['incompatible ice', { brew_mode: 'hot_pourover', ice_grams: 80 }],
+    ['incompatible output', { brew_mode: 'cold_brew', beverage_grams: 30 }],
+  ])('rejects method-aware brew payloads before they leave the Outbox: %s', async (_name, overrides) => {
+    const mutation = getCompleteUpsertMutation('brewLog')
+    await putEnvelope('outbox', {
+      key: mutation.mutationId,
+      userId: userOne,
+      value: {
+        ...mutation,
+        payload: {
+          ...mutation.payload,
+          ...overrides,
+        },
+      },
+    })
+
+    await expect(listOutbox(userOne)).rejects.toMatchObject({
+      code: 'LOCAL_SYNC_DATA_CORRUPT',
+    })
+  })
+
   it.each(['roast_date', 'purchase_date'] as const)(
     'rejects an impossible bean %s calendar date',
     async (field) => {
@@ -1903,6 +1927,10 @@ function createBrewLog(userId: string, id: string): BrewLog {
     bean_id: null,
     brewed_at: fixedNow,
     method: null,
+    brew_mode: 'hot_pourover',
+    brew_variant: null,
+    ice_grams: null,
+    beverage_grams: null,
     dripper: null,
     filter_paper: null,
     grinder: null,

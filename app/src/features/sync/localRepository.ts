@@ -1938,7 +1938,7 @@ function isBeanBlendComponent(value: unknown) {
 }
 
 function isBrewLogUpsertPayload(value: Record<string, unknown>) {
-  if (!hasExactKeys(value, [
+  if (!hasRequiredAndOptionalKeys(value, [
     'bean_id',
     'brewed_at',
     'method',
@@ -1963,6 +1963,8 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
     'is_pinned_recipe',
     'notes',
     'schema_version',
+  ], [
+    'brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams',
   ])) {
     return false
   }
@@ -1971,6 +1973,10 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
     isIsoTime(value.brewed_at) &&
     isNullableString(value.method) &&
     isNullableString(value.dripper) &&
+    (value.brew_mode === undefined || value.brew_mode === null || value.brew_mode === 'hot_pourover' || value.brew_mode === 'iced_pourover' || value.brew_mode === 'cold_brew' || value.brew_mode === 'espresso') &&
+    (value.brew_variant === undefined || value.brew_variant === null || value.brew_variant === 'ready_to_drink' || value.brew_variant === 'concentrate') &&
+    (value.ice_grams === undefined || (isNullableFiniteNumber(value.ice_grams) && (value.ice_grams === null || value.ice_grams >= 0))) &&
+    (value.beverage_grams === undefined || (isNullableFiniteNumber(value.beverage_grams) && (value.beverage_grams === null || value.beverage_grams >= 0))) &&
     isNullableString(value.filter_paper) &&
     isNullableString(value.grinder) &&
     isNullableString(value.grind_setting) &&
@@ -1991,7 +1997,10 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
     isStringArray(value.flavor_tags) &&
     typeof value.is_pinned_recipe === 'boolean' &&
     isNullableString(value.notes) &&
-    value.schema_version === 1
+    value.schema_version === 1 &&
+    (value.brew_variant == null || value.brew_mode === 'cold_brew') &&
+    (value.ice_grams == null || value.brew_mode === 'iced_pourover') &&
+    (value.beverage_grams == null || value.brew_mode === 'espresso')
   )
 }
 
@@ -2257,6 +2266,17 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
+
+function hasRequiredAndOptionalKeys(
+  value: Record<string, unknown>,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[],
+) {
+  const actualKeys = Object.keys(value)
+  const allowed = new Set([...requiredKeys, ...optionalKeys])
+  return requiredKeys.every((key) => Object.hasOwn(value, key))
+    && actualKeys.every((key) => allowed.has(key))
+}
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }

@@ -74,6 +74,10 @@ async function saveBrewLog(
 ) {
   const payload: BrewLogUpsertPayload = {
     bean_id: entity.bean_id, brewed_at: entity.brewed_at, method: entity.method,
+    ...(entity.brew_mode !== undefined ? { brew_mode: entity.brew_mode } : {}),
+    ...(entity.brew_variant !== undefined ? { brew_variant: entity.brew_variant } : {}),
+    ...(entity.ice_grams !== undefined ? { ice_grams: entity.ice_grams } : {}),
+    ...(entity.beverage_grams !== undefined ? { beverage_grams: entity.beverage_grams } : {}),
     dripper: entity.dripper, filter_paper: entity.filter_paper, grinder: entity.grinder,
     grind_setting: entity.grind_setting, coffee_grams: entity.coffee_grams,
     water_grams: entity.water_grams, ratio: entity.ratio,

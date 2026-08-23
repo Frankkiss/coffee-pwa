@@ -1,5 +1,6 @@
 import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import { normalizeBrewMode, normalizeBrewVariant } from '../brews/brewMode'
 import {
   createDeletePayload,
   createEntityId,
@@ -71,6 +72,10 @@ const legacyBrewFields = new Set([
   'total_time_seconds',
   'pour_steps',
   'rating',
+  'brew_mode',
+  'brew_variant',
+  'ice_grams',
+  'beverage_grams',
   'acidity',
   'sweetness',
   'bitterness',
@@ -903,6 +908,10 @@ function createBrewEntity(
       rating: optionalNullableNumber(record.rating, 'brew rating'),
       acidity: optionalNullableNumber(record.acidity, 'brew acidity'),
       sweetness: optionalNullableNumber(record.sweetness, 'brew sweetness'),
+      brew_mode: normalizeBrewMode({ brew_mode: optionalNullableString(record.brew_mode, 'brew brew_mode'), method: optionalNullableString(record.method, 'brew method') }),
+      brew_variant: normalizeBrewVariant(normalizeBrewMode({ brew_mode: optionalNullableString(record.brew_mode, 'brew brew_mode'), method: optionalNullableString(record.method, 'brew method') }), record.brew_variant),
+      ice_grams: optionalNullableNumber(record.ice_grams, 'brew ice_grams'),
+      beverage_grams: optionalNullableNumber(record.beverage_grams, 'brew beverage_grams'),
       bitterness: optionalNullableNumber(record.bitterness, 'brew bitterness'),
       astringency: optionalNullableNumber(record.astringency, 'brew astringency'),
       body: optionalNullableNumber(record.body, 'brew body'),

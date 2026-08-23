@@ -16,6 +16,8 @@ const nowIso = '2026-08-09T03:04:05.006Z'
 const laterIso = '2026-08-09T04:05:06.007Z'
 
 const input: BrewLogWriteInput = {
+  brew_mode: 'hot_pourover', brew_variant: null,
+  ice_grams: null, beverage_grams: null,
   bean_id: beanId, brewed_at: nowIso, method: 'pour-over', dripper: 'V60',
   filter_paper: 'CAFEC', grinder: 'C40', grind_setting: '24', coffee_grams: 15,
   water_grams: 250, ratio: '1:16.7', water_temperature_c: 92,
