@@ -44,7 +44,7 @@ export type RecommendBrewDependencies = {
 };
 
 const defaultDependencies: RecommendBrewDependencies = {
-  getApiKey: () => Deno.env.get("DEEPSEEK_API_KEY"),
+  getApiKey: () => Deno.env.get("DEEPSEEK_VISION_API_KEY"),
   requireUser,
   consumeRateLimit,
   fetch,
@@ -152,7 +152,7 @@ export async function handleRecommendBrewRequest(
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "deepseek-v4-pro",
+          model: "deepseek-v4-flash-vision-exp",
           messages: [
             {
               role: "system",

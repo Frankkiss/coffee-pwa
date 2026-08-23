@@ -9,7 +9,7 @@
 ## 范围
 
 - `import-source` 使用实验模型 `deepseek-v4-flash-vision-exp`。
-- 使用独立的 Supabase Edge Function Secret：`DEEPSEEK_VISION_API_KEY`。
+- `import-source` 与 `recommend-brew` 统一使用 Supabase Edge Function Secret：`DEEPSEEK_VISION_API_KEY`，并统一调用 `deepseek-v4-flash-vision-exp`。
 - 支持单张 JPEG、PNG 或 WebP 包装图片，也支持只粘贴商品文字，或图片与文字一起提交。
 - 移除前端 Tesseract、OCR 按钮和相关依赖。
 - 不加入网址输入、网页抓取、自动保存、图片持久化或多图批量解析。
@@ -27,7 +27,7 @@
 
 ## 数据与安全
 
-- 新 API Key 只存在 Supabase Secret `DEEPSEEK_VISION_API_KEY`，不进入前端、Git、日志或响应。
+- 新 API Key 只存在 Supabase Secret `DEEPSEEK_VISION_API_KEY`，由两个 AI Edge Function 共享，不进入前端、Git、日志或响应。
 - 原图仅在本次请求内经过内存，不写入 IndexedDB、Supabase 表、来源记录、备份或日志。
 - 继续拒绝任何 `url` 请求字段，Edge Function 不下载外部网页或图片。
 - 前端限制 8 MiB；Edge Function 对 JSON 请求体设置 12 MiB 上限，并对解码图片再次执行 8 MiB 上限，避免只信任客户端。
@@ -61,7 +61,8 @@ type SourceImportRequest = {
 - 豆子、同步、备份和数据库表结构不变。
 - 现有纯文本来源导入继续可用，但改由同一视觉模型处理。
 - 已有 `source_imports` 记录和旧备份无需迁移。
-- `DEEPSEEK_API_KEY` 继续供冲煮推荐使用，不被本阶段替换。
+- 冲煮推荐改为读取 `DEEPSEEK_VISION_API_KEY` 并调用同一视觉模型，但请求仍为纯文本结构化上下文；规则计算、AI 失败回退和草稿确认机制保持不变。
+- 生产部署完成后，旧 `DEEPSEEK_API_KEY` 不再被项目代码读取，可在确认两个函数正常后从 Supabase Secrets 移除。
 
 ## 验收标准
 

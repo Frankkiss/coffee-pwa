@@ -32,5 +32,5 @@ Edge Function setup:
 
 - Function source: `supabase/functions/recommend-brew/index.ts`
 - Function config: `supabase/config.toml`
-- DeepSeek secret name: `DEEPSEEK_API_KEY`
+- Shared DeepSeek secret name: `DEEPSEEK_VISION_API_KEY`
 - Detailed guide: `docs/operations/deepseek-edge-function-setup.md`

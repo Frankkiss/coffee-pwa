@@ -136,7 +136,12 @@ export async function handleImportSourceRequest(
   } catch (error) {
     const tooLarge = error instanceof SourceImageTooLargeError;
     return jsonResponse(
-      { configured: true, sourceUrl: manualSourceUrl, draft: null, error: tooLarge ? "SOURCE_IMAGE_TOO_LARGE" : "INVALID_SOURCE_IMAGE" },
+      {
+        configured: true,
+        sourceUrl: manualSourceUrl,
+        draft: null,
+        error: tooLarge ? "SOURCE_IMAGE_TOO_LARGE" : "INVALID_SOURCE_IMAGE",
+      },
       tooLarge ? 413 : 400,
     );
   }
@@ -274,7 +279,10 @@ function normalizeSourceImage(value: unknown): SourceImportImage | null {
     throw new Error("source image media type mismatch");
   }
   const encoded = dataUrl.slice(prefix.length);
-  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+  if (
+    !encoded || encoded.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)
+  ) {
     throw new Error("invalid source image base64");
   }
   const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
@@ -314,7 +322,12 @@ export async function requestDeepSeekDraft(
           role: "user",
           content: [
             { type: "text", text: buildPrompt(sourceUrl, sourceText) },
-            ...(sourceImage ? [{ type: "image_url", image_url: { url: sourceImage.dataUrl, detail: "original" } }] : []),
+            ...(sourceImage
+              ? [{
+                type: "image_url",
+                image_url: { url: sourceImage.dataUrl, detail: "original" },
+              }]
+              : []),
           ],
         },
       ],

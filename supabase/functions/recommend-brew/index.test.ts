@@ -66,6 +66,38 @@ function dependencies(
   };
 }
 
+Deno.test("recommend-brew uses the shared vision model with a text-only request", async () => {
+  let upstreamBody: Record<string, unknown> = {};
+  const response = await handleRecommendBrewRequest(
+    request(validBody()),
+    dependencies({
+      fetch: (_input, init) => {
+        upstreamBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"summary":"ok"}' } }],
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    }),
+  );
+
+  assertEquals(response.status, 200);
+  assertEquals(upstreamBody?.model, "deepseek-v4-flash-vision-exp");
+  const messages = upstreamBody?.messages as Array<{
+    role: string;
+    content: unknown;
+  }>;
+  assertEquals(messages.length, 2);
+  assertEquals(messages[0].role, "system");
+  assertEquals(typeof messages[0].content, "string");
+  assertEquals(messages[1].role, "user");
+
+  assertEquals(typeof messages[1].content, "string");
+});
 Deno.test("recommend-brew rejects unauthenticated calls before rate limiting or parsing", async () => {
   let rateLimitCalled = false;
   let fetched = false;

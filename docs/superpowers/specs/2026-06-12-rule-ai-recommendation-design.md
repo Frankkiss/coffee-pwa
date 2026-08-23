@@ -6,7 +6,7 @@ Add a first recommendation feature for logged-in users. The user chooses one exi
 
 ## Safety and Secrets
 
-DeepSeek API keys must never be placed in frontend code, GitHub repository variables, or committed files. The key belongs in Supabase Edge Function Secrets as `DEEPSEEK_API_KEY`.
+DeepSeek API keys must never be placed in frontend code, GitHub repository variables, or committed files. Both AI Edge Functions share the Supabase Edge Function Secret `DEEPSEEK_VISION_API_KEY`.
 
 ## Recommendation Flow
 
@@ -32,7 +32,7 @@ The AI output is plain Chinese text with:
 
 ## Edge Function
 
-The Edge Function uses DeepSeek's OpenAI-compatible `/chat/completions` endpoint at `https://api.deepseek.com`. It uses `deepseek-v4-pro` by default for higher-quality suggestions. If `DEEPSEEK_API_KEY` is missing, it returns `configured: false` without exposing server details.
+The Edge Function uses DeepSeek's OpenAI-compatible `/chat/completions` endpoint at `https://api.deepseek.com`. It uses `deepseek-v4-flash-vision-exp` with text-only structured recommendation context. If `DEEPSEEK_VISION_API_KEY` is missing, it returns `configured: false` without exposing server details. Existing saved records retain their original `model_name`; no migration rewrites them.
 
 ## Non-Goals
 

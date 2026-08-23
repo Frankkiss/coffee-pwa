@@ -491,7 +491,7 @@ AI 请求只能包含必要上下文：
 - 来源导入生成的内容只能作为草稿或候选列表，必须由用户确认后保存。
 - 不提供 `coffeer.net/beans` 或其他站点适配器，不扩展为全网自动抓取。
 
-DeepSeek 官方文档显示其 API 支持 OpenAI/Anthropic 兼容格式，OpenAI 兼容 base_url 为 `https://api.deepseek.com`，示例模型包括 `deepseek-v4-flash` 和 `deepseek-v4-pro`。
+当前来源导入与冲煮推荐统一通过 Supabase Edge Function 调用 `deepseek-v4-flash-vision-exp`，共享服务端 Secret `DEEPSEEK_VISION_API_KEY`；来源导入发送图片/文字内容块，冲煮推荐只发送规则计算后的结构化文本上下文。
 
 ## 技术方案
 

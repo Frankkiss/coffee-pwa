@@ -4,7 +4,7 @@
 
 **Goal:** Replace browser Tesseract OCR with a direct, server-side DeepSeek vision source-import flow while preserving text import, draft confirmation, authentication, rate limits, and data-safety boundaries.
 
-**Architecture:** The React client validates one image and encodes it as a data URL only when the user starts parsing. The authenticated `import-source` Edge Function validates the bounded request again and sends text plus an optional image content block to `deepseek-v4-flash-vision-exp` using the isolated `DEEPSEEK_VISION_API_KEY`; only normalized structured output returns to the client.
+**Architecture:** The React client validates one image and encodes it as a data URL only when the user starts parsing. The authenticated `import-source` Edge Function validates the bounded request again and sends text plus an optional image content block to `deepseek-v4-flash-vision-exp`; `import-source` and text-only `recommend-brew` share the server-side `DEEPSEEK_VISION_API_KEY`, and only normalized structured output returns to the client.
 
 **Tech Stack:** React, TypeScript, Vitest, Supabase Edge Functions, Deno tests, DeepSeek OpenAI-compatible Chat Completions API.
 
@@ -59,17 +59,18 @@
 **Files:**
 - Modify: `docs/operations/deepseek-edge-function-setup.md`
 
-- [ ] **Step 1: Document** `DEEPSEEK_VISION_API_KEY`, the separate purpose of the existing `DEEPSEEK_API_KEY`, safe Dashboard secret setup, and `import-source` deployment/verification steps without including a key value.
+- [ ] **Step 1: Document** the shared `DEEPSEEK_VISION_API_KEY`, retirement of `DEEPSEEK_API_KEY`, safe Dashboard secret setup, and deployment/verification steps for both AI functions without including a key value.
+- [ ] **Step 1a: Write a failing recommendation-function test** that captures the upstream request and requires `deepseek-v4-flash-vision-exp`, then update `recommend-brew` to read `DEEPSEEK_VISION_API_KEY` while keeping its request text-only and its rule fallback unchanged.
 - [ ] **Step 2: Run frontend verification** from `app`: `npm test`, `npm run lint`, and `npm run build`; all must exit 0.
 - [ ] **Step 3: Run Edge verification**: `deno test supabase/functions/import-source/index.test.ts supabase/functions/recommend-brew/index.test.ts supabase/functions/_shared/auth.test.ts supabase/functions/_shared/rateLimit.test.ts --allow-env`; all must pass.
 - [ ] **Step 4: Run a mobile viewport check** at approximately 390×844 covering image selection, parse state, draft review, and confirmation controls; capture evidence without sending production data.
 - [ ] **Step 5: Confirm Git scope** with `git status --short` and `git diff --check`; the two legacy patch files must remain untracked and untouched.
 - [ ] **Step 6: Commit** operations documentation and verification adjustments as `docs: document DeepSeek vision import setup`.
-- [ ] **Step 7: Production gate:** do not deploy `import-source` until the user has created `DEEPSEEK_VISION_API_KEY` in Supabase Secrets. After confirmation, deploy only `import-source`, smoke-test image and text drafts, then push the reviewed commits.
+- [ ] **Step 7: Production gate:** do not deploy either AI function until the user has created `DEEPSEEK_VISION_API_KEY` in Supabase Secrets. After confirmation, deploy `recommend-brew` and `import-source`, smoke-test recommendation fallback plus image/text drafts, then push the reviewed commits. Remove the retired secret only after both paths pass.
 
 ## Self-review result
 
-- Spec coverage: request contract, vision model, isolated secret, input limits, no URL fetching, no image persistence, text compatibility, draft confirmation, tests, mobile verification, and deployment gate are covered.
+- Spec coverage: request contract, shared server-side vision secret, vision model, input limits, no URL fetching, no image persistence, text compatibility, recommendation fallback, draft confirmation, tests, mobile verification, and deployment gate are covered.
 - Placeholder scan: no TBD/TODO or unspecified implementation step remains.
 - Type consistency: both client and Edge Function use one optional `{ dataUrl, mediaType }` image object and the same MIME allowlist.
 

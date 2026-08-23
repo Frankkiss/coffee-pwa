@@ -179,7 +179,7 @@ describe('buildSavedRecommendationPayload', () => {
 
     expect(payload.user_id).toBe('user-1')
     expect(payload.bean_id).toBe('bean-1')
-    expect(payload.model_name).toBe('deepseek-v4-pro')
+    expect(payload.model_name).toBe('deepseek-v4-flash-vision-exp')
     expect(payload.input_context).toMatchObject({
       targetBean: { id: 'bean-1', name: '埃塞俄比亚 花魁' },
       primaryBrewLogId: 'brew-1',

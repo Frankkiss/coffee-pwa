@@ -18,7 +18,7 @@ type BuildSavedRecommendationPayloadInput = {
   aiRecommendation: AiRecommendationResponse | null
 }
 
-export const deepSeekRecommendationModel = 'deepseek-v4-pro'
+export const deepSeekRecommendationModel = 'deepseek-v4-flash-vision-exp'
 
 export function buildSavedRecommendationPayload({
   userId,

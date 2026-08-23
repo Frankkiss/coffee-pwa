@@ -82,10 +82,12 @@ Deno.test("import-source rejects invalid image data before calling DeepSeek", as
 });
 
 Deno.test("import-source rejects unsupported or mismatched image media types", async () => {
-  for (const image of [
-    { mediaType: "image/gif", dataUrl: "data:image/gif;base64,R0lGODlh" },
-    { mediaType: "image/jpeg", dataUrl: "data:image/png;base64,iVBORw==" },
-  ]) {
+  for (
+    const image of [
+      { mediaType: "image/gif", dataUrl: "data:image/gif;base64,R0lGODlh" },
+      { mediaType: "image/jpeg", dataUrl: "data:image/png;base64,iVBORw==" },
+    ]
+  ) {
     const response = await handleImportSourceRequest(
       request({ pastedText: "包装正面", image }),
       dependencies(() => Promise.resolve({})),
