@@ -1,16 +1,11 @@
 import { requireUser, type RequireUserResult } from "../_shared/auth.ts";
 import { consumeRateLimit } from "../_shared/rateLimit.ts";
-
-type RecommendationRequest = {
-  targetBean: Record<string, unknown>;
-  primaryRecommendation: unknown;
-  finalRuleRecommendation?: unknown;
-  confidence?: unknown;
-  baseSource?: unknown;
-  beanAdjustmentReasons?: string[];
-  references: Record<string, unknown>[];
-  templateCandidates?: Record<string, unknown>[];
-};
+import {
+  isBoundedRecommendationRequest,
+  type RecommendationRequest,
+  validateStructuredAiResponse,
+} from "./contract.ts";
+import { buildBoundedPrompt } from "./prompt.ts";
 
 type SecurityLogEntry = {
   requestId: string;
@@ -123,7 +118,7 @@ export async function handleRecommendBrewRequest(
     return finish(invalidInputResponse());
   }
 
-  if (!isRecommendationRequest(payload)) {
+  if (!isBoundedRecommendationRequest(payload)) {
     return finish(invalidInputResponse());
   }
 
@@ -157,11 +152,11 @@ export async function handleRecommendBrewRequest(
             {
               role: "system",
               content:
-                "你是一个谨慎的手冲咖啡助手。只能基于用户提供的豆子信息、拼配组成、候选冲煮模板、规则推荐参数和历史记录给建议，不要编造不存在的设备、数据或冲煮方法。必须只输出 JSON，不要输出 Markdown。",
+                "你是谨慎的咖啡配方优化助手。规则层已经确定基础配方；你只能在请求给定边界内优化，并且必须只输出 JSON。",
             },
             {
               role: "user",
-              content: [{ type: "text", text: buildPrompt(payload) }],
+              content: [{ type: "text", text: buildBoundedPrompt(payload) }],
             },
           ],
           response_format: { type: "json_object" },
@@ -182,7 +177,18 @@ export async function handleRecommendBrewRequest(
     }
 
     const suggestion = content.slice(0, maxAiTextCharacters);
-    const structured = parseStructuredRecommendation(suggestion);
+    const parsed = parseStructuredRecommendation(suggestion);
+    const structured = validateStructuredAiResponse(parsed, payload);
+    if (!structured) {
+      return finish(
+        jsonResponse({
+          configured: true,
+          suggestion,
+          structured: null,
+          error: "AI_BOUNDARY_VIOLATION",
+        }),
+      );
+    }
 
     return finish(jsonResponse({ configured: true, suggestion, structured }));
   } catch (error) {
@@ -240,76 +246,8 @@ async function readBoundedRecommendationBody(
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
-function isRecommendationRequest(
-  value: unknown,
-): value is RecommendationRequest {
-  if (!isRecord(value)) return false;
-  const allowedKeys = new Set([
-    "targetBean",
-    "primaryRecommendation",
-    "finalRuleRecommendation",
-    "confidence",
-    "baseSource",
-    "beanAdjustmentReasons",
-    "references",
-    "templateCandidates",
-  ]);
-  if (Object.keys(value).some((key) => !allowedKeys.has(key))) return false;
-  if (
-    !isRecord(value.targetBean) ||
-    !isNonEmptyString(value.targetBean.id) ||
-    !isNonEmptyString(value.targetBean.name)
-  ) return false;
-  if (!Object.prototype.hasOwnProperty.call(value, "primaryRecommendation")) {
-    return false;
-  }
-  if (
-    value.primaryRecommendation !== null &&
-    !isRecord(value.primaryRecommendation)
-  ) return false;
-  if (
-    value.finalRuleRecommendation !== undefined &&
-    !isRecord(value.finalRuleRecommendation)
-  ) return false;
-  if (
-    value.confidence !== undefined &&
-    value.confidence !== "high" &&
-    value.confidence !== "medium" &&
-    value.confidence !== "low"
-  ) return false;
-  if (value.baseSource !== undefined && !isBaseSource(value.baseSource)) {
-    return false;
-  }
-  if (!isRecordArray(value.references)) return false;
-  if (
-    value.templateCandidates !== undefined &&
-    !isRecordArray(value.templateCandidates)
-  ) return false;
-  if (
-    value.beanAdjustmentReasons !== undefined &&
-    (!Array.isArray(value.beanAdjustmentReasons) ||
-      !value.beanAdjustmentReasons.every((item) => typeof item === "string"))
-  ) return false;
-  return true;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isRecordArray(value: unknown): value is Record<string, unknown>[] {
-  return Array.isArray(value) && value.every(isRecord);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isBaseSource(value: unknown) {
-  if (!isRecord(value) || !isNonEmptyString(value.label)) return false;
-  if (value.type === "history") return isNonEmptyString(value.brewLogId);
-  if (value.type === "template") return isNonEmptyString(value.templateId);
-  return false;
 }
 
 async function readBoundedJsonResponse(response: Response) {
@@ -375,64 +313,15 @@ function invalidInputResponse() {
   }, 400);
 }
 
-function aiErrorResponse(error: "AI_TIMEOUT" | "AI_UPSTREAM_ERROR") {
+function aiErrorResponse(
+  error: "AI_TIMEOUT" | "AI_UPSTREAM_ERROR" | "AI_BOUNDARY_VIOLATION",
+) {
   return jsonResponse({
     configured: true,
     suggestion: null,
     structured: null,
     error,
   });
-}
-
-function buildPrompt(payload: RecommendationRequest) {
-  return [
-    "请基于以下 JSON 生成第一杯冲煮建议，并且只返回一个 JSON 对象。",
-    "JSON schema:",
-    JSON.stringify(
-      {
-        summary: "一句话总结推荐方案",
-        recipe: {
-          method: "手冲或冷萃等方法",
-          dripper: "器具名称",
-          grindSetting: "研磨建议",
-          waterTemperatureC: 92,
-          coffeeGrams: 15,
-          waterGrams: 240,
-          ratio: "1:16",
-          totalTimeSeconds: 150,
-        },
-        pourPlan: [
-          {
-            label: "闷蒸",
-            time: "0:00-0:30",
-            waterGrams: 30,
-            action: "轻柔绕圈注水",
-          },
-        ],
-        adjustments: ["偏酸时升高水温 1°C 或略微磨细"],
-        reasons: ["基于模板和豆子信息的理由"],
-        riskNotes: ["不确定信息或需要实测校正的点"],
-        rawText: "完整中文建议原文",
-      },
-      null,
-      2,
-    ),
-    "要求：",
-    "1. 必须先从 templateCandidates 中选择 1 个模板作为基础，并写出模板名。",
-    "2. 不要创造 templateCandidates 之外的新冲煮方法；可以只微调粉量、水量、粉水比、水温、研磨、分段时间和注水解释。",
-    "3. 先给出最终建议参数和分段注水步骤。",
-    "4. 解释为什么这个模板适合这支豆子，以及你做了哪些微调。",
-    "5. 如果 targetBean.bean_type 是 blend，请明确说明它是拼配豆，并结合 blend_components、上方多个产地/处理法/品种或 blend_notes 解释如何平衡甜感、香气和酸质。",
-    "6. 拼配比例未知时，不要猜测哪支豆子是主体；把已知组成视为共同影响风味的线索。只有 percentage 明确存在时，才按比例判断主次。",
-    "7. 给出偏酸、偏苦、口感薄、口感重时的下一次调整方向。",
-    "8. 如果 templateCandidates 为空，明确说明缺少模板上下文，并只基于历史规则参数给保守建议。",
-    "9. 字段缺失时使用 null 或空数组，不要编造。",
-    "10. 不要输出 JSON 以外的任何文字。",
-    "Additional deterministic rule context:",
-    "If finalRuleRecommendation exists, treat it as the deterministic base recipe. Keep its ratio, dripper, method, water temperature, grind, and total time unless you explain a small safe change.",
-    "Use confidence and beanAdjustmentReasons to explain uncertainty and bean-aware micro-adjustments. Do not claim the recipe is guaranteed perfect; describe it as the first recommended brew to validate.",
-    JSON.stringify(payload, null, 2),
-  ].join("\n");
 }
 
 function parseStructuredRecommendation(content: unknown) {

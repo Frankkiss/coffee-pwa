@@ -23,6 +23,27 @@ export type RecommendedBrewParameters = {
 
 export type RecommendationConfidence = 'high' | 'medium' | 'low'
 
+export type RecommendationNumericRange = { min: number; max: number }
+
+export type RecommendationAllowedRanges = {
+  ratioDenominator: RecommendationNumericRange
+  waterTemperatureC: RecommendationNumericRange | null
+  coffeeGrams: RecommendationNumericRange
+  waterGrams: RecommendationNumericRange | null
+  iceGrams: RecommendationNumericRange | null
+  beverageGrams: RecommendationNumericRange | null
+  totalTimeSeconds: RecommendationNumericRange
+}
+
+export type RecommendationSelection = {
+  mode: BrewMode
+  variant: BrewVariant | null
+  brewer: string
+  grinder: string
+  espressoDoseGrams: number | null
+  tasteGoals: string[]
+}
+
 export type RuleRecommendationBaseSource =
   | {
       type: 'history'
@@ -69,6 +90,8 @@ export type RuleRecommendationResult = {
   beanAdjustmentReasons: string[]
   feedbackAdjustments?: FeedbackAdjustment[]
   freshnessAdjustment?: FreshnessAdjustment
+  selection?: RecommendationSelection
+  allowedRanges?: RecommendationAllowedRanges
 }
 
 export type AiRecommendationResponse = {
@@ -80,11 +103,16 @@ export type AiRecommendationResponse = {
 
 export type StructuredAiRecipe = {
   method: string | null
+  brewMode?: BrewMode | null
+  brewVariant?: BrewVariant | null
   dripper: string | null
+  grinder?: string | null
   grindSetting: string | null
   waterTemperatureC: number | null
   coffeeGrams: number | null
   waterGrams: number | null
+  iceGrams?: number | null
+  beverageGrams?: number | null
   ratio: string | null
   totalTimeSeconds: number | null
 }

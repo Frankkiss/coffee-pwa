@@ -7,6 +7,7 @@ import { countSharedRuleTokens, getBeanProcessFamilies, getRoastBand, getSharedB
 import { deriveFeedbackAdjustments } from './feedbackAdjustments'
 import { getFreshnessAdjustment } from './freshnessRules'
 import type { RecommendationContext } from './recommendationContext'
+import { getRecommendationAllowedRanges } from './recommendationRanges'
 import type {
   BrewRecommendationCandidate,
   BrewTemplateCandidate,
@@ -67,6 +68,15 @@ export function generateMethodAwareRuleRecommendation(
     ],
     feedbackAdjustments,
     freshnessAdjustment,
+    selection: {
+      mode: context.mode,
+      variant: context.variant,
+      brewer: context.gear.brewer,
+      grinder: context.gear.grinder,
+      espressoDoseGrams: context.espressoDoseGrams,
+      tasteGoals: context.tasteGoals,
+    },
+    allowedRanges: getRecommendationAllowedRanges(context, recommended),
   }
 }
 

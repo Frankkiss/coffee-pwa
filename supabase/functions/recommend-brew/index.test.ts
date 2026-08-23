@@ -17,11 +17,39 @@ const verifiedAuth = {
 
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
+    version: 2,
     targetBean: { id: "bean-1", name: "测试豆" },
-    primaryRecommendation: null,
+    selection: {
+      mode: "hot_pourover",
+      variant: null,
+      brewer: "V60",
+      grinder: "C40",
+      espressoDoseGrams: null,
+    },
+    rule: {
+      recipe: {
+        brewMode: "hot_pourover",
+        brewVariant: null,
+        dripper: "V60",
+        grinder: "C40",
+        grindSetting: "24",
+      },
+      allowedRanges: {
+        ratioDenominator: { min: 14, max: 18 },
+        waterTemperatureC: { min: 84, max: 96 },
+        coffeeGrams: { min: 15, max: 15 },
+        waterGrams: { min: 210, max: 270 },
+        iceGrams: null,
+        beverageGrams: null,
+        totalTimeSeconds: { min: 90, max: 300 },
+      },
+      confidence: "high",
+      baseSource: { type: "history", label: "测试豆", brewLogId: "brew-1" },
+      reasons: { bean: [], feedback: [], freshness: [] },
+    },
     references: [],
-    templateCandidates: [],
-    beanAdjustmentReasons: [],
+    templates: { selected: null, alternatives: [] },
+    tasteGoals: [],
     ...overrides,
   };
 }
@@ -101,6 +129,10 @@ Deno.test("recommend-brew uses the shared vision model with a text-only request"
   assertEquals(userContent[0].type, "text");
   assertEquals(typeof userContent[0].text, "string");
   assertEquals(userContent.some((block) => block.type === "image_url"), false);
+  assertStringIncludes(String(userContent[0].text), "规则层已经选择了基础来源");
+  assertStringIncludes(String(userContent[0].text), "不得改变 brewMode");
+  assertEquals(String(userContent[0].text).includes("blend_components"), false);
+  assertEquals(String(userContent[0].text).includes("自行选择"), false);
 });
 Deno.test("recommend-brew rejects unauthenticated calls before rate limiting or parsing", async () => {
   let rateLimitCalled = false;
@@ -197,12 +229,13 @@ Deno.test("recommend-brew rejects malformed JSON and invalid recommendation shap
       { references: [] },
       validBody({ targetBean: [] }),
       validBody({ targetBean: {} }),
-      validBody({ primaryRecommendation: "not-an-object" }),
+      validBody({
+        targetBean: { id: "bean", name: "豆", source_url: "private" },
+      }),
+      validBody({ selection: { mode: "espresso" } }),
       validBody({ references: "not-an-array" }),
-      validBody({ templateCandidates: {} }),
-      validBody({ beanAdjustmentReasons: ["ok", 7] }),
-      validBody({ confidence: ["high"] }),
-      validBody({ baseSource: 7 }),
+      validBody({ templates: { selected: null, alternatives: [{}, {}, {}] } }),
+      validBody({ tasteGoals: ["甜", 7] }),
       validBody({ unexpectedPromptField: "arbitrary prompt input" }),
     ]
   ) {

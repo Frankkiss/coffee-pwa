@@ -4,6 +4,8 @@ import type {
   StructuredAiRecipe,
   StructuredAiRecommendation,
 } from './recommendationTypes'
+import type { AiRecommendationContext } from './aiRecommendationContext'
+import { validateAiRecipe } from './aiRecipeValidation'
 
 const emptyRecipe: StructuredAiRecipe = {
   method: null,
@@ -16,12 +18,19 @@ const emptyRecipe: StructuredAiRecipe = {
   totalTimeSeconds: null,
 }
 
-export function normalizeAiRecommendationResponse(input: unknown): AiRecommendationResponse {
+export function normalizeAiRecommendationResponse(
+  input: unknown,
+  context?: AiRecommendationContext,
+): AiRecommendationResponse {
   const record = isRecord(input) ? input : {}
   const configured = record.configured === true
   const suggestion = stringValue(record.suggestion)
-  const error = stringValue(record.error) || undefined
-  const structured = normalizeStructuredRecommendation(record.structured, suggestion)
+  let error = stringValue(record.error) || undefined
+  let structured = normalizeStructuredRecommendation(record.structured, suggestion)
+  if (structured && context && !validateAiRecipe(structured.recipe, context)) {
+    structured = null
+    error = 'AI_BOUNDARY_VIOLATION'
+  }
 
   return {
     configured,
@@ -58,11 +67,16 @@ export function normalizeStructuredRecommendation(
     summary: stringValue(value.summary),
     recipe: {
       method: stringOrNull(recipe.method),
+      brewMode: brewModeOrNull(recipe.brewMode),
+      brewVariant: brewVariantOrNull(recipe.brewVariant),
       dripper: stringOrNull(recipe.dripper),
+      grinder: stringOrNull(recipe.grinder),
       grindSetting: stringOrNull(recipe.grindSetting),
       waterTemperatureC: numberOrNull(recipe.waterTemperatureC),
       coffeeGrams: numberOrNull(recipe.coffeeGrams),
       waterGrams: numberOrNull(recipe.waterGrams),
+      iceGrams: numberOrNull(recipe.iceGrams),
+      beverageGrams: numberOrNull(recipe.beverageGrams),
       ratio: stringOrNull(recipe.ratio),
       totalTimeSeconds: numberOrNull(recipe.totalTimeSeconds),
     },
@@ -130,6 +144,17 @@ function numberOrNull(value: unknown) {
   }
 
   return null
+}
+
+function brewModeOrNull(value: unknown) {
+  return value === 'hot_pourover' || value === 'iced_pourover'
+      || value === 'cold_brew' || value === 'espresso'
+    ? value
+    : null
+}
+
+function brewVariantOrNull(value: unknown) {
+  return value === 'ready_to_drink' || value === 'concentrate' ? value : null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

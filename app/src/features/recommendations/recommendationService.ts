@@ -14,6 +14,7 @@ import type {
 } from './recommendationTypes'
 import { generateRuleRecommendation } from './ruleRecommendation'
 import type { SavedRecommendationPayload } from './savedRecommendation'
+import { buildAiRecommendationContext } from './aiRecommendationContext'
 import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 
 type RuleRecommendationRepositories = {
@@ -56,18 +57,8 @@ export async function requestAiRecommendation(
   supabase: SupabaseClient,
   recommendation: RuleRecommendationResult,
 ): Promise<AiRecommendationResponse> {
-  const { data, error } = await supabase.functions.invoke('recommend-brew', {
-    body: {
-      targetBean: recommendation.targetBean,
-      primaryRecommendation: recommendation.primary,
-      finalRuleRecommendation: recommendation.recommended,
-      confidence: recommendation.confidence,
-      baseSource: recommendation.baseSource,
-      beanAdjustmentReasons: recommendation.beanAdjustmentReasons,
-      references: recommendation.references,
-      templateCandidates: recommendation.templateCandidates,
-    },
-  })
+  const context = buildAiRecommendationContext(recommendation)
+  const { data, error } = await supabase.functions.invoke('recommend-brew', { body: context })
 
   if (error) {
     return {
@@ -78,7 +69,7 @@ export async function requestAiRecommendation(
     }
   }
 
-  return normalizeAiRecommendationResponse(data)
+  return normalizeAiRecommendationResponse(data, context)
 }
 
 export async function saveRecommendation(
