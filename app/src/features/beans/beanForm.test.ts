@@ -26,6 +26,7 @@ describe('toBeanInsertPayload', () => {
       price: '68',
       purchaseDate: '2026-06-10',
       sourceUrl: 'https://example.com/bean',
+      remainingGrams: '42',
       beanType: 'blend' as const,
       blendComponents: [
         {
@@ -64,6 +65,7 @@ describe('toBeanInsertPayload', () => {
       flavor_notes: '明亮酸质，尾段甜感清晰',
       net_weight_grams: 100,
       price: 68,
+      remaining_grams: 42,
       purchase_date: '2026-06-10',
       source_url: 'https://example.com/bean',
       bean_type: 'blend',
@@ -108,6 +110,14 @@ describe('toBeanInsertPayload', () => {
       roast_date: null,
     })
   })
+  it('rejects a negative remaining amount', () => {
+    expect(() => toBeanInsertPayload({
+      ...createInitialBeanForm(),
+      name: 'test bean',
+      remainingGrams: '-1',
+    }, 'user-1')).toThrow('剩余克数不能小于 0')
+  })
+
 
   it('rejects a blank bean name', () => {
     expect(() => toBeanInsertPayload(createInitialBeanForm(), 'user-1')).toThrow(
@@ -133,6 +143,7 @@ describe('bean edit helpers', () => {
     flavor_notes: '明亮',
     net_weight_grams: 100,
     price: 88,
+    remaining_grams: 20,
     purchase_date: '2026-06-10',
     source_url: 'https://example.com',
     image_url: null,
@@ -162,6 +173,7 @@ describe('bean edit helpers', () => {
       origin: 'Ethiopia',
       farmOrStation: 'Aricha',
       altitudeMeters: '1950',
+      remainingGrams: '20',
       flavorTags: '柑橘, 花香',
       beanType: 'blend',
       blendComponents: [

@@ -22,6 +22,7 @@ export async function normalizeV1ForSafeMerge(
     userSettings: null,
     beans: source.data.beans.map((bean) => ({
       ...bean,
+      remaining_grams: bean.remaining_grams ?? null,
       bean_type: bean.bean_type ?? 'single_origin' as const,
       blend_components: bean.blend_components ?? [],
       blend_notes: bean.blend_notes ?? null,

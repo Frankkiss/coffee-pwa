@@ -25,6 +25,7 @@ export function createInitialBeanForm(): BeanForm {
     flavorTags: '',
     flavorNotes: '',
     netWeightGrams: '',
+    remainingGrams: '',
     price: '',
     purchaseDate: '',
     sourceUrl: '',
@@ -56,6 +57,7 @@ export function createBeanFormFromBean(bean: Bean): BeanForm {
     flavorTags: bean.flavor_tags.join(', '),
     flavorNotes: bean.flavor_notes ?? '',
     netWeightGrams: numberToFormValue(bean.net_weight_grams),
+    remainingGrams: numberToFormValue(bean.remaining_grams ?? null),
     price: numberToFormValue(bean.price),
     purchaseDate: bean.purchase_date ?? '',
     sourceUrl: bean.source_url ?? '',
@@ -86,6 +88,7 @@ export function toBeanUpdatePayload(form: BeanForm): BeanUpdatePayload {
     flavor_tags: parseFlavorTags(form.flavorTags),
     flavor_notes: optionalText(form.flavorNotes),
     net_weight_grams: optionalNumber(form.netWeightGrams),
+    remaining_grams: optionalNonNegativeNumber(form.remainingGrams),
     price: optionalNumber(form.price),
     purchase_date: optionalText(form.purchaseDate),
     source_url: optionalText(form.sourceUrl),
@@ -129,6 +132,23 @@ function optionalNumber(value: string) {
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
 }
+function optionalNonNegativeNumber(value: string) {
+  const trimmed = value.trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) {
+    throw new Error('剩余克数必须是有效数字')
+  }
+  if (parsed < 0) {
+    throw new Error('剩余克数不能小于 0')
+  }
+  return parsed
+}
+
 
 function parseFlavorTags(value: string) {
   const tags = value

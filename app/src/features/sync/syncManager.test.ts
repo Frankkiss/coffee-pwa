@@ -23,7 +23,7 @@ function payload(name = 'bean') {
   return {
     name, roaster: null, origin: null, farm_or_station: null, process: null,
     variety: null, altitude_meters: null, roast_date: null, roast_level: null,
-    flavor_tags: [], flavor_notes: null, net_weight_grams: null, price: null,
+    flavor_tags: [], flavor_notes: null, net_weight_grams: null, remaining_grams: null, price: null,
     purchase_date: null, source_url: null, image_url: null,
     bean_type: 'single_origin' as const, blend_components: [], blend_notes: null,
     notes: null, schema_version: 1,

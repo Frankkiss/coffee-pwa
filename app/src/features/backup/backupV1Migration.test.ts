@@ -50,6 +50,7 @@ describe('v1 backup migration', () => {
     expect(migrated.data.aiRecommendations).toEqual([])
     expect(migrated.data.sourceImports).toEqual([])
     expect(migrated.data.beans[0]).toMatchObject({
+      remaining_grams: null,
       bean_type: 'single_origin',
       blend_components: [],
       blend_notes: null,

@@ -128,6 +128,7 @@ async function saveBean(
     flavor_tags: entity.flavor_tags,
     flavor_notes: entity.flavor_notes,
     net_weight_grams: entity.net_weight_grams,
+    remaining_grams: entity.remaining_grams,
     price: entity.price,
     purchase_date: entity.purchase_date,
     source_url: entity.source_url,

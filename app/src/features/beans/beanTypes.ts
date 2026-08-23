@@ -21,6 +21,7 @@ export type Bean = {
   altitude_meters: number | null
   roast_date: string | null
   roast_level: string | null
+  remaining_grams?: number | null
   flavor_tags: string[]
   flavor_notes: string | null
   net_weight_grams: number | null
@@ -41,11 +42,12 @@ export type Bean = {
 /** A complete bean row after validation at the server-response boundary. */
 export type ServerBeanRow = Omit<
   Bean,
-  'bean_type' | 'blend_components' | 'blend_notes'
+  'bean_type' | 'blend_components' | 'blend_notes' | 'remaining_grams'
 > & {
   bean_type: BeanType
   blend_components: BeanBlendComponent[]
   blend_notes: string | null
+  remaining_grams: number | null
 }
 
 export type BeanForm = {
@@ -61,6 +63,7 @@ export type BeanForm = {
   flavorTags: string
   flavorNotes: string
   netWeightGrams: string
+  remainingGrams: string
   price: string
   purchaseDate: string
   sourceUrl: string
@@ -84,6 +87,7 @@ export type BeanInsertPayload = {
   flavor_tags: string[]
   flavor_notes: string | null
   net_weight_grams: number | null
+  remaining_grams: number | null
   price: number | null
   purchase_date: string | null
   source_url: string | null

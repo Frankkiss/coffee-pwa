@@ -21,6 +21,7 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     net_weight_grams: 100,
     price: null,
     purchase_date: null,
+    remaining_grams: 20,
     source_url: null,
     image_url: null,
     bean_type: 'blend',
@@ -90,8 +91,9 @@ describe('CSV export', () => {
     expect(csv).toContain('"蜜处理,特殊"')
     expect(csv).toContain('citrus、honey')
     expect(csv).toContain('"line one\nline two"')
+    expect(csv).toContain('净含量,剩余克数,拼配组成')
+    expect(csv).toContain(',100,20,')
   })
-
   it('builds a brew logs CSV with array fields and escaped quotes', () => {
     const csv = buildBrewLogsCsv([createBrewLog()])
 

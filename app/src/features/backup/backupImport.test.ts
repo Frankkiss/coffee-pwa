@@ -203,6 +203,24 @@ describe('backup import', () => {
     await expect(parseBackupDocument(JSON.stringify(createBackupDocument([bean], [])))).resolves.toMatchObject({ sourceVersion: 1 })
   })
 
+  it('preserves valid remaining bean amounts and rejects negative values', async () => {
+    const v1WithRemaining = createBackupDocument([
+      { ...bean, remaining_grams: 0 },
+    ], [])
+    const parsedV1 = await parseBackupDocument(JSON.stringify(v1WithRemaining))
+    expect(parsedV1.document.data.beans[0].remaining_grams).toBe(0)
+
+    const v2WithRemaining = await createV2Document({
+      beans: [{ ...v2Bean, remaining_grams: 0 }],
+    })
+    await expect(parseBackupDocument(JSON.stringify(v2WithRemaining)))
+      .resolves.toMatchObject({ sourceVersion: 2 })
+
+    const negative = await createV2Document({
+      beans: [{ ...v2Bean, remaining_grams: -1 }],
+    })
+    await expect(parseBackupDocument(JSON.stringify(negative))).rejects.toThrow('备份文件格式不正确')
+  })
   it('rejects v2 duplicate ids, invalid bean relations, and unknown row fields', async () => {
     const duplicate = await createV2Document({ beans: [v2Bean, { ...v2Bean }] })
     await expect(parseBackupDocument(JSON.stringify(duplicate))).rejects.toThrow('备份文件格式不正确')

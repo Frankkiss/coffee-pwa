@@ -245,12 +245,14 @@ function isBean(value: unknown, requireBlendFields: boolean): value is Bean {
   const baseRequired = ['id', 'user_id', 'name', 'roaster', 'origin', 'farm_or_station', 'process', 'variety', 'altitude_meters', 'roast_date', 'roast_level', 'flavor_tags', 'flavor_notes', 'net_weight_grams', 'price', 'purchase_date', 'source_url', 'image_url', 'notes', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
   const blendFields = ['bean_type', 'blend_components', 'blend_notes']
   const required = requireBlendFields ? [...baseRequired, ...blendFields] : baseRequired
-  const optional = requireBlendFields ? [] : blendFields
+  const optional = requireBlendFields ? ['remaining_grams'] : [...blendFields, 'remaining_grams']
   if (!hasExactKeys(value, required, optional)) return false
   return isUuid(value.id) && isUuid(value.user_id) && isString(value.name) &&
     ['roaster', 'origin', 'farm_or_station', 'process', 'variety', 'roast_level', 'flavor_notes', 'source_url', 'image_url', 'notes'].every((key) => isNullableString(value[key])) &&
     isNullableDate(value.roast_date) && isNullableDate(value.purchase_date) && isNullableTimestamp(value.deleted_at) &&
     isNullableSafeInteger(value.altitude_meters) && ['net_weight_grams', 'price'].every((key) => isNullableNumber(value[key])) &&
+    (value.remaining_grams === undefined || (isNullableNumber(value.remaining_grams) &&
+      (value.remaining_grams === null || value.remaining_grams >= 0))) &&
     isStringArray(value.flavor_tags) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isSchemaVersion(value.schema_version) &&
     (value.bean_type === undefined || value.bean_type === 'single_origin' || value.bean_type === 'blend') &&
     (value.blend_notes === undefined || isNullableString(value.blend_notes)) &&

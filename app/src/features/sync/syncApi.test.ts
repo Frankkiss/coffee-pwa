@@ -23,7 +23,7 @@ function beanPayload() {
     name: 'Ethiopia', roaster: null, origin: 'Guji', farm_or_station: null,
     process: 'washed', variety: null, altitude_meters: 2000,
     roast_date: '2026-08-01', roast_level: null, flavor_tags: ['tea'],
-    flavor_notes: null, net_weight_grams: 200, price: 88,
+    flavor_notes: null, net_weight_grams: 200, remaining_grams: null, price: 88,
     purchase_date: null, source_url: null, image_url: null,
     bean_type: 'single_origin' as const, blend_components: [], blend_notes: null,
     notes: null, schema_version: 1,
@@ -138,7 +138,7 @@ describe('sync API boundary', () => {
       { ...beanPayload(), price: Number.NaN },
       { ...beanPayload(), flavor_tags: [undefined] },
     ]) {
-      expect(() => toSyncRpcOperation(mutation({ payload } as Partial<SyncMutation>))).toThrowError(SyncApiError)
+      expect(() => toSyncRpcOperation(mutation({ payload } as unknown as Partial<SyncMutation>))).toThrowError(SyncApiError)
     }
     expect(() => toSyncRpcOperation(mutation({ operation: 'delete', payload: { hidden: true } } as unknown as Partial<SyncMutation>))).toThrowError(SyncApiError)
     expect(() => toSyncRpcOperation({ ...mutation(), operation: 'merge' } as unknown as SyncMutation)).toThrowError(SyncApiError)

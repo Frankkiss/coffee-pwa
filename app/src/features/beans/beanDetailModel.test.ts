@@ -24,6 +24,7 @@ function createBean(overrides: Partial<Bean> = {}): Bean {
     source_url: 'https://example.com/bean',
     image_url: null,
     bean_type: 'blend',
+    remaining_grams: 20,
     blend_components: [
       {
         origin: '巴西',
@@ -99,9 +100,15 @@ describe('buildBeanDetailView', () => {
       '埃塞俄比亚 水洗 原生种，提供花香',
     ])
     expect(view.blendLines.join('\n')).not.toContain('主体')
-    expect(view.stockLines).toEqual(['购买日期 2026-06-10', '价格 88'])
+    expect(view.stockLines).toEqual(['剩余 20g', '购买日期 2026-06-10', '价格 88'])
     expect(view.flavorText).toBe('坚果、花香 · 甜感和花香平衡')
   })
+  it('shows zero remaining grams as used up instead of hiding it', () => {
+    const view = buildBeanDetailView(createBean({ remaining_grams: 0 }), [])
+
+    expect(view.stockLines).toContain('剩余 0g')
+  })
+
 
   it('summarizes only brew logs for the selected bean', () => {
     const view = buildBeanDetailView(createBean(), [

@@ -26,6 +26,7 @@ const beanInput: BeanUpdatePayload = {
   flavor_tags: ['jasmine'],
   flavor_notes: null,
   net_weight_grams: 200,
+  remaining_grams: null,
   price: null,
   purchase_date: null,
   source_url: null,

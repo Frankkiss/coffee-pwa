@@ -28,7 +28,7 @@ const beanInput: BeanUpdatePayload = {
   name: 'Offline bean', roaster: null, origin: 'Ethiopia',
   farm_or_station: null, process: 'washed', variety: null,
   altitude_meters: null, roast_date: null, roast_level: 'light',
-  flavor_tags: ['floral'], flavor_notes: null, net_weight_grams: 200,
+  flavor_tags: ['floral'], flavor_notes: null, net_weight_grams: 200, remaining_grams: 200,
   price: null, purchase_date: null, source_url: null, bean_type: 'single_origin',
   blend_components: [], blend_notes: null, notes: null,
 }

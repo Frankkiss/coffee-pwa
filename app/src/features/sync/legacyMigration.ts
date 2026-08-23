@@ -19,7 +19,7 @@ const legacyStoreNames = {
 } as const
 
 const migrationMetaId = 'legacyMigration'
-export const legacyMigrationVersion = 10 as const
+export const legacyMigrationVersion = 11 as const
 const legacyCreateAttentionCode = 'LEGACY_CREATE_REQUIRES_CONFIRMATION'
 const legacyCreateAttentionMessage =
   'Legacy create may already exist in cloud; compare the latest cloud snapshot and explicitly retry.'
@@ -39,6 +39,7 @@ const legacyBeanFields = new Set([
   'flavor_tags',
   'flavor_notes',
   'net_weight_grams',
+  'remaining_grams',
   'price',
   'purchase_date',
   'source_url',
@@ -847,6 +848,7 @@ function createBeanEntity(
       flavor_tags: optionalStringArray(record.flavor_tags, 'bean flavor_tags'),
       flavor_notes: optionalNullableString(record.flavor_notes, 'bean flavor_notes'),
       net_weight_grams: optionalNullableNumber(record.net_weight_grams, 'bean net_weight_grams'),
+      remaining_grams: optionalNullableNonNegativeNumber(record.remaining_grams, 'bean remaining_grams'),
       price: optionalNullableNumber(record.price, 'bean price'),
       purchase_date: optionalCalendarDate(record.purchase_date, 'bean purchase_date'),
       source_url: optionalNullableString(record.source_url, 'bean source_url'),
@@ -1698,6 +1700,14 @@ function optionalNullableNumber(value: unknown, label: string): number | null {
   }
   return value
 }
+function optionalNullableNonNegativeNumber(value: unknown, label: string): number | null {
+  const number = optionalNullableNumber(value, label)
+  if (number !== null && number < 0) {
+    throw new LegacyMigrationError('Invalid ' + label)
+  }
+  return number
+}
+
 
 function optionalStringArray(value: unknown, label: string) {
   if (value === undefined) return []

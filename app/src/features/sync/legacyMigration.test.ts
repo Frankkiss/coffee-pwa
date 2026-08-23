@@ -69,7 +69,7 @@ describe('legacy offline migration', () => {
 
     expect(result.status).toBe('completed')
     expect(result).toEqual(expect.objectContaining({
-      migrationVersion: 10,
+      migrationVersion: 11,
       sourceFingerprint: expect.stringMatching(/^fnv1a128:[0-9a-f]{32}$/),
     }))
     expect(result.sourcePreserved).toBe(true)
@@ -189,6 +189,37 @@ describe('legacy offline migration', () => {
         mutation.lastErrorCode === 'LEGACY_CREATE_REQUIRES_CONFIRMATION',
     )).toBe(true)
     expect(selectSendableMutationBatch(outbox)).toEqual([])
+  })
+
+  it('preserves a legacy remaining bean amount of zero', async () => {
+    const bean = {
+      ...legacyBean(userOne, cloudBeanId, 'remaining amount survives'),
+      remaining_grams: 0,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean])],
+    ], [])
+
+    const result = await migrateLegacyOfflineData(userOne, deviceId, 1)
+
+    expect(result.migrationVersion).toBe(11)
+    expect(await listLocalEntities('beans', userOne)).toEqual([
+      expect.objectContaining({ remaining_grams: 0 }),
+    ])
+  })
+
+  it('rejects a negative legacy remaining bean amount', async () => {
+    const bean = {
+      ...legacyBean(userOne, cloudBeanId, 'invalid remaining amount'),
+      remaining_grams: -1,
+    }
+    await seedVersionTwoDatabase([
+      ['beans', legacySnapshot(userOne, [bean])],
+    ], [])
+
+    await expect(migrateLegacyOfflineData(userOne, deviceId, 1)).rejects.toThrow(
+      'Invalid bean remaining_grams',
+    )
   })
 
   it('merges a pending update captured after an older snapshot', async () => {
@@ -1661,6 +1692,7 @@ function legacyBean(userId: string, id: string, name: string) {
     flavor_tags: [],
     flavor_notes: null,
     net_weight_grams: null,
+    remaining_grams: null,
     price: null,
     purchase_date: null,
     source_url: null,
@@ -1733,6 +1765,7 @@ function beanCreatePayload(userId: string, name: string): BeanInsertPayload {
     flavor_tags: [],
     flavor_notes: null,
     net_weight_grams: null,
+    remaining_grams: null,
     price: null,
     purchase_date: null,
     source_url: null,

@@ -136,7 +136,7 @@ export function validateSyncMutationForWire(mutation: unknown): SyncRpcOperation
 const beanMutableKeys = [
   'name', 'roaster', 'origin', 'farm_or_station', 'process', 'variety',
   'altitude_meters', 'roast_date', 'roast_level', 'flavor_tags', 'flavor_notes',
-  'net_weight_grams', 'price', 'purchase_date', 'source_url', 'image_url',
+  'net_weight_grams', 'remaining_grams', 'price', 'purchase_date', 'source_url', 'image_url',
   'bean_type', 'blend_components', 'blend_notes', 'notes', 'schema_version',
 ] as const
 const brewMutableKeys = [
@@ -174,6 +174,7 @@ function rebuildBeanPayload(value: unknown): BeanUpsertPayload {
     flavor_tags: [...row.flavor_tags as string[]],
     flavor_notes: row.flavor_notes as string | null,
     net_weight_grams: row.net_weight_grams as number | null,
+    remaining_grams: row.remaining_grams as number | null,
     price: row.price as number | null,
     purchase_date: row.purchase_date as string | null,
     source_url: row.source_url as string | null,
@@ -335,7 +336,7 @@ function assertOwnedServerFields(row: Record<string, unknown>, deletable: boolea
 
 function assertBeanMutable(row: Record<string, unknown>, failure = invalidOperation): void {
   const components = row.blend_components
-  if (typeof row.name !== 'string' || !nullableString(row.roaster) || !nullableString(row.origin) || !nullableString(row.farm_or_station) || !nullableString(row.process) || !nullableString(row.variety) || !nullableFinite(row.altitude_meters) || !nullableDate(row.roast_date) || !nullableString(row.roast_level) || !stringArray(row.flavor_tags) || !nullableString(row.flavor_notes) || !nullableFinite(row.net_weight_grams) || !nullableFinite(row.price) || !nullableDate(row.purchase_date) || !nullableString(row.source_url) || !nullableString(row.image_url) || (row.bean_type !== 'single_origin' && row.bean_type !== 'blend') || !Array.isArray(components) || !components.every(isBlendComponent) || !nullableString(row.blend_notes) || !nullableString(row.notes) || row.schema_version !== 1) throw failure()
+  if (typeof row.name !== 'string' || !nullableString(row.roaster) || !nullableString(row.origin) || !nullableString(row.farm_or_station) || !nullableString(row.process) || !nullableString(row.variety) || !nullableFinite(row.altitude_meters) || !nullableDate(row.roast_date) || !nullableString(row.roast_level) || !stringArray(row.flavor_tags) || !nullableString(row.flavor_notes) || !nullableFinite(row.net_weight_grams) || !nullableFinite(row.remaining_grams) || (row.remaining_grams !== null && row.remaining_grams < 0) || !nullableFinite(row.price) || !nullableDate(row.purchase_date) || !nullableString(row.source_url) || !nullableString(row.image_url) || (row.bean_type !== 'single_origin' && row.bean_type !== 'blend') || !Array.isArray(components) || !components.every(isBlendComponent) || !nullableString(row.blend_notes) || !nullableString(row.notes) || row.schema_version !== 1) throw failure()
 }
 
 function assertBrewMutable(row: Record<string, unknown>, failure = invalidOperation): void {

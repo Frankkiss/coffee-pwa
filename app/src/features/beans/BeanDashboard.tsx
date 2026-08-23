@@ -353,6 +353,19 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
                     placeholder="例如：1950"
                   />
                 </label>
+                <label>
+                  剩余克数
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    value={form.remainingGrams}
+                    onChange={(event) => updateField('remainingGrams', event.target.value)}
+                    placeholder="例如：80"
+                  />
+                </label>
+
 
                 <label>
                   烘焙日期

@@ -1876,6 +1876,7 @@ function isBeanUpsertPayload(value: Record<string, unknown>) {
     'flavor_tags',
     'flavor_notes',
     'net_weight_grams',
+    'remaining_grams',
     'price',
     'purchase_date',
     'source_url',
@@ -1901,6 +1902,8 @@ function isBeanUpsertPayload(value: Record<string, unknown>) {
     isStringArray(value.flavor_tags) &&
     isNullableString(value.flavor_notes) &&
     isNullableFiniteNumber(value.net_weight_grams) &&
+    isNullableFiniteNumber(value.remaining_grams) &&
+    (value.remaining_grams === null || value.remaining_grams >= 0) &&
     isNullableFiniteNumber(value.price) &&
     isNullableCalendarDate(value.purchase_date) &&
     isNullableString(value.source_url) &&
