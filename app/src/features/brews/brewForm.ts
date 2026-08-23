@@ -1,9 +1,14 @@
 import type { BrewForm, BrewLog, BrewLogInsertPayload, BrewLogUpdatePayload } from './brewTypes'
+import { normalizeBrewMode, normalizeBrewVariant } from './brewMode'
 
 export function createInitialBrewForm(beanId = ''): BrewForm {
   return {
     beanId,
     method: '',
+    brewMode: '',
+    brewVariant: '',
+    iceGrams: '',
+    beverageGrams: '',
     dripper: '',
     filterPaper: '',
     grinder: '',
@@ -34,9 +39,14 @@ export function withFallbackBeanId(form: BrewForm, fallbackBeanId: string): Brew
 }
 
 export function createBrewFormFromLog(log: BrewLog): BrewForm {
+  const brewMode = normalizeBrewMode(log)
   return {
     beanId: log.bean_id ?? '',
     method: log.method ?? '',
+    brewMode: brewMode ?? '',
+    brewVariant: normalizeBrewVariant(brewMode, log.brew_variant) ?? '',
+    iceGrams: numberToFormValue(log.ice_grams ?? null),
+    beverageGrams: numberToFormValue(log.beverage_grams ?? null),
     dripper: log.dripper ?? '',
     filterPaper: log.filter_paper ?? '',
     grinder: log.grinder ?? '',
@@ -76,18 +86,31 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
   }
 
   const coffeeGrams = optionalNumber(form.coffeeGrams)
-  const waterGrams = optionalNumber(form.waterGrams)
+  const brewMode = form.brewMode || null
+  const brewVariant = normalizeBrewVariant(brewMode, form.brewVariant)
+  const waterGrams = brewMode === 'espresso' ? null : optionalNumber(form.waterGrams)
+  const iceGrams = brewMode === 'iced_pourover' ? optionalNumber(form.iceGrams) : null
+  const beverageGrams = brewMode === 'espresso' ? optionalNumber(form.beverageGrams) : null
+  const ratioWaterGrams = brewMode === 'iced_pourover'
+    ? sumNullable(waterGrams, iceGrams)
+    : brewMode === 'espresso'
+      ? beverageGrams
+      : waterGrams
 
   return {
     bean_id: beanId,
     method: optionalText(form.method),
+    brew_mode: brewMode,
+    brew_variant: brewVariant,
+    ice_grams: iceGrams,
+    beverage_grams: beverageGrams,
     dripper: optionalText(form.dripper),
     filter_paper: optionalText(form.filterPaper),
     grinder: optionalText(form.grinder),
     grind_setting: optionalText(form.grindSetting),
     coffee_grams: coffeeGrams,
     water_grams: waterGrams,
-    ratio: calculateRatio(coffeeGrams, waterGrams),
+    ratio: calculateRatio(coffeeGrams, ratioWaterGrams),
     water_temperature_c: optionalNumber(form.waterTemperatureC),
     total_time_seconds: optionalNumber(form.totalTimeSeconds),
     pour_steps: [],
@@ -118,6 +141,11 @@ function optionalNumber(value: string) {
 
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function sumNullable(left: number | null, right: number | null) {
+  if (left === null && right === null) return null
+  return (left ?? 0) + (right ?? 0)
 }
 
 function numberToFormValue(value: number | null) {

@@ -1,11 +1,18 @@
 import type { JsonValue } from '../../lib/jsonTypes'
 
+export type BrewMode = 'hot_pourover' | 'iced_pourover' | 'cold_brew' | 'espresso'
+export type BrewVariant = 'ready_to_drink' | 'concentrate'
+
 export type BrewLog = {
   id: string
   user_id: string
   bean_id: string | null
   brewed_at: string
   method: string | null
+  brew_mode?: BrewMode | null
+  brew_variant?: BrewVariant | null
+  ice_grams?: number | null
+  beverage_grams?: number | null
   dripper: string | null
   filter_paper: string | null
   grinder: string | null
@@ -35,6 +42,10 @@ export type BrewLog = {
 export type BrewForm = {
   beanId: string
   method: string
+  brewMode: BrewMode | ''
+  brewVariant: BrewVariant | ''
+  iceGrams: string
+  beverageGrams: string
   dripper: string
   filterPaper: string
   grinder: string
@@ -65,6 +76,10 @@ export type BrewLogFilters = {
 export type BrewLogUpdatePayload = {
   bean_id: string
   method: string | null
+  brew_mode?: BrewMode | null
+  brew_variant?: BrewVariant | null
+  ice_grams?: number | null
+  beverage_grams?: number | null
   dripper: string | null
   filter_paper: string | null
   grinder: string | null

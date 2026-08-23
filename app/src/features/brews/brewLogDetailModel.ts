@@ -55,6 +55,8 @@ function buildParameterFields(log: BrewLog): DetailField[] {
     textField('研磨度', log.grind_setting),
     numberField('粉量', log.coffee_grams, ' g'),
     numberField('水量', log.water_grams, ' g'),
+    numberField('冰量', log.ice_grams ?? null, ' g'),
+    numberField('出液量', log.beverage_grams ?? null, ' g'),
     textField('粉水比', log.ratio),
     numberField('水温', log.water_temperature_c, '°C'),
     timeField('总时间', log.total_time_seconds),
