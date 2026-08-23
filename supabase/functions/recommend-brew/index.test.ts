@@ -215,7 +215,7 @@ Deno.test("recommend-brew rejects malformed JSON and invalid recommendation shap
   }
 });
 
-Deno.test("recommend-brew aborts DeepSeek after 30000ms and returns a stable timeout code", async () => {
+Deno.test("recommend-brew aborts DeepSeek after 90000ms and returns a stable timeout code", async () => {
   let timeoutDelay = 0;
   let signalWasAborted = false;
   const response = await handleRecommendBrewRequest(
@@ -236,7 +236,7 @@ Deno.test("recommend-brew aborts DeepSeek after 30000ms and returns a stable tim
     }),
   );
 
-  assertEquals(timeoutDelay, 30_000);
+  assertEquals(timeoutDelay, 90_000);
   assertEquals(signalWasAborted, true);
   assertEquals(response.status, 200);
   assertEquals((await response.json()).error, "AI_TIMEOUT");

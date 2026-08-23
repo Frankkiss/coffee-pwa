@@ -29,7 +29,7 @@ const corsHeaders = {
 const maxRequestBodyBytes = 262_144;
 const maxDeepSeekResponseBytes = 262_144;
 const maxAiTextCharacters = 50_000;
-const deepSeekTimeoutMs = 30_000;
+const deepSeekTimeoutMs = 90_000;
 
 export type RecommendBrewDependencies = {
   getApiKey: () => string | undefined;
