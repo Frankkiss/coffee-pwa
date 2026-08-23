@@ -7,6 +7,18 @@ import {
 } from './userSettingsModel'
 
 const userId = '00000000-0000-4000-8000-000000000001'
+const recommendationForm = {
+  hotPouroverBrewer: 'V60',
+  hotPouroverGrinder: 'C40',
+  icedPouroverBrewer: 'V60',
+  icedPouroverGrinder: 'C40',
+  coldBrewBrewer: '冷萃壶',
+  coldBrewGrinder: 'C40',
+  espressoBrewer: 'Flair',
+  espressoGrinder: 'Kinu',
+  espressoDoseGrams: '18',
+  tasteGoals: '明亮、甜感',
+}
 
 describe('userSettingsModel', () => {
   it('provides safe defaults when settings have not synced yet', () => {
@@ -36,6 +48,7 @@ describe('userSettingsModel', () => {
       preferredUnits: 'metric',
       defaultGear: 'V60\nC40',
       tastePreferences: '明亮、甜感、低苦味',
+      ...recommendationForm,
     })
 
     expect(input).toEqual({
@@ -43,8 +56,13 @@ describe('userSettingsModel', () => {
       value: {
         backup_reminder_days: 14,
         preferred_units: { system: 'metric' },
-        default_gear: { items: ['V60', 'C40'] },
-        taste_preferences: { notes: '明亮、甜感、低苦味' },
+        default_gear: { items: ['V60', 'C40'], recommendation: {
+          hotPourover: { brewer: 'V60', grinder: 'C40' },
+          icedPourover: { brewer: 'V60', grinder: 'C40' },
+          coldBrew: { brewer: '冷萃壶', grinder: 'C40' },
+          espresso: { brewer: 'Flair', grinder: 'Kinu', doseGrams: 18 },
+        } },
+        taste_preferences: { notes: '明亮、甜感、低苦味', goals: ['明亮', '甜感'] },
       },
     })
     if (!input.ok) throw new Error('expected valid settings')
@@ -53,6 +71,7 @@ describe('userSettingsModel', () => {
       preferredUnits: 'metric',
       defaultGear: 'V60\nC40',
       tastePreferences: '明亮、甜感、低苦味',
+      ...recommendationForm,
     })
   })
 
@@ -61,6 +80,7 @@ describe('userSettingsModel', () => {
       backupReminderDays: '21',
       preferredUnits: 'metric',
       defaultGear: 'V60',
+      ...recommendationForm,
       tastePreferences: '甜感',
     }, {
       backup_reminder_days: 7,
@@ -73,8 +93,13 @@ describe('userSettingsModel', () => {
       value: {
         backup_reminder_days: 21,
         preferred_units: { weight: 'grams', system: 'metric' },
-        default_gear: { grinder: 'C40', items: ['V60'] },
-        taste_preferences: { acidity: 4, notes: '甜感' },
+        default_gear: { grinder: 'C40', items: ['V60'], recommendation: {
+          hotPourover: { brewer: 'V60', grinder: 'C40' },
+          icedPourover: { brewer: 'V60', grinder: 'C40' },
+          coldBrew: { brewer: '冷萃壶', grinder: 'C40' },
+          espresso: { brewer: 'Flair', grinder: 'Kinu', doseGrams: 18 },
+        } },
+        taste_preferences: { acidity: 4, notes: '甜感', goals: ['明亮', '甜感'] },
       },
     })
   })

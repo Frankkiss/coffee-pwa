@@ -14,6 +14,16 @@ const initialForm: UserSettingsForm = {
   preferredUnits: 'metric',
   defaultGear: '',
   tastePreferences: '',
+  hotPouroverBrewer: '',
+  hotPouroverGrinder: '',
+  icedPouroverBrewer: '',
+  icedPouroverGrinder: '',
+  coldBrewBrewer: '',
+  coldBrewGrinder: '',
+  espressoBrewer: '',
+  espressoGrinder: '',
+  espressoDoseGrams: '',
+  tasteGoals: '',
 }
 
 export function UserSettingsPanel({ userId }: { userId: string }) {
@@ -143,6 +153,38 @@ export function UserSettingsPanel({ userId }: { userId: string }) {
               onChange={(event) => update('tastePreferences', event.target.value)}
             />
           </label>
+          <fieldset className="settings-form__recommendation">
+            <legend>冲煮推荐默认设备</legend>
+            <p>生成推荐时自动带入，生成前仍可临时修改。</p>
+            <div className="settings-form__mode-grid">
+              <section>
+                <h3>热手冲</h3>
+                <label>器具<input value={form.hotPouroverBrewer} onChange={(event) => update('hotPouroverBrewer', event.target.value)} placeholder="例如 V60" /></label>
+                <label>磨豆机<input value={form.hotPouroverGrinder} onChange={(event) => update('hotPouroverGrinder', event.target.value)} placeholder="例如 C40" /></label>
+              </section>
+              <section>
+                <h3>冰手冲</h3>
+                <label>器具<input value={form.icedPouroverBrewer} onChange={(event) => update('icedPouroverBrewer', event.target.value)} placeholder="例如 V60" /></label>
+                <label>磨豆机<input value={form.icedPouroverGrinder} onChange={(event) => update('icedPouroverGrinder', event.target.value)} placeholder="例如 C40" /></label>
+              </section>
+              <section>
+                <h3>冷萃</h3>
+                <label>器具<input value={form.coldBrewBrewer} onChange={(event) => update('coldBrewBrewer', event.target.value)} placeholder="例如 冷萃壶" /></label>
+                <label>磨豆机<input value={form.coldBrewGrinder} onChange={(event) => update('coldBrewGrinder', event.target.value)} placeholder="例如 C40" /></label>
+              </section>
+              <section>
+                <h3>意式</h3>
+                <label>设备<input value={form.espressoBrewer} onChange={(event) => update('espressoBrewer', event.target.value)} placeholder="例如 Flair" /></label>
+                <label>磨豆机<input value={form.espressoGrinder} onChange={(event) => update('espressoGrinder', event.target.value)} placeholder="例如 Kinu" /></label>
+                <label>默认粉量（克）<input type="number" min="0.1" max="100" step="0.1" inputMode="decimal" value={form.espressoDoseGrams} onChange={(event) => update('espressoDoseGrams', event.target.value)} placeholder="例如 18" /></label>
+              </section>
+            </div>
+            <label>
+              推荐风味目标
+              <span>用逗号或顿号分隔，例如明亮、甜感、干净</span>
+              <input value={form.tasteGoals} onChange={(event) => update('tasteGoals', event.target.value)} />
+            </label>
+          </fieldset>
           <button type="submit" disabled={isSaving}>
             {isSaving ? '保存中' : '保存设置'}
           </button>
