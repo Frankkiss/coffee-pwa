@@ -28,6 +28,14 @@ export function SyncStatusBanner() {
     () => setIsOnline(navigator.onLine),
   ), [])
 
+  if (
+    view.tone === 'success'
+    && !runtime.initializationError
+    && runtime.attentionItems.length === 0
+  ) {
+    return <SyncedStatus detail={view.detail} isOnline={isOnline} />
+  }
+
   return (
     <section
       className={`sync-status-track sync-status-track--${view.tone}`}
@@ -67,6 +75,38 @@ export function SyncStatusBanner() {
           actions={runtime}
         />
       ) : null}
+    </section>
+  )
+}
+
+export function SyncedStatus({
+  detail,
+  isOnline,
+}: {
+  detail?: string
+  isOnline: boolean
+}) {
+  const compactTime = detail?.match(/(\d{2}:\d{2})$/)?.[1] ?? '刚刚'
+  const networkDetail = isOnline
+    ? '网络可用；AI 生成与来源解析可以使用'
+    : '网络离线；AI 生成与来源解析暂不可用'
+
+  return (
+    <section
+      className="sync-status-success-shell"
+      aria-label="同步状态"
+      aria-live="polite"
+    >
+      <details className="sync-status-success">
+        <summary aria-label={`已同步，${compactTime}，查看同步详情`}>
+          <span className="sync-status-success__label">✓ 已同步 · {compactTime}</span>
+          <span className="sync-status-success__chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div className="sync-status-success__detail">
+          <span>{detail ?? '最后同步：时间待确认'}</span>
+          <span>{networkDetail}</span>
+        </div>
+      </details>
     </section>
   )
 }

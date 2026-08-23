@@ -12,6 +12,69 @@
 .sync-status-track--warning { border-left-color: #a96722; }
 .sync-status-track--danger { border-left-color: #a13f32; }
 
+.sync-status-success-shell {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.55rem 0;
+  color: #365442;
+}
+
+.sync-status-success {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid rgba(73, 116, 90, 0.28);
+  border-radius: 999px;
+  background: rgba(253, 251, 246, 0.92);
+}
+
+.sync-status-success[open] {
+  border-radius: 14px;
+}
+
+.sync-status-success summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.85rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sync-status-success summary::-webkit-details-marker {
+  display: none;
+}
+
+.sync-status-success summary:focus-visible {
+  outline: 3px solid rgba(73, 116, 90, 0.28);
+  outline-offset: 2px;
+}
+
+.sync-status-success__label {
+  font-size: 0.84rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.sync-status-success__chevron {
+  color: #6f8476;
+  transition: transform 160ms ease;
+}
+
+.sync-status-success[open] .sync-status-success__chevron {
+  transform: rotate(180deg);
+}
+
+.sync-status-success__detail {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.15rem 0.85rem 0.7rem;
+  border-top: 1px solid rgba(73, 116, 90, 0.13);
+  color: #6b6258;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .sync-status-track__summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -68,10 +131,19 @@
 .sync-status-track__error { margin: 0; padding: 0.55rem 0.75rem; color: #7f281f; font-weight: 700; }
 
 @media (max-width: 420px) {
+  .sync-status-success {
+    max-width: calc(100vw - 2rem);
+  }
+
+  .sync-status-success__detail {
+    overflow-wrap: anywhere;
+  }
+
   .sync-status-track__summary { grid-template-columns: auto minmax(0, 1fr); }
   .sync-status-track__summary > button { grid-column: 1 / -1; width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sync-status-track * { scroll-behavior: auto; transition: none !important; }
+  .sync-status-track *,
+  .sync-status-success * { scroll-behavior: auto; transition: none !important; }
 }
