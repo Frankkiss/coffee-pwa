@@ -12,7 +12,6 @@ import {
   toBeanUpdatePayload,
 } from './beanForm'
 import { BeanDetailPanel } from './BeanDetailPanel'
-import { BlendComponentEditor } from './BlendComponentEditor'
 import { PROCESS_OPTIONS, ROAST_LEVEL_OPTIONS } from './beanOptions'
 import type { Bean, BeanFilters, BeanForm } from './beanTypes'
 import './beans.css'
@@ -404,24 +403,6 @@ export function BeanDashboard({ session, supabase, previewRows, initialBrewDraft
                 </label>
 
               </div>
-
-              {form.beanType === 'blend' ? (
-                <>
-                  <BlendComponentEditor
-                    components={form.blendComponents}
-                    onChange={(components) => updateField('blendComponents', components)}
-                  />
-                  <label>
-                    拼配说明
-                    <textarea
-                      value={form.blendNotes}
-                      onChange={(event) => updateField('blendNotes', event.target.value)}
-                      placeholder="例如：整体坚果、奶油、柑橘调，适合冰手冲或奶咖。"
-                      rows={3}
-                    />
-                  </label>
-                </>
-              ) : null}
 
               <label>
                 备注
