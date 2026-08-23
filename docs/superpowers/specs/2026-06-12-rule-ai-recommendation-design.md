@@ -1,5 +1,7 @@
 # Rule and DeepSeek Brew Recommendation Design
 
+> The next recommendation redesign is defined by `2026-08-23-method-aware-recommendation-design.md`. It supersedes the scoring, input, AI-boundary, and no-feedback-tuning limitations below while retaining the deployed Vision gateway and timeout behavior.
+
 ## Scope
 
 Add a first recommendation feature for logged-in users. The user chooses one existing coffee bean, the app produces a rule-based brew recommendation from historical brew logs, then optionally asks DeepSeek for a natural-language brewing suggestion through a Supabase Edge Function.
