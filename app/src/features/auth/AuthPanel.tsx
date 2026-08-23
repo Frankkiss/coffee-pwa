@@ -3,7 +3,7 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { CoffeeDayLogo } from '../../components/CoffeeDayLogo'
 import { getSupabaseConfigError, supabase } from '../../lib/supabaseClient'
 import type { Bean } from '../beans/beanTypes'
-import type { BrewLog } from '../brews/brewTypes'
+import type { BrewForm, BrewLog } from '../brews/brewTypes'
 import { HomeOverview } from '../home/HomeOverview'
 import type { HomeNavigationTarget } from '../home/HomeOverview'
 import { SyncProvider, useSyncRuntime } from '../sync/SyncContext'
@@ -593,6 +593,7 @@ function AuthenticatedApp({
 }) {
   const runtime = useSyncRuntime()
   const [signOutError, setSignOutError] = useState('')
+  const [brewDraft, setBrewDraft] = useState<BrewForm | null>(null)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const mountedRef = useRef(true)
   const [signOutFlight] = useState(() =>
@@ -643,10 +644,22 @@ function AuthenticatedApp({
       return <BrewTemplatePanel />
     }
     if (activeView === 'beans') {
-      return <BeanDashboard session={session} supabase={authenticatedSupabase} />
+      return (
+        <BeanDashboard session={session} supabase={authenticatedSupabase}
+          initialBrewDraft={brewDraft}
+          onBrewDraftConsumed={() => setBrewDraft(null)}
+        />
+      )
     }
     if (activeView === 'recommendations') {
-      return <RecommendationPanel session={session} supabase={authenticatedSupabase} />
+      return (
+        <RecommendationPanel session={session} supabase={authenticatedSupabase}
+          onUseDraft={(draft) => {
+            setBrewDraft(draft)
+            onNavigate('beans')
+          }}
+        />
+      )
     }
     if (activeView === 'settings') {
       return <UserSettingsPanel userId={session.user.id} />

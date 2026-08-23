@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Bean } from '../beans/beanTypes'
 import { useSyncRuntime } from '../sync/SyncContext'
 import { getEntitySyncBadge } from '../sync/entitySyncPresentation'
@@ -11,19 +11,21 @@ import {
   withFallbackBeanId,
 } from './brewForm'
 import { BrewLogDetailPanel } from './BrewLogDetailPanel'
-import type { BrewForm, BrewLog, BrewLogFilters, BrewLogUpdatePayload } from './brewTypes'
+import type { BrewForm, BrewLog, BrewLogFilters, BrewLogUpdatePayload, BrewMode } from './brewTypes'
 import './brews.css'
 
 type BrewLogPanelProps = {
   beans: Bean[]
   brewLogs: BrewLog[]
+  initialDraft?: BrewForm | null
+  onDraftConsumed?: () => void
 }
 
-export function BrewLogPanel({ beans, brewLogs }: BrewLogPanelProps) {
+export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }: BrewLogPanelProps) {
   const runtime = useSyncRuntime()
   const repository = runtime.repositories?.brewLogs ?? null
   const firstBeanId = beans[0]?.id ?? ''
-  const [form, setForm] = useState<BrewForm>(() => createInitialBrewForm(firstBeanId))
+  const [form, setForm] = useState<BrewForm>(() => initialDraft ? { ...initialDraft } : createInitialBrewForm(firstBeanId))
   const [filters, setFilters] = useState<BrewLogFilters>({
     query: '',
     beanId: '',
@@ -35,8 +37,12 @@ export function BrewLogPanel({ beans, brewLogs }: BrewLogPanelProps) {
   const isLoading = repository === null
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(initialDraft ? '推荐参数已填入草稿；确认或修改后再保存。' : '')
   const [error, setError] = useState('')
+  useEffect(() => {
+    if (initialDraft) onDraftConsumed?.()
+  }, [initialDraft, onDraftConsumed])
+
 
   const beanNameById = useMemo(
     () => new Map(beans.map((bean) => [bean.id, bean.name])),
@@ -66,6 +72,19 @@ export function BrewLogPanel({ beans, brewLogs }: BrewLogPanelProps) {
 
   function updateField(field: keyof BrewForm, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateBrewMode(nextMode: BrewMode | '') {
+    const method = nextMode === 'hot_pourover' ? '手冲'
+      : nextMode === 'iced_pourover' ? '冰手冲'
+        : nextMode === 'cold_brew' ? '冷萃'
+          : nextMode === 'espresso' ? '意式' : form.method
+    setForm((current) => ({
+      ...current, brewMode: nextMode, method,
+      brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
+      iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
+      beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
+    }))
   }
 
   function updateFilter(field: keyof BrewLogFilters, value: string) {
@@ -216,13 +235,33 @@ export function BrewLogPanel({ beans, brewLogs }: BrewLogPanelProps) {
             </label>
 
             <label>
-              冲煮方式
+              冲煮类型
+              <select value={form.brewMode} onChange={(event) => updateBrewMode(event.target.value as BrewMode | '')}>
+                <option value="">未选择</option>
+                <option value="hot_pourover">热手冲</option>
+                <option value="iced_pourover">冰手冲</option>
+                <option value="cold_brew">冷萃</option>
+                <option value="espresso">意式</option>
+              </select>
+            </label>
+            {form.brewMode === 'cold_brew' ? (
+              <label>
+                冷萃类型
+                <select value={form.brewVariant} onChange={(event) => updateField('brewVariant', event.target.value)}>
+                  <option value="ready_to_drink">直接饮用</option>
+                  <option value="concentrate">浓缩基底</option>
+                </select>
+              </label>
+            ) : null}
+
+            <label>
+              具体方法
               <select
                 value={form.method}
                 onChange={(event) => updateField('method', event.target.value)}
               >
                 <option value="">未选择</option>
-                {brewMethodOptions.map((option) => (
+                {Array.from(new Set([...brewMethodOptions, form.method].filter(Boolean))).map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -267,15 +306,27 @@ export function BrewLogPanel({ beans, brewLogs }: BrewLogPanelProps) {
               />
             </label>
 
-            <label>
-              水量
-              <input
-                inputMode="decimal"
-                value={form.waterGrams}
-                onChange={(event) => updateField('waterGrams', event.target.value)}
-                placeholder="克"
-              />
-            </label>
+            {form.brewMode !== 'espresso' ? (
+              <label>
+                {form.brewMode === 'iced_pourover' ? '热水量' : '水量'}
+                <input inputMode="decimal" value={form.waterGrams}
+                  onChange={(event) => updateField('waterGrams', event.target.value)} placeholder="克" />
+              </label>
+            ) : null}
+            {form.brewMode === 'iced_pourover' ? (
+              <label>
+                冰量
+                <input inputMode="decimal" value={form.iceGrams}
+                  onChange={(event) => updateField('iceGrams', event.target.value)} placeholder="克" />
+              </label>
+            ) : null}
+            {form.brewMode === 'espresso' ? (
+              <label>
+                出液量
+                <input inputMode="decimal" value={form.beverageGrams}
+                  onChange={(event) => updateField('beverageGrams', event.target.value)} placeholder="克" />
+              </label>
+            ) : null}
 
             <label>
               水温

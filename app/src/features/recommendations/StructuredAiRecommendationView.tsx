@@ -9,10 +9,14 @@ export function StructuredAiRecommendationView({
 }: StructuredAiRecommendationViewProps) {
   const recipeFields = [
     ['方法', recommendation.recipe.method],
+    ['子类型', recommendation.recipe.brewVariant === 'concentrate' ? '浓缩基底' : recommendation.recipe.brewVariant === 'ready_to_drink' ? '直接饮用' : null],
     ['器具', recommendation.recipe.dripper],
+    ['磨豆机', recommendation.recipe.grinder],
     ['粉水比', recommendation.recipe.ratio],
     ['粉量', formatNumber(recommendation.recipe.coffeeGrams, 'g')],
-    ['水量', formatNumber(recommendation.recipe.waterGrams, 'g')],
+    ['热水 / 水量', formatNumber(recommendation.recipe.waterGrams, 'g')],
+    ['冰量', formatNumber(recommendation.recipe.iceGrams, 'g')],
+    ['出液量', formatNumber(recommendation.recipe.beverageGrams, 'g')],
     ['水温', formatNumber(recommendation.recipe.waterTemperatureC, '°C')],
     ['研磨', recommendation.recipe.grindSetting],
     ['总时间', formatNumber(recommendation.recipe.totalTimeSeconds, '秒')],
@@ -77,6 +81,6 @@ function StructuredList({ title, items }: { title: string; items: string[] }) {
   )
 }
 
-function formatNumber(value: number | null, suffix: string) {
-  return value === null ? null : `${value}${suffix}`
+function formatNumber(value: number | null | undefined, suffix: string) {
+  return value == null ? null : `${value}${suffix}`
 }

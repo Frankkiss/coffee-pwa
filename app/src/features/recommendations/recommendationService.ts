@@ -3,6 +3,7 @@ import {
   assertSyncWritesEnabled,
   type EffectiveSyncMode,
 } from '../sync/syncFeatureFlag'
+import type { createUserSettingsRepository } from '../settings/userSettingsRepository'
 import type { createBeanRepository } from '../beans/beanRepository'
 import type { createBrewLogRepository } from '../brews/brewLogRepository'
 import type { createBrewTemplateRepository } from '../brewTemplates/brewTemplateRepository'
@@ -20,14 +21,16 @@ import { normalizeAiRecommendationResponse } from './structuredAiRecommendation'
 type RuleRecommendationRepositories = {
   beans: Pick<ReturnType<typeof createBeanRepository>, 'listBeans'>
   brewLogs: Pick<ReturnType<typeof createBrewLogRepository>, 'listBrewLogs'>
+  userSettings?: Pick<ReturnType<typeof createUserSettingsRepository>, 'getUserSettings'>
   brewTemplates: Pick<ReturnType<typeof createBrewTemplateRepository>, 'listBrewTemplates'>
 }
 
 export async function loadRuleRecommendationData(repositories: RuleRecommendationRepositories) {
-  const [beans, brewLogs, userTemplates] = await Promise.all([
+  const [beans, brewLogs, userTemplates, settings] = await Promise.all([
     repositories.beans.listBeans(),
     repositories.brewLogs.listBrewLogs(),
     repositories.brewTemplates.listBrewTemplates(),
+    repositories.userSettings?.getUserSettings() ?? Promise.resolve(null),
   ])
 
   return {
@@ -37,6 +40,7 @@ export async function loadRuleRecommendationData(repositories: RuleRecommendatio
       ...brewTemplates,
       ...userTemplates.map(toBrewTemplateFromRow),
     ],
+    settings,
   }
 }
 
@@ -51,6 +55,13 @@ export function createRecommendationForBean(
   }
 
   return generateRuleRecommendation(targetBean, data.beans, data.brewLogs, data.templates)
+}
+
+export function createRecommendationForContext(
+  context: import('./recommendationContext').RecommendationContext,
+  data: Awaited<ReturnType<typeof loadRuleRecommendationData>>,
+) {
+  return generateRuleRecommendation(context, data.beans, data.brewLogs, data.templates)
 }
 
 export async function requestAiRecommendation(

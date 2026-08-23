@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { useSyncRuntime } from '../sync/SyncContext'
+import type { BrewForm, BrewMode, BrewVariant } from '../brews/brewTypes'
+import { readRecommendationDefaults } from '../settings/recommendationDefaults'
+import type { UserSettingsRow } from '../settings/userSettingsTypes'
 import { getAiRecommendationStatusMessage } from './aiRecommendationStatus'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
 } from './recommendationTypes'
 import {
-  createRecommendationForBean,
+  createRecommendationForContext,
   loadRuleRecommendationData,
   requestAiRecommendation,
   saveRecommendation,
@@ -20,16 +23,20 @@ import {
   type SavedRecommendationCard,
 } from './savedRecommendationList'
 import { StructuredAiRecommendationView } from './StructuredAiRecommendationView'
+import { createRecommendationContext } from './recommendationContext'
+import { toBrewDraft } from './brewDraft'
 import './recommendations.css'
+import './recommendationMethodControls.css'
 
 type RecommendationPanelProps = {
   session: Session
   supabase: SupabaseClient
+  onUseDraft: (draft: BrewForm) => void
 }
 
 type RecommendationData = Awaited<ReturnType<typeof loadRuleRecommendationData>>
 
-export function RecommendationPanel({ session, supabase }: RecommendationPanelProps) {
+export function RecommendationPanel({ session, supabase, onUseDraft }: RecommendationPanelProps) {
   const runtime = useSyncRuntime()
   const repositories = runtime.repositories
   const recommendationRepository = repositories?.recommendations ?? null
@@ -38,10 +45,16 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
     beans: [],
     brewLogs: [],
     templates: [],
+    settings: null,
   })
   const [selectedBeanId, setSelectedBeanId] = useState('')
   const [ruleRecommendation, setRuleRecommendation] =
     useState<RuleRecommendationResult | null>(null)
+  const [mode, setMode] = useState<BrewMode>('hot_pourover')
+  const [variant, setVariant] = useState<BrewVariant>('ready_to_drink')
+  const [brewer, setBrewer] = useState('')
+  const [grinder, setGrinder] = useState('')
+  const [espressoDose, setEspressoDose] = useState('')
   const [aiRecommendation, setAiRecommendation] =
     useState<AiRecommendationResponse | null>(null)
   const [savedRecommendations, setSavedRecommendations] = useState<SavedRecommendationCard[]>([])
@@ -81,6 +94,11 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
         if (isMounted && generation === loadGeneration) {
           setData(nextData)
           setSelectedBeanId((current) => current || nextData.beans[0]?.id || '')
+          const defaults = recommendationDefaults(nextData.settings)
+          const gear = defaults.hotPourover
+          setBrewer((current) => current || gear.brewer)
+          setGrinder((current) => current || gear.grinder)
+          setEspressoDose((current) => current || defaults.espresso.doseGrams?.toString() || '')
         }
       } catch (err) {
         if (isMounted && generation === loadGeneration) {
@@ -99,6 +117,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       repositories.beans.subscribe(() => void loadData()),
       repositories.brewLogs.subscribe(() => void loadData()),
       repositories.brewTemplates.subscribe(() => void loadData()),
+      repositories.userSettings.subscribe(() => void loadData()),
     ]
 
     return () => {
@@ -152,35 +171,61 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
     setSavedRecommendations(toSavedRecommendationCards(rows).slice(0, 5))
   }
 
+  function handleModeChange(nextMode: BrewMode) {
+    const defaults = recommendationDefaults(data.settings)
+    const gear = nextMode === 'hot_pourover' ? defaults.hotPourover
+      : nextMode === 'iced_pourover' ? defaults.icedPourover
+        : nextMode === 'cold_brew' ? defaults.coldBrew : defaults.espresso
+    setMode(nextMode)
+    setBrewer(gear.brewer)
+    setGrinder(gear.grinder)
+    if (nextMode === 'espresso') setEspressoDose(defaults.espresso.doseGrams?.toString() ?? '')
+    setRuleRecommendation(null)
+    setAiRecommendation(null)
+    setStatus('')
+    setError('')
+  }
+
   async function handleGenerate() {
-    if (!isOnline) {
-      setError('AI 推荐需要联网；已有推荐仍可离线查看。')
-      return
-    }
     setError('')
     setStatus('')
     setRuleRecommendation(null)
     setAiRecommendation(null)
+
     setIsGenerating(true)
 
     try {
-      const nextRuleRecommendation = createRecommendationForBean(
-        selectedBeanId,
+      const targetBean = data.beans.find((bean) => bean.id === selectedBeanId)
+      if (!targetBean) throw new Error('请选择咖啡豆')
+      const nextRuleRecommendation = createRecommendationForContext(
+        createRecommendationContext({
+          targetBean,
+          mode,
+          variant,
+          brewer,
+          grinder,
+          espressoDoseGrams: espressoDose.trim() ? Number(espressoDose) : null,
+          tasteGoals: recommendationDefaults(data.settings).tasteGoals,
+        }),
         data,
       )
 
       setRuleRecommendation(nextRuleRecommendation)
 
       if (!nextRuleRecommendation) {
-        setError('还没有足够的历史冲煮参数用于推荐。')
+        setError(mode === 'espresso' && !espressoDose.trim() ? '请先填写已确认的意式粉量。' : '还没有可用于该方式的历史参数或模板。')
         return
       }
 
-      const nextAiRecommendation = await requestAiRecommendation(
-        supabase,
-        nextRuleRecommendation,
-      )
-      setAiRecommendation(nextAiRecommendation)
+      if (isOnline) {
+        const nextAiRecommendation = await requestAiRecommendation(
+          supabase,
+          nextRuleRecommendation,
+        )
+        setAiRecommendation(nextAiRecommendation)
+      } else {
+        setStatus('已离线生成规则方案；联网后可再使用 DeepSeek 优化。')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成推荐失败')
     } finally {
@@ -288,22 +333,53 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
       ) : null}
 
       {data.beans.length > 0 ? (
-        <div className="recommendation-controls">
-          <label>
-            目标咖啡豆
-            <select
-              value={selectedBeanId}
-              onChange={(event) => setSelectedBeanId(event.target.value)}
-            >
+        <div className="recommendation-controls recommendation-controls--method">
+          <div className="recommendation-controls__grid">
+            <label>
+              目标咖啡豆
+              <select value={selectedBeanId} onChange={(event) => setSelectedBeanId(event.target.value)}>
               {data.beans.map((bean) => (
                 <option key={bean.id} value={bean.id}>
                   {bean.name}
                 </option>
               ))}
-            </select>
-          </label>
-
-          <button type="button" onClick={handleGenerate} disabled={isGenerating || !isOnline}>
+              </select>
+            </label>
+            <label>
+              冲煮方式
+              <select value={mode} onChange={(event) => handleModeChange(event.target.value as BrewMode)}>
+                <option value="hot_pourover">热手冲</option>
+                <option value="iced_pourover">冰手冲</option>
+                <option value="cold_brew">冷萃</option>
+                <option value="espresso">意式</option>
+              </select>
+            </label>
+            {mode === 'cold_brew' ? (
+              <label>
+                冷萃类型
+                <select value={variant} onChange={(event) => setVariant(event.target.value as BrewVariant)}>
+                  <option value="ready_to_drink">直接饮用</option>
+                  <option value="concentrate">浓缩基底</option>
+                </select>
+              </label>
+            ) : null}
+            <label>
+              器具
+              <input value={brewer} onChange={(event) => setBrewer(event.target.value)} placeholder="例如：V60" />
+            </label>
+            <label>
+              磨豆机
+              <input value={grinder} onChange={(event) => setGrinder(event.target.value)} placeholder="例如：C40" />
+            </label>
+            {mode === 'espresso' ? (
+              <label>
+                已确认粉量（克）
+                <input type="number" min="1" max="100" step="0.1" inputMode="decimal"
+                  value={espressoDose} onChange={(event) => setEspressoDose(event.target.value)} />
+              </label>
+            ) : null}
+          </div>
+          <button type="button" onClick={handleGenerate} disabled={isGenerating}>
             {isGenerating ? '生成中' : '生成推荐'}
           </button>
         </div>
@@ -311,8 +387,21 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
 
       {!isOnline ? (
         <p className="recommendation-empty" role="status">
-          当前离线：已有推荐可以查看；AI 生成、来源解析和推荐状态修改需要联网。
+          当前离线：仍可生成规则方案和冲煮草稿；仅跳过 DeepSeek 优化和在线状态修改。
         </p>
+      ) : null}
+
+      {aiRecommendation ? (
+        <div className="recommendation-ai recommendation-ai--primary">
+          <h3>DeepSeek 优化方案</h3>
+          {aiRecommendation.configured && aiRecommendation.structured ? (
+            <StructuredAiRecommendationView recommendation={aiRecommendation.structured} />
+          ) : aiRecommendation.configured && aiRecommendation.suggestion && !aiRecommendation.error ? (
+            <p>{aiRecommendation.suggestion}</p>
+          ) : (
+            <p>{getAiRecommendationStatusMessage(aiRecommendation)}</p>
+          )}
+        </div>
       ) : null}
 
       {ruleRecommendation ? (
@@ -321,12 +410,40 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
             <p className="recommendation-card__meta">
               {`规则置信度：${ruleRecommendation.confidence} · 基础来源：${ruleRecommendation.baseSource.label}`}
             </p>
-            <h3>规则推荐</h3>
+            <h3>{aiRecommendation?.structured ? '规则基础方案' : '规则方案'}</h3>
             <dl>
               <div>
                 <dt>粉水比</dt>
                 <dd>{ruleRecommendation.recommended.ratio ?? '未记录'}</dd>
               </div>
+              <div>
+                <dt>粉量</dt>
+                <dd>{ruleRecommendation.recommended.coffeeGrams != null ? `${ruleRecommendation.recommended.coffeeGrams}g` : '未记录'}</dd>
+              </div>
+              {ruleRecommendation.recommended.waterGrams != null ? (
+                <div>
+                  <dt>{ruleRecommendation.recommended.brewMode === 'iced_pourover' ? '热水量' : '水量'}</dt>
+                  <dd>{ruleRecommendation.recommended.waterGrams}g</dd>
+                </div>
+              ) : null}
+              {ruleRecommendation.recommended.iceGrams != null ? (
+                <div>
+                  <dt>冰量</dt>
+                  <dd>{ruleRecommendation.recommended.iceGrams}g</dd>
+                </div>
+              ) : null}
+              {ruleRecommendation.recommended.beverageGrams != null ? (
+                <div>
+                  <dt>出液量</dt>
+                  <dd>{ruleRecommendation.recommended.beverageGrams}g</dd>
+                </div>
+              ) : null}
+              {ruleRecommendation.recommended.brewVariant ? (
+                <div>
+                  <dt>冷萃类型</dt>
+                  <dd>{ruleRecommendation.recommended.brewVariant === 'concentrate' ? '浓缩基底' : '直接饮用'}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>水温</dt>
                 <dd>
@@ -382,7 +499,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
 
           <div className="recommendation-templates">
             <h3>候选冲煮模板</h3>
-            <p>DeepSeek 会参考这些模板。</p>
+            <p>规则层已选择基础来源；DeepSeek 只参考摘要并在安全范围内微调。</p>
             {ruleRecommendation.templateCandidates.map((template) => (
               <article key={template.id}>
                 <div>
@@ -401,25 +518,16 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
         </div>
       ) : null}
 
-      {aiRecommendation ? (
-        <div className="recommendation-ai">
-          <h3>DeepSeek 建议</h3>
-          {aiRecommendation.configured && aiRecommendation.structured ? (
-            <StructuredAiRecommendationView recommendation={aiRecommendation.structured} />
-          ) : aiRecommendation.configured && aiRecommendation.suggestion ? (
-            <p>{aiRecommendation.suggestion}</p>
-          ) : (
-            <p>{getAiRecommendationStatusMessage(aiRecommendation)}</p>
-          )}
-        </div>
-      ) : null}
 
       {ruleRecommendation ? (
         <div className="recommendation-save">
           <div>
-            <strong>保存为推荐记录</strong>
-            <p>用于回看和对比。</p>
+            <strong>使用或保存本次方案</strong>
+            <p>用于本次冲煮只会填入可编辑草稿，不会自动保存。</p>
           </div>
+          <button type="button" onClick={() => onUseDraft(toBrewDraft(ruleRecommendation, aiRecommendation))}>
+            用于本次冲煮
+          </button>
           <button type="button" onClick={handleSaveRecommendation} disabled={isSaving || !isOnline}>
             {isSaving ? '保存中' : '保存本次推荐'}
           </button>
@@ -533,5 +641,12 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
         {savedError ? <p className="recommendation-error">{savedError}</p> : null}
       </div>
     </section>
+  )
+}
+
+function recommendationDefaults(settings: UserSettingsRow | null) {
+  return readRecommendationDefaults(
+    settings?.default_gear ?? {},
+    settings?.taste_preferences ?? {},
   )
 }

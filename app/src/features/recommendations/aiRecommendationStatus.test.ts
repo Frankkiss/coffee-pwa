@@ -17,6 +17,8 @@ describe('getAiRecommendationStatusMessage', () => {
       .toBe('DeepSeek 未配置，先显示规则推荐。')
     expect(getAiRecommendationStatusMessage(response({ error: 'AI_TIMEOUT' })))
       .toBe('DeepSeek 响应超时，先显示规则推荐。')
+    expect(getAiRecommendationStatusMessage(response({ suggestion: '越界原文', error: 'AI_BOUNDARY_VIOLATION' })))
+      .toBe('DeepSeek 返回参数超出规则范围，已改用规则方案。')
     expect(getAiRecommendationStatusMessage(response({ error: 'AI_UPSTREAM_ERROR' })))
       .toBe('AI 推荐暂时不可用，先显示规则推荐。')
     expect(getAiRecommendationStatusMessage(response({ error: 'AI_FUNCTION_ERROR' })))

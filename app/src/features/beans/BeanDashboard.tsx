@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
-import type { BrewLog } from '../brews/brewTypes'
+import type { BrewForm, BrewLog } from '../brews/brewTypes'
 import { BrewLogPanel } from '../brews/BrewLogPanel'
 import { SourceImportPanel } from '../sourceImports/SourceImportPanel'
 import { useOptionalSyncRuntime } from '../sync/SyncContext'
@@ -24,10 +24,12 @@ type BeanDashboardProps = {
     beans: Bean[]
     brewLogs: BrewLog[]
   }
+  initialBrewDraft?: BrewForm | null
+  onBrewDraftConsumed?: () => void
 }
 type BeanSectionKey = 'sourceImport' | 'beanForm' | 'beanList' | 'brewLogs'
 
-export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardProps) {
+export function BeanDashboard({ session, supabase, previewRows, initialBrewDraft, onBrewDraftConsumed }: BeanDashboardProps) {
   const isPreview = Boolean(previewRows)
   const runtime = useOptionalSyncRuntime()
   const beanRepository = runtime?.repositories?.beans ?? null
@@ -53,8 +55,9 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
     sourceImport: false,
     beanForm: false,
     beanList: true,
-    brewLogs: false,
+    brewLogs: Boolean(initialBrewDraft),
   })
+
   const filteredBeans = filterBeans(beans, filters)
   const selectedBean = selectedBeanId
     ? beans.find((bean) => bean.id === selectedBeanId) ?? null
@@ -562,6 +565,8 @@ export function BeanDashboard({ session, supabase, previewRows }: BeanDashboardP
               <BrewLogPanel
                 beans={beans}
                 brewLogs={brewLogs}
+                initialDraft={initialBrewDraft}
+                onDraftConsumed={onBrewDraftConsumed}
               />
             )}
           </CollapsibleSection>
