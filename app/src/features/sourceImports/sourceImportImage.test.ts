@@ -9,7 +9,9 @@ function imageFile(
   type: string,
   bytes: Uint8Array = new Uint8Array([0xff, 0xd8, 0xff]),
 ) {
-  return new File([bytes], 'coffee-bag.jpg', { type })
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return new File([buffer], 'coffee-bag.jpg', { type })
 }
 
 describe('source import image', () => {

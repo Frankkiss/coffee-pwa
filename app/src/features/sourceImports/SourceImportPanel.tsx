@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { toBeanUpdatePayload } from '../beans/beanForm'
@@ -10,6 +10,7 @@ import { createBeanFormFromSourceDraft } from './sourceImportMapping'
 import { recordSourceImport, requestSourceImport } from './sourceImportService'
 import type { SourceImportResponse } from './sourceImportTypes'
 import { getSourceImportAvailability } from './sourceImportAvailability'
+import { readSourceImportImage, validateSourceImportImage } from './sourceImportImage'
 import './sourceImports.css'
 
 type SourceImportPanelProps = {
@@ -29,8 +30,7 @@ export function SourceImportPanel({
   const [form, setForm] = useState<BeanForm | null>(null)
   const [lastResponse, setLastResponse] = useState<SourceImportResponse | null>(null)
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
-  const [isReadingImage, setIsReadingImage] = useState(false)
-  const [ocrStatus, setOcrStatus] = useState('')
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const [isParsing, setIsParsing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('')
@@ -54,39 +54,23 @@ export function SourceImportPanel({
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const image = event.target.files?.[0] ?? null
-    setSelectedImage(image)
-    setOcrStatus(image ? `已选择：${image.name}` : '')
-    setError('')
-  }
 
-  async function handleRecognizeImage() {
-    if (!selectedImage) {
-      setError('请先选择一张商品详情图或截图。')
+    if (!image) {
+      setSelectedImage(null)
+      setError('')
       return
     }
 
-    setIsReadingImage(true)
-    setOcrStatus('正在识别图片文字，手机上可能需要几十秒。')
-    setError('')
-
-    try {
-      const { appendOcrText, recognizeCoffeeImageText } = await import('./imageOcr')
-      const recognizedText = await recognizeCoffeeImageText(selectedImage)
-
-      if (!recognizedText) {
-        setOcrStatus('')
-        setError('没有识别到可用文字。请换一张更清晰的图，或手动粘贴商品详情文字。')
-        return
-      }
-
-      setPastedText((current) => appendOcrText(current, recognizedText))
-      setOcrStatus(`已识别约 ${recognizedText.length} 个字符，原图不会保存。`)
-    } catch (err) {
-      setOcrStatus('')
-      setError(err instanceof Error ? err.message : '图片文字识别失败')
-    } finally {
-      setIsReadingImage(false)
+    const validationError = validateSourceImportImage(image)
+    if (validationError) {
+      setSelectedImage(null)
+      event.target.value = ''
+      setError(validationError)
+      return
     }
+
+    setSelectedImage(image)
+    setError('')
   }
 
   async function handleParse() {
@@ -100,27 +84,29 @@ export function SourceImportPanel({
     setForm(null)
     setLastResponse(null)
 
-    if (!detailText) {
-      setError('请粘贴商品详情文本或先识别图片文字。')
+    if (!detailText && !selectedImage) {
+      setError('请上传一张包装图片，或粘贴商品详情文字。')
       return
     }
 
     setIsParsing(true)
 
     try {
+      const image = selectedImage ? await readSourceImportImage(selectedImage) : undefined
       const response = await requestSourceImport(supabase, {
         pastedText: detailText,
+        image,
       })
       setLastResponse(response)
 
       if (!response.configured) {
-        setError('DeepSeek API 尚未配置，暂时无法 AI 解析。')
+        setError('DeepSeek 视觉 API 尚未配置，暂时无法解析。')
         await recordSourceImport(supabase, {
           userId: session.user.id,
           sourceUrl: response.sourceUrl || 'manual://pasted-text',
           status: 'failed',
           extractedPayload: response,
-          errorMessage: response.error ?? 'DeepSeek API not configured',
+          errorMessage: response.error ?? 'DeepSeek vision API not configured',
         }, runtime?.syncMode)
         return
       }
@@ -170,7 +156,9 @@ export function SourceImportPanel({
       setLastResponse(null)
       setPastedText('')
       setSelectedImage(null)
-      setOcrStatus('')
+      if (imageInputRef.current) {
+        imageInputRef.current.value = ''
+      }
       setStatus('已保存到豆仓，正在等待同步。')
       if (runtime) void runtime.run().catch(() => undefined)
       try {
@@ -196,12 +184,12 @@ export function SourceImportPanel({
       <div>
         <p className="source-import__eyebrow">Source Import</p>
         <h3 id="source-import-title">来源导入</h3>
-        <p>粘贴详情文本或识别图片文字。</p>
+        <p>上传包装图片或粘贴详情文字，AI 生成待确认草稿。</p>
       </div>
 
       <div className="source-import__bar">
         <button type="button" onClick={handleParse} disabled={isParsing || !parseAvailability.enabled}>
-          {isParsing ? '解析中' : 'AI 解析'}
+          {isParsing ? '解析中' : 'AI 解析图片/文字'}
         </button>
         {parseAvailability.message ? <p role="status">{parseAvailability.message}</p> : null}
       </div>
@@ -209,17 +197,14 @@ export function SourceImportPanel({
       <div className="source-import__image">
         <label>
           图片导入
-          <input type="file" accept="image/*" onChange={handleImageChange} />
+          <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />
         </label>
-        <button type="button" onClick={handleRecognizeImage} disabled={isReadingImage}>
-          {isReadingImage ? '识别中' : '识别图片文字'}
-        </button>
-        <p>本机识别，不保存原图。</p>
-        {ocrStatus ? <p className="source-import__ocr-status">{ocrStatus}</p> : null}
+        <p>图片仅用于本次 AI 解析，不保存原图。支持 JPEG、PNG、WebP，最大 8 MB。</p>
+        {selectedImage ? <p className="source-import__image-status">已选择：{selectedImage.name}</p> : null}
       </div>
 
       <label>
-        商品详情文本
+        商品详情文字（可选）
         <textarea
           value={pastedText}
           onChange={(event) => setPastedText(event.target.value)}

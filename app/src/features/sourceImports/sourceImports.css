@@ -99,7 +99,7 @@
   font-size: 0.84rem;
 }
 
-.source-import__ocr-status {
+.source-import__image-status {
   padding: 0.65rem;
   border-radius: var(--radius-card);
   background: rgba(227, 170, 120, 0.18);
