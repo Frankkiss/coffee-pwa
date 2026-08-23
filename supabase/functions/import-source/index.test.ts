@@ -113,7 +113,7 @@ Deno.test("import-source rejects oversized request bodies before JSON parsing", 
     },
     body: new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new Uint8Array(70_000));
+        controller.enqueue(new Uint8Array(13_000_000));
         controller.close();
       },
     }),

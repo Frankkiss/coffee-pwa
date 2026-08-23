@@ -1,8 +1,14 @@
 import { requireUser, type RequireUserResult } from "../_shared/auth.ts";
 import { consumeRateLimit } from "../_shared/rateLimit.ts";
 
+type SourceImportImage = {
+  mediaType: "image/jpeg" | "image/png" | "image/webp";
+  dataUrl: string;
+};
+
 type ImportRequest = {
   pastedText?: string;
+  image?: unknown;
 };
 
 type SourceDraft = {
@@ -45,7 +51,8 @@ const corsHeaders = {
 const manualSourceUrl = "manual://pasted-text";
 const minTextLength = 30;
 const maxPromptTextLength = 12000;
-const maxRequestBodyBytes = 65536;
+const maxRequestBodyBytes = 12 * 1024 * 1024;
+const maxImageBytes = 8 * 1024 * 1024;
 
 export type ImportSourceDependencies = {
   getApiKey: () => string | undefined;
@@ -55,7 +62,7 @@ export type ImportSourceDependencies = {
 };
 
 const defaultDependencies: ImportSourceDependencies = {
-  getApiKey: () => Deno.env.get("DEEPSEEK_API_KEY"),
+  getApiKey: () => Deno.env.get("DEEPSEEK_VISION_API_KEY"),
   requireUser,
   consumeRateLimit,
   requestDeepSeekDraft,
@@ -123,6 +130,16 @@ export async function handleImportSourceRequest(
     }, 400);
   }
 
+  let sourceImage: SourceImportImage | null;
+  try {
+    sourceImage = normalizeSourceImage(payload.image);
+  } catch (error) {
+    const tooLarge = error instanceof SourceImageTooLargeError;
+    return jsonResponse(
+      { configured: true, sourceUrl: manualSourceUrl, draft: null, error: tooLarge ? "SOURCE_IMAGE_TOO_LARGE" : "INVALID_SOURCE_IMAGE" },
+      tooLarge ? 413 : 400,
+    );
+  }
   const apiKey = dependencies.getApiKey();
   if (!apiKey) {
     return jsonResponse({ configured: false, draft: null });
@@ -131,13 +148,13 @@ export async function handleImportSourceRequest(
   const normalizedText = normalizePastedText(payload.pastedText);
   const sourceForResponse = manualSourceUrl;
 
-  if (!normalizedText) {
+  if (!normalizedText && !sourceImage) {
     return jsonResponse(
       {
         configured: true,
         sourceUrl: sourceForResponse,
         draft: null,
-        error: "Please provide pasted product detail text",
+        error: "SOURCE_INPUT_REQUIRED",
       },
       400,
     );
@@ -146,7 +163,7 @@ export async function handleImportSourceRequest(
   try {
     const sourceText = normalizedText;
 
-    if (sourceText.length < minTextLength) {
+    if (!sourceImage && sourceText.length < minTextLength) {
       return jsonResponse({
         configured: true,
         sourceUrl: sourceForResponse,
@@ -161,6 +178,7 @@ export async function handleImportSourceRequest(
       apiKey,
       sourceForResponse,
       promptText,
+      sourceImage,
     );
 
     return jsonResponse({
@@ -183,6 +201,7 @@ export async function handleImportSourceRequest(
 }
 
 class ImportBodyTooLargeError extends Error {}
+class SourceImageTooLargeError extends Error {}
 
 async function readBoundedJsonBody(request: Request): Promise<ImportRequest> {
   const declaredLength = request.headers.get("Content-Length");
@@ -231,11 +250,51 @@ function normalizePastedText(value: unknown) {
 
   return value.replace(/\s+/g, " ").trim();
 }
+function normalizeSourceImage(value: unknown): SourceImportImage | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid source image");
+  }
+  const record = value as Record<string, unknown>;
+  const mediaType = record.mediaType;
+  const dataUrl = record.dataUrl;
+  if (
+    mediaType !== "image/jpeg" && mediaType !== "image/png" &&
+    mediaType !== "image/webp"
+  ) {
+    throw new Error("invalid source image media type");
+  }
+  if (typeof dataUrl !== "string") {
+    throw new Error("invalid source image data");
+  }
+  const prefix = `data:${mediaType};base64,`;
+  if (!dataUrl.startsWith(prefix)) {
+    throw new Error("source image media type mismatch");
+  }
+  const encoded = dataUrl.slice(prefix.length);
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+    throw new Error("invalid source image base64");
+  }
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  const decodedSize = encoded.length * 3 / 4 - padding;
+  if (decodedSize > maxImageBytes) {
+    throw new SourceImageTooLargeError();
+  }
+  try {
+    if (atob(encoded).length !== decodedSize) throw new Error("size mismatch");
+  } catch {
+    throw new Error("invalid source image base64");
+  }
+  return { mediaType, dataUrl };
+}
 
-async function requestDeepSeekDraft(
+export async function requestDeepSeekDraft(
   apiKey: string,
   sourceUrl: string,
   sourceText: string,
+  sourceImage: SourceImportImage | null = null,
 ) {
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
@@ -244,16 +303,19 @@ async function requestDeepSeekDraft(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash-vision-exp",
       messages: [
         {
           role: "system",
           content:
-            "你是谨慎的咖啡豆资料录入助手。只从用户主动提供的商品详情文本或 OCR 已提取文本中提取咖啡豆资料，不要浏览网页或编造。必须只返回 JSON，不要 Markdown。除专有名称外，所有面向用户展示的字段值都应尽量使用中文。",
+            "你是谨慎的咖啡豆资料录入助手。只从用户主动提供的包装图片和商品详情文本中提取咖啡豆资料，不要浏览网页或编造。必须只返回 JSON，不要 Markdown。除专有名称外，所有面向用户展示的字段值都应尽量使用中文。",
         },
         {
           role: "user",
-          content: buildPrompt(sourceUrl, sourceText),
+          content: [
+            { type: "text", text: buildPrompt(sourceUrl, sourceText) },
+            ...(sourceImage ? [{ type: "image_url", image_url: { url: sourceImage.dataUrl, detail: "original" } }] : []),
+          ],
         },
       ],
       response_format: { type: "json_object" },
@@ -281,7 +343,7 @@ async function requestDeepSeekDraft(
 
 function buildPrompt(sourceUrl: string, sourceText: string) {
   return [
-    "请从以下商品详情文本中提取咖啡豆资料，返回严格 JSON。",
+    "请从随附包装图片和/或以下商品详情文本中提取咖啡豆资料，返回严格 JSON。",
     "字段：name, roaster, origin, farmOrStation, process, variety, altitudeMeters, roastDate, roastLevel, flavorTags, flavorNotes, netWeightGrams, price, beanType, blendComponents, blendNotes, notes, confidence, missingFields。",
     "要求：",
     "1. 找不到的字段用空字符串、null 或空数组。",
@@ -292,7 +354,7 @@ function buildPrompt(sourceUrl: string, sourceText: string) {
     "6. beanType 只能是 single_origin 或 blend；如果原文出现拼配、Blend、配方豆、多产区、多处理法组合，返回 blend，否则返回 single_origin。",
     "7. blendComponents 是数组；拼配豆尽量拆出 origin, process, variety, percentage, role, notes。比例不确定必须返回 null，不能猜测比例或主次；找不到的字段用空字符串。",
     "8. blendNotes 保存原文里与拼配组成有关的说明，方便用户核对。拼配比例未知时，notes 可描述该组成可能的风味作用，但不要假设它是主体。",
-    "9. 不要输出商品详情没有提供的事实。",
+    "9. 只记录包装图片或详情文字中明确出现的事实；看不清或有冲突时降低 confidence 并列入 missingFields，不要猜测。",
     "10. 如果原文是英文，请尽量翻译为自然中文后再写入字段。处理法、烘焙度、风味标签、风味描述、备注、缺失字段必须优先使用中文。",
     "11. 专有名称可以保留原文，尤其是烘焙商、庄园、处理站、品种、产品名；但常见咖啡术语要中文化，例如 Washed=水洗、Natural=日晒、Honey=蜜处理、Anaerobic=厌氧、Light Roast=浅烘、Medium Roast=中烘。",
     "12. flavorTags 使用短中文词条，例如 citrus=柑橘、honey=蜂蜜、jasmine=茉莉、berry=莓果、floral=花香、chocolate=巧克力。flavorNotes 可写成中文短句。",

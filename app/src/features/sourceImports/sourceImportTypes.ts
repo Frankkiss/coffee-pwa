@@ -34,8 +34,14 @@ export type SourceImportResponse = {
   error?: string
 }
 
+export type SourceImportImage = {
+  dataUrl: string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
+}
+
 export type SourceImportRequest = {
   pastedText: string
+  image?: SourceImportImage
 }
 
 export type SourceImportRecordInput = {

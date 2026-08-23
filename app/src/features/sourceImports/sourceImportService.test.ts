@@ -9,7 +9,7 @@ it('blocks source import record writes in protection mode before touching Supaba
 })
 
 describe('requestSourceImport', () => {
-  it('sends only pasted text to the import-source function', async () => {
+  it('sends pasted text and an optional image to the import-source function', async () => {
     const invoke = vi.fn().mockResolvedValue({
       data: {
         configured: true,
@@ -26,11 +26,19 @@ describe('requestSourceImport', () => {
 
     await requestSourceImport(supabase as never, {
       pastedText: '咖啡豆商品详情文本',
+      image: {
+        mediaType: 'image/jpeg',
+        dataUrl: 'data:image/jpeg;base64,/9j/',
+      },
     })
 
     expect(invoke).toHaveBeenCalledWith('import-source', {
       body: {
         pastedText: '咖啡豆商品详情文本',
+        image: {
+          mediaType: 'image/jpeg',
+          dataUrl: 'data:image/jpeg;base64,/9j/',
+        },
       },
     })
   })
