@@ -34,6 +34,26 @@ The AI output is plain Chinese text with:
 
 The Edge Function uses DeepSeek's OpenAI-compatible `/chat/completions` endpoint at `https://api.deepseek.com`. It uses `deepseek-v4-flash-vision-exp` with text-only structured recommendation context. If `DEEPSEEK_VISION_API_KEY` is missing, it returns `configured: false` without exposing server details. Existing saved records retain their original `model_name`; no migration rewrites them.
 
+## Vision Model Text Request Compatibility
+
+`deepseek-v4-flash-vision-exp` 的用户消息必须使用 OpenAI 兼容的内容块数组。冲煮推荐虽然不发送图片，也必须把规则上下文放入单个文本块：
+
+```ts
+content: [{ type: "text", text: buildPrompt(payload) }]
+```
+
+系统消息继续使用现有字符串格式，与已验证可用的来源图片解析请求保持一致。此次修复不改变规则计算、候选模板、输入字段、推荐 JSON 结构、保存行为或数据库。
+
+## AI Availability And Error States
+
+推荐结果区必须区分以下状态，不能把所有失败都显示成“DeepSeek 未启用”：
+
+- `configured: false`：仅表示服务端缺少 `DEEPSEEK_VISION_API_KEY`，显示“DeepSeek 未配置”。
+- `AI_TIMEOUT`：显示模型响应超时，规则推荐仍可用。
+- `AI_UPSTREAM_ERROR` 或函数调用失败：显示 AI 推荐暂时不可用，规则推荐仍可用。
+- 已配置但没有可展示内容：显示模型未返回可用建议。
+前端只显示稳定的本地文案，不展示 Supabase 或 DeepSeek 原始错误、响应体、密钥、请求内容或内部标识。本次修复完成并部署后，先验证 AI 草稿能够生成，再另行设计推荐规则优化。
+
 ## Non-Goals
 
 This version does not store recommendation history, does not use vector search, and does not automatically tune recipes after tasting feedback.
