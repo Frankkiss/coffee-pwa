@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { useSyncRuntime } from '../sync/SyncContext'
+import { getAiRecommendationStatusMessage } from './aiRecommendationStatus'
 import type {
   AiRecommendationResponse,
   RuleRecommendationResult,
@@ -408,7 +409,7 @@ export function RecommendationPanel({ session, supabase }: RecommendationPanelPr
           ) : aiRecommendation.configured && aiRecommendation.suggestion ? (
             <p>{aiRecommendation.suggestion}</p>
           ) : (
-            <p>DeepSeek 未启用，先显示规则推荐。</p>
+            <p>{getAiRecommendationStatusMessage(aiRecommendation)}</p>
           )}
         </div>
       ) : null}

@@ -4,6 +4,7 @@ import type { BrewLog } from '../brews/brewTypes'
 import {
   loadRuleRecommendationData,
   saveRecommendation,
+  requestAiRecommendation,
   softDeleteSavedRecommendation,
   updateSavedRecommendationAccepted,
 } from './recommendationService'
@@ -15,6 +16,28 @@ it('blocks all saved recommendation writes in protection mode before touching Su
     .rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
   await expect(softDeleteSavedRecommendation(null as never, 'id', 'protection'))
     .rejects.toMatchObject({ code: 'SYNC_PROTECTION_MODE' })
+})
+
+it('maps Edge Function invocation failures to a stable configured error', async () => {
+  const invoke = vi.fn().mockResolvedValue({
+    data: null,
+    error: { message: 'PRIVATE SUPABASE ERROR DETAIL' },
+  })
+  const result = await requestAiRecommendation(
+    { functions: { invoke } } as never,
+    {} as never,
+  )
+
+  expect(result).toEqual({
+    configured: true,
+    suggestion: null,
+    structured: null,
+    error: 'AI_FUNCTION_ERROR',
+  })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE SUPABASE ERROR DETAIL')
+  expect(invoke).toHaveBeenCalledWith('recommend-brew', {
+    body: expect.any(Object),
+  })
 })
 
 describe('loadRuleRecommendationData', () => {

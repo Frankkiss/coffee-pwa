@@ -161,7 +161,7 @@ export async function handleRecommendBrewRequest(
             },
             {
               role: "user",
-              content: buildPrompt(payload),
+              content: [{ type: "text", text: buildPrompt(payload) }],
             },
           ],
           response_format: { type: "json_object" },

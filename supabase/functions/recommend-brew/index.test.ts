@@ -95,8 +95,12 @@ Deno.test("recommend-brew uses the shared vision model with a text-only request"
   assertEquals(messages[0].role, "system");
   assertEquals(typeof messages[0].content, "string");
   assertEquals(messages[1].role, "user");
-
-  assertEquals(typeof messages[1].content, "string");
+  assertEquals(Array.isArray(messages[1].content), true);
+  const userContent = messages[1].content as Array<Record<string, unknown>>;
+  assertEquals(userContent.length, 1);
+  assertEquals(userContent[0].type, "text");
+  assertEquals(typeof userContent[0].text, "string");
+  assertEquals(userContent.some((block) => block.type === "image_url"), false);
 });
 Deno.test("recommend-brew rejects unauthenticated calls before rate limiting or parsing", async () => {
   let rateLimitCalled = false;

@@ -71,10 +71,10 @@ export async function requestAiRecommendation(
 
   if (error) {
     return {
-      configured: false,
+      configured: true,
       suggestion: null,
       structured: null,
-      error: error.message,
+      error: 'AI_FUNCTION_ERROR',
     }
   }
 
