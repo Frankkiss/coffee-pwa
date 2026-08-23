@@ -24,7 +24,7 @@ jobs:
       upload_pages_artifact: true
       vite_supabase_url: ${{ vars.VITE_SUPABASE_URL }}
       vite_supabase_anon_key: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-      vite_sync_rollout_mode: pilot
+      vite_sync_rollout_mode: enabled
 
   deploy:
     environment:
