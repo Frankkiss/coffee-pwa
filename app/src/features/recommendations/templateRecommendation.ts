@@ -23,6 +23,8 @@ export function selectTemplateCandidates(
   templates = brewTemplates,
 ): BrewTemplateCandidate[] {
   const scored = templates
+    .filter((template) => !template.id.startsWith('iced-pourover-')
+      && !template.id.startsWith('espresso-'))
     .map((template) => scoreTemplate(targetBean, template))
     .filter((candidate) => candidate.score > 0)
     .sort((left, right) => right.score - left.score || rankTemplate(left) - rankTemplate(right))

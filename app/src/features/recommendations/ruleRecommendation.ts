@@ -20,13 +20,20 @@ import type {
   RuleRecommendationResult,
 } from './recommendationTypes'
 import { selectTemplateCandidates } from './templateRecommendation'
+import type { RecommendationContext } from './recommendationContext'
+import { generateMethodAwareRuleRecommendation } from './methodAwareRuleRecommendation'
 
 export function generateRuleRecommendation(
-  targetBean: Bean,
+  targetBean: Bean | RecommendationContext,
   beans: Bean[],
   brewLogs: BrewLog[],
   templates?: BrewTemplate[],
 ): RuleRecommendationResult | null {
+  if ('targetBean' in targetBean) {
+    return generateMethodAwareRuleRecommendation(
+      targetBean, beans, brewLogs, templates ?? brewTemplates,
+    )
+  }
   const availableTemplates = templates ?? brewTemplates
   const beanById = new Map(beans.map((bean) => [bean.id, bean]))
   const templateCandidates = selectTemplateCandidates(targetBean, availableTemplates)

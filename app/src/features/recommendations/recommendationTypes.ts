@@ -1,8 +1,19 @@
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import type { BrewMode, BrewVariant } from '../brews/brewTypes'
+import type { FeedbackAdjustment } from './feedbackAdjustments'
+import type { FreshnessAdjustment } from './freshnessRules'
 
 export type RecommendedBrewParameters = {
   method: string | null
+  brewMode?: BrewMode
+  brewVariant?: BrewVariant | null
+  grinder?: string | null
+  coffeeGrams?: number | null
+  waterGrams?: number | null
+  iceGrams?: number | null
+  beverageGrams?: number | null
+  bloomTimeDeltaSeconds?: number
   dripper: string | null
   grindSetting: string | null
   ratio: string | null
@@ -56,6 +67,8 @@ export type RuleRecommendationResult = {
   confidence: RecommendationConfidence
   baseSource: RuleRecommendationBaseSource
   beanAdjustmentReasons: string[]
+  feedbackAdjustments?: FeedbackAdjustment[]
+  freshnessAdjustment?: FreshnessAdjustment
 }
 
 export type AiRecommendationResponse = {
