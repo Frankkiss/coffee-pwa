@@ -1,5 +1,7 @@
 # Blend Bean UI v1 Design
 
+> Superseded for the manual add/edit form by `2026-08-23-manual-bean-form-simplification-design.md`. The structured fields remain persisted for compatibility, but the manual form no longer exposes the editor.
+
 ## Goal
 
 Make blend bean entry easier and more accurate by replacing the single large composition text box with structured blend component cards, while still keeping a free-form blend note.
