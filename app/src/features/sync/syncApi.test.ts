@@ -177,6 +177,20 @@ describe('sync API boundary', () => {
     expect(rpc).toHaveBeenCalledWith('get_sync_snapshot')
   })
 
+  it('accepts a built-in template source identifier in a snapshot', async () => {
+    const base = snapshot()
+    const value = {
+      ...base,
+      brewTemplates: [{
+        ...base.brewTemplates[0],
+        copied_from_template_id: 'classic-v60-three-pour',
+      }],
+    }
+    const { client } = clientWith([{ data: value, error: null }])
+
+    await expect(createSyncApi(client).getSnapshot()).resolves.toEqual(value)
+  })
+
   it.each([
     ['non-object top level', null],
     ['unknown top-level field', { ...snapshot(), extra: true }],
