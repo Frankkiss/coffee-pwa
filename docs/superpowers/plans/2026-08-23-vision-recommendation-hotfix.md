@@ -72,6 +72,19 @@ configured true with no output -> "DeepSeek 未返回可用建议，先显示规
 - [ ] **Step 6: Verify** GitHub Actions pass, the Pages assets contain the corrected state copy, and production function OPTIONS/unauthenticated POST still return 200/401. Ask the user to generate one authenticated recommendation draft; do not save it automatically.
 
 ## Self-review result
+### Task 4: Extend the bounded vision response window
+
+**Files:**
+- Modify: `supabase/functions/recommend-brew/index.test.ts`
+- Modify: `supabase/functions/recommend-brew/index.ts`
+
+- [ ] **Step 1: Change the existing timeout test** to require `90_000` milliseconds while preserving the abort-signal and `AI_TIMEOUT` assertions.
+- [ ] **Step 2: Run** `npx --yes deno test supabase/functions/recommend-brew/index.test.ts --allow-env`; expect failure because the implementation still schedules 30,000 milliseconds.
+- [ ] **Step 3: Change** `deepSeekTimeoutMs` from `30_000` to `90_000`; do not add retries or modify the prompt/model request.
+- [ ] **Step 4: Re-run** the focused Deno test, then the full frontend and Edge verification commands from Task 3.
+- [ ] **Step 5: Commit** as `fix: allow vision recommendations more time`, deploy only `recommend-brew`, verify ACTIVE/JWT plus 200/401 boundaries, and push `foundation`.
+- [ ] **Step 6: Wait for Pages checks, then ask the user to generate one recommendation draft without saving it.**
+
 
 - Spec coverage: vision content blocks, unchanged rule engine, stable error states, no raw upstream error exposure, regression tests, deployment, and authenticated user smoke-test are all covered.
 - Placeholder scan: every implementation and verification step is concrete; unrelated recommendation-rule work is excluded.

@@ -54,6 +54,12 @@ content: [{ type: "text", text: buildPrompt(payload) }]
 - 已配置但没有可展示内容：显示模型未返回可用建议。
 前端只显示稳定的本地文案，不展示 Supabase 或 DeepSeek 原始错误、响应体、密钥、请求内容或内部标识。本次修复完成并部署后，先验证 AI 草稿能够生成，再另行设计推荐规则优化。
 
+## Vision Recommendation Timeout
+
+视觉实验模型生成结构化冲煮建议可能超过原有 30 秒。`recommend-brew` 的上游等待时间设为 90 秒，低于 Supabase 托管 Edge Function 的 150 秒请求空闲上限，并保留 `AbortController` 主动中止。
+
+超时后仍返回稳定的 `AI_TIMEOUT`，前端继续显示规则推荐；不自动重试，避免重复消耗配额或产生并发建议。本次调整只改变等待窗口，不改变提示词、规则计算、模型参数、输出结构或保存行为。
+
 ## Non-Goals
 
 This version does not store recommendation history, does not use vector search, and does not automatically tune recipes after tasting feedback.
