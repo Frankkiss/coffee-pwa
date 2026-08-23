@@ -91,11 +91,16 @@
 - 烘焙度。
 - 风味标签。
 - 净含量。
+- 剩余豆量；允许为 0，未记录时为 null。
 - 购买价格。
 - 购买日期。
 - 豆袋照片或压缩图片。
 - 来源网址。
 - 备注。
+
+剩余豆量是用户可见库存数据，必须作为豆子的一等字段贯穿录入与编辑、IndexedDB、本地 Outbox、同步 wire payload、
+Supabase Postgres、服务器快照、JSON/CSV 导出和备份恢复。旧版离线数据中的 `remaining_grams` 必须原值迁移；
+任何升级都不得静默丢弃、改写进备注或仅保留在临时恢复文件中。
 
 来源导入只处理用户主动提供的内容：粘贴的商品详情文字、OCR 已提取文字，以及另行批准的图片/多模态入口。前端不得提供网址抓取输入；`import-source` 即使收到伪造的 `url` 字段也必须稳定拒绝，且不得发起任何外部页面请求。解析结果仅作为待确认草稿，用户确认后才写入豆仓。
 
@@ -300,7 +305,8 @@ typed array、undefined 与特殊 number，并用引用 ID 支持循环/共享�
 `LEGACY_MIGRATION_SOURCE_CHANGED` 安全拒绝，提示恢复导出并保持 v2、v3 与 meta 原样。禁止自动重跑或覆盖可能已有的新 v3
 编辑。Blob、File 或任何不能完整同步指纹的 structured-clone 类型不读取异步内容字节，也永不视为 unchanged：首次迁移按既有
 恢复失败语义拒绝，completed fast path 必须返回 `LEGACY_MIGRATION_SOURCE_CHANGED`。强化该门禁与前置嵌套字段校验后，
-current `migrationVersion` 提升到 `10`，旧 v9 completion 继续走 upgrade-required。
+加入 `remaining_grams` 原值迁移后，current `migrationVersion` 提升到 `11`，旧 v10 及更早 completion 继续走
+upgrade-required。
 
 legacy 迁移必须接受可选 `AbortSignal`。composition root 在登出、切换账号、session generation 变化或 StrictMode cleanup 时先
 abort 旧 generation，再停止其 SyncManager。IndexedDB 迁移事务建立后必须监听 abort 并调用 `transaction.abort()`；每轮读取完成、

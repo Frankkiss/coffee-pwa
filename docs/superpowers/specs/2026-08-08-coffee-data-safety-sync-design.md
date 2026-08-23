@@ -77,6 +77,18 @@
 - 短期幂等回执仅用于重复请求去重，不保存字段差异，不视为修改历史。
 - 真正回滚依靠定期文件备份和执行回滚前生成的完整备份。
 
+### 3.4 剩余豆量数据契约
+
+- `remaining_grams` 是豆子的一等可空数值字段：未记录时为 `null`，有记录时必须是大于等于 0 的有限数；0 表示已用完。
+- 录豆、查看和编辑必须直接呈现该字段，不得改写进备注或从净含量推算后覆盖用户输入。
+- 字段必须贯穿 IndexedDB entity envelope、Outbox 完整 upsert、wire mapper、`apply_sync_batch`、
+  Postgres `beans`、`get_sync_snapshot`、JSON/CSV 导出和安全恢复。服务器和客户端的严格字段白名单及运行时校验必须一致。
+- 旧 IndexedDB snapshot 或 pending payload 已包含 `remaining_grams` 时，legacy migration 必须按原值迁移；
+  缺失时迁移为 `null`。字段存在但类型非法或小于 0 时进入恢复保护并保留源数据，不能静默删除字段。
+- PostgreSQL 采用仅新增列与 `NOT VALID` 非负约束的 expand 迁移；异常计数为 0 后再验证约束。
+- 备份 v1/v2 的严格解析与服务端恢复白名单必须接受该字段。旧备份缺失字段时兼容为 `null`；
+  新备份必须原值导出并通过校验和保护。
+
 ## 4. 总体架构
 
 ```text
@@ -577,7 +589,8 @@ completed meta 只保存非敏感 `sourceFingerprint` digest，不保存源 payl
 稳定引用标记支持循环/共享引用；不得把这些值统一折叠为 `{}`。completed 后同 ID 源内容发生任一此类类型或内容变化时必须抛
 `LEGACY_MIGRATION_SOURCE_CHANGED`，保持 v2、v3 与 meta 原样。Blob、File 或任何不能完整同步指纹的 structured-clone 类型
 不读取异步内容字节，也永不满足 unchanged：首次迁移按既有恢复失败语义拒绝，completed fast path 必须返回
-`LEGACY_MIGRATION_SOURCE_CHANGED`。该契约使用 current `migrationVersion: 10`；旧 v9 completion 必须走
+`LEGACY_MIGRATION_SOURCE_CHANGED`。加入 `remaining_grams` 原值迁移后，该契约使用 current
+`migrationVersion: 11`；旧 v10 及更早 completion 必须走
 `LEGACY_MIGRATION_UPGRADE_REQUIRED`。
 
 若任何步骤失败：
