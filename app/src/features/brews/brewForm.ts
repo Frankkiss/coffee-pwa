@@ -1,4 +1,5 @@
 import type { BrewForm, BrewLog, BrewLogInsertPayload, BrewLogUpdatePayload } from './brewTypes'
+import { isMethodCompatible } from './brewMethodLinkage'
 import { normalizeBrewMode, normalizeBrewVariant } from './brewMode'
 
 export function createInitialBrewForm(beanId = ''): BrewForm {
@@ -87,6 +88,12 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
 
   const coffeeGrams = optionalNumber(form.coffeeGrams)
   const brewMode = form.brewMode || null
+  const method = form.method.trim()
+
+  if (brewMode && method && !isMethodCompatible(brewMode, method)) {
+    throw new Error('冲煮类型与具体方法不一致')
+  }
+
   const brewVariant = normalizeBrewVariant(brewMode, form.brewVariant)
   const waterGrams = brewMode === 'espresso' ? null : optionalNumber(form.waterGrams)
   const iceGrams = brewMode === 'iced_pourover' ? optionalNumber(form.iceGrams) : null
@@ -99,7 +106,7 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
 
   return {
     bean_id: beanId,
-    method: optionalText(form.method),
+    method: optionalText(method),
     brew_mode: brewMode,
     brew_variant: brewVariant,
     ice_grams: iceGrams,

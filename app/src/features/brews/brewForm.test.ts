@@ -84,6 +84,16 @@ describe('toBrewLogInsertPayload', () => {
       '请选择咖啡豆',
     )
   })
+
+  it('rejects a known method that conflicts with the canonical brew mode', () => {
+    const form = {
+      ...createInitialBrewForm('bean-1'),
+      brewMode: 'cold_brew' as const,
+      method: '意式',
+    }
+
+    expect(() => toBrewLogUpdatePayload(form)).toThrow('冲煮类型与具体方法不一致')
+  })
 })
 
 describe('brew log edit helpers', () => {

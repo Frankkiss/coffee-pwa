@@ -4,6 +4,7 @@ import { useSyncRuntime } from '../sync/SyncContext'
 import { getEntitySyncBadge } from '../sync/entitySyncPresentation'
 import { filterBrewLogs } from './brewFilters'
 import { brewMethodOptions } from './brewMethodOptions'
+import { linkMethodToMode, linkModeToMethod } from './brewMethodLinkage'
 import {
   createBrewFormFromLog,
   createInitialBrewForm,
@@ -75,16 +76,30 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
   }
 
   function updateBrewMode(nextMode: BrewMode | '') {
-    const method = nextMode === 'hot_pourover' ? '手冲'
-      : nextMode === 'iced_pourover' ? '冰手冲'
-        : nextMode === 'cold_brew' ? '冷萃'
-          : nextMode === 'espresso' ? '意式' : form.method
-    setForm((current) => ({
-      ...current, brewMode: nextMode, method,
-      brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
-      iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
-      beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
-    }))
+    setForm((current) => {
+      const linked = linkModeToMethod(nextMode, current.method)
+      return {
+        ...current,
+        ...linked,
+        brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
+        iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
+        beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
+      }
+    })
+  }
+
+  function updateMethod(nextMethod: string) {
+    setForm((current) => {
+      const linked = linkMethodToMode(nextMethod, current.brewMode)
+      const nextMode = linked.brewMode
+      return {
+        ...current,
+        ...linked,
+        brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
+        iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
+        beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
+      }
+    })
   }
 
   function updateFilter(field: keyof BrewLogFilters, value: string) {
@@ -258,7 +273,7 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
               具体方法
               <select
                 value={form.method}
-                onChange={(event) => updateField('method', event.target.value)}
+                onChange={(event) => updateMethod(event.target.value)}
               >
                 <option value="">未选择</option>
                 {Array.from(new Set([...brewMethodOptions, form.method].filter(Boolean))).map((option) => (
