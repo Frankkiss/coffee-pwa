@@ -632,6 +632,23 @@ describe('localRepository Outbox isolation and state transitions', () => {
     )
   })
 
+  it('accepts cold brew concentrate serving ice in the Outbox', async () => {
+    const mutation = getCompleteUpsertMutation('brewLog')
+    const value = {
+      ...mutation,
+      payload: {
+        ...mutation.payload,
+        brew_mode: 'cold_brew',
+        brew_variant: 'concentrate',
+        ice_grams: 120,
+      },
+    } as typeof mutation
+
+    await putOutbox(value)
+
+    await expect(listOutbox(userOne)).resolves.toEqual([value])
+  })
+
   it.each([
     ['invalid mode', { brew_mode: 'moka' }],
     ['negative ice', { brew_mode: 'iced_pourover', ice_grams: -1 }],

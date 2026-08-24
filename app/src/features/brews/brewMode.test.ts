@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeBrewMode, normalizeBrewVariant } from './brewMode'
+import { allowsIceGrams, normalizeBrewMode, normalizeBrewVariant } from './brewMode'
 
 describe('normalizeBrewMode', () => {
   it.each([
@@ -26,5 +26,14 @@ describe('normalizeBrewVariant', () => {
   it('accepts cold-brew variants only for cold brew', () => {
     expect(normalizeBrewVariant('cold_brew', 'concentrate')).toBe('concentrate')
     expect(normalizeBrewVariant('hot_pourover', 'concentrate')).toBeNull()
+  })
+})
+
+describe('allowsIceGrams', () => {
+  it('allows recipe ice for iced pour-over and serving ice for cold brew concentrate', () => {
+    expect(allowsIceGrams('iced_pourover', null)).toBe(true)
+    expect(allowsIceGrams('cold_brew', 'concentrate')).toBe(true)
+    expect(allowsIceGrams('cold_brew', 'ready_to_drink')).toBe(false)
+    expect(allowsIceGrams('hot_pourover', null)).toBe(false)
   })
 })

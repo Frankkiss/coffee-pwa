@@ -236,6 +236,34 @@ describe('backup import', () => {
     await expect(parseBackupDocument(JSON.stringify(unknownField))).rejects.toThrow('备份文件格式不正确')
   })
 
+  it('accepts serving ice only for cold brew concentrate', async () => {
+    const concentrate = await createV2Document({
+      beans: [v2Bean],
+      brewLogs: [{
+        ...brewLog,
+        brew_mode: 'cold_brew',
+        brew_variant: 'concentrate',
+        ice_grams: 120,
+        beverage_grams: null,
+      }],
+    })
+    await expect(parseBackupDocument(JSON.stringify(concentrate)))
+      .resolves.toMatchObject({ sourceVersion: 2 })
+
+    const readyToDrink = await createV2Document({
+      beans: [v2Bean],
+      brewLogs: [{
+        ...brewLog,
+        brew_mode: 'cold_brew',
+        brew_variant: 'ready_to_drink',
+        ice_grams: 120,
+        beverage_grams: null,
+      }],
+    })
+    await expect(parseBackupDocument(JSON.stringify(readyToDrink)))
+      .rejects.toMatchObject({ code: 'BACKUP_FORMAT_INVALID' })
+  })
+
   it('compares UUID identity case-insensitively for duplicates and relations', async () => {
     const lowerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     const upperId = lowerId.toUpperCase()

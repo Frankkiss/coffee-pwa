@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isBrewMode, normalizeBrewVariant } from '../brews/brewMode'
+import { allowsIceGrams, isBrewMode, normalizeBrewVariant } from '../brews/brewMode'
 import type { JsonObject, JsonValue } from '../../lib/jsonTypes'
 import { daysInMonth, isRfc3339 } from '../../lib/rfc3339'
 import type { ServerBeanRow } from '../beans/beanTypes'
@@ -358,7 +358,7 @@ function assertBrewMutable(row: Record<string, unknown>, failure = invalidOperat
     || (ice !== undefined && (!nullableFinite(ice) || (ice !== null && ice < 0)))
     || (beverage !== undefined && (!nullableFinite(beverage) || (beverage !== null && beverage < 0)))
     || (variant != null && mode !== 'cold_brew')
-    || (ice != null && mode !== 'iced_pourover')
+    || (ice != null && !allowsIceGrams(mode, variant))
     || (beverage != null && mode !== 'espresso')) throw failure()
 }
 

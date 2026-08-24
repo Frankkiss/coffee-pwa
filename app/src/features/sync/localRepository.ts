@@ -1,5 +1,6 @@
 import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import { allowsIceGrams } from '../brews/brewMode'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import type { SavedRecommendationRow } from '../recommendations/savedRecommendationList'
 import type { UserSettingsRow } from '../settings/userSettingsTypes'
@@ -1999,7 +2000,7 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
     isNullableString(value.notes) &&
     value.schema_version === 1 &&
     (value.brew_variant == null || value.brew_mode === 'cold_brew') &&
-    (value.ice_grams == null || value.brew_mode === 'iced_pourover') &&
+    (value.ice_grams == null || allowsIceGrams(value.brew_mode, value.brew_variant)) &&
     (value.beverage_grams == null || value.brew_mode === 'espresso')
   )
 }

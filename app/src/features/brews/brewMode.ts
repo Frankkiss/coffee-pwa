@@ -35,3 +35,8 @@ export function normalizeBrewVariant(
     ? (value as BrewVariant)
     : null
 }
+
+export function allowsIceGrams(mode: unknown, variant: unknown) {
+  return mode === 'iced_pourover'
+    || (mode === 'cold_brew' && variant === 'concentrate')
+}

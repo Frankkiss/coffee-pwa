@@ -1,5 +1,6 @@
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import { allowsIceGrams } from '../brews/brewMode'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import { daysInMonth, isRfc3339 } from '../../lib/rfc3339'
 import { canonicalJson, verifyBackupChecksum } from './backupChecksum'
@@ -277,7 +278,7 @@ function isBrewLog(value: unknown): value is BrewLog {
     (value.brew_mode === undefined || value.brew_mode === null || ['hot_pourover', 'iced_pourover', 'cold_brew', 'espresso'].includes(String(value.brew_mode))) &&
     (value.brew_variant === undefined || value.brew_variant === null || ['ready_to_drink', 'concentrate'].includes(String(value.brew_variant))) &&
     (value.ice_grams === undefined || (isNullableNumber(value.ice_grams) && (value.ice_grams === null || value.ice_grams >= 0))) && (value.beverage_grams === undefined || (isNullableNumber(value.beverage_grams) && (value.beverage_grams === null || value.beverage_grams >= 0))) &&
-    (value.brew_variant == null || value.brew_mode === 'cold_brew') && (value.ice_grams == null || value.brew_mode === 'iced_pourover') && (value.beverage_grams == null || value.brew_mode === 'espresso')
+    (value.brew_variant == null || value.brew_mode === 'cold_brew') && (value.ice_grams == null || allowsIceGrams(value.brew_mode, value.brew_variant)) && (value.beverage_grams == null || value.brew_mode === 'espresso')
 }
 
 function isBrewTemplate(value: unknown): value is UserBrewTemplateRow {

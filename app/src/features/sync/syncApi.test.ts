@@ -193,6 +193,22 @@ describe('sync API boundary', () => {
     await expect(createSyncApi(client).getSnapshot()).resolves.toEqual(value)
   })
 
+  it('accepts cold brew concentrate serving ice in a snapshot', async () => {
+    const base = snapshot()
+    const value = {
+      ...base,
+      brewLogs: [{
+        ...base.brewLogs[0],
+        brew_mode: 'cold_brew',
+        brew_variant: 'concentrate',
+        ice_grams: 120,
+      }],
+    }
+    const { client } = clientWith([{ data: value, error: null }])
+
+    await expect(createSyncApi(client).getSnapshot()).resolves.toEqual(value)
+  })
+
   it.each([
     ['non-object top level', null],
     ['unknown top-level field', { ...snapshot(), extra: true }],
