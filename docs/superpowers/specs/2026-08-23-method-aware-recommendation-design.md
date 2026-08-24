@@ -61,7 +61,7 @@ espresso: machine + grinder + doseGrams
 
 - `brew_mode`: `hot_pourover | iced_pourover | cold_brew | espresso`。
 - `brew_variant`: 冷萃使用 `ready_to_drink | concentrate`，其他方式为 `null`。
-- `ice_grams`: 冰手冲的冰块重量，其他方式为 `null`。
+- `ice_grams`: 冰手冲的冰块重量，或冷萃浓缩基底饮用时加入的冰块重量；其他方式为 `null`。
 - `beverage_grams`: 意式杯中出液重量，其他方式为 `null`。
 
 现有 `method` 继续保留用于展示和旧数据兼容。迁移只增加可空字段，不重写旧记录，不清空未知值，不修改同步、备份或实体 schema 版本。
@@ -75,6 +75,8 @@ espresso: machine + grinder + doseGrams
 - 无法稳定判断的记录不参与基础配方，但继续正常显示、同步、备份和恢复。
 
 新字段必须贯穿 IndexedDB、本地 Outbox、同步请求与快照、Supabase、JSON/CSV、备份恢复和冲煮表单。旧备份缺失字段时补 `null`，禁止猜测。
+Supabase 与本地校验允许 `ice_grams` 出现在冰手冲，或 `brew_mode = cold_brew` 且 `brew_variant = concentrate` 的记录中；
+冷萃直接饮用及其他方式必须保存为 `null`。
 
 ## 历史候选优先级
 
@@ -147,6 +149,9 @@ espresso: machine + grinder + doseGrams
 ### 冷萃
 
 直接饮用使用 `1:12–1:16`；浓缩基底使用 `1:7–1:10`。输出粉量、水量、比例、研磨、冷藏温度和小时级浸泡时间，不生成手冲注水步骤。两个子类型的历史和模板不能互用。
+冲煮记录选择冷萃后隐藏“具体方法”，内部固定保存兼容值“冷萃”。选择浓缩基底时额外显示可选的冰量输入，复用
+`ice_grams` 保存饮用时加入的冰块重量；该值不参与原液粉水比、模板匹配或冷萃萃取参数计算。切换到直接饮用或其他不适用方式时，
+表单清空该隐藏值，避免旧冰量被意外保存。
 
 ### 意式
 
