@@ -42,6 +42,41 @@ describe('method-aware brew measurements', () => {
     })
   })
 
+  it('stores serving ice for cold brew concentrate without changing extraction ratio', () => {
+    const payload = toBrewLogUpdatePayload({
+      ...createInitialBrewForm('bean-1'),
+      brewMode: 'cold_brew',
+      brewVariant: 'concentrate',
+      method: '冷萃',
+      coffeeGrams: '50',
+      waterGrams: '400',
+      iceGrams: '120',
+    })
+
+    expect(payload).toMatchObject({
+      brew_mode: 'cold_brew',
+      brew_variant: 'concentrate',
+      water_grams: 400,
+      ice_grams: 120,
+      ratio: '1:8',
+    })
+  })
+
+  it('clears serving ice for ready-to-drink cold brew', () => {
+    const payload = toBrewLogUpdatePayload({
+      ...createInitialBrewForm('bean-1'),
+      brewMode: 'cold_brew',
+      brewVariant: 'ready_to_drink',
+      method: '冷萃',
+      coffeeGrams: '50',
+      waterGrams: '650',
+      iceGrams: '120',
+    })
+
+    expect(payload.ice_grams).toBeNull()
+    expect(payload.ratio).toBe('1:13')
+  })
+
   it('round-trips canonical mode fields into the editable form', () => {
     const form = createBrewFormFromLog({
       id: 'brew-1',
@@ -51,7 +86,7 @@ describe('method-aware brew measurements', () => {
       method: '冷萃',
       brew_mode: 'cold_brew',
       brew_variant: 'concentrate',
-      ice_grams: null,
+      ice_grams: 120,
       beverage_grams: null,
       dripper: '冷萃壶',
       filter_paper: null,
@@ -82,7 +117,7 @@ describe('method-aware brew measurements', () => {
     expect(form).toMatchObject({
       brewMode: 'cold_brew',
       brewVariant: 'concentrate',
-      iceGrams: '',
+      iceGrams: '120',
       beverageGrams: '',
     })
   })

@@ -88,7 +88,7 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
 
   const coffeeGrams = optionalNumber(form.coffeeGrams)
   const brewMode = form.brewMode || null
-  const method = form.method.trim()
+  const method = brewMode === 'cold_brew' ? '冷萃' : form.method.trim()
 
   if (brewMode && method && !isMethodCompatible(brewMode, method)) {
     throw new Error('冲煮类型与具体方法不一致')
@@ -96,7 +96,9 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
 
   const brewVariant = normalizeBrewVariant(brewMode, form.brewVariant)
   const waterGrams = brewMode === 'espresso' ? null : optionalNumber(form.waterGrams)
-  const iceGrams = brewMode === 'iced_pourover' ? optionalNumber(form.iceGrams) : null
+  const storesIceGrams = brewMode === 'iced_pourover'
+    || (brewMode === 'cold_brew' && brewVariant === 'concentrate')
+  const iceGrams = storesIceGrams ? optionalNumber(form.iceGrams) : null
   const beverageGrams = brewMode === 'espresso' ? optionalNumber(form.beverageGrams) : null
   const ratioWaterGrams = brewMode === 'iced_pourover'
     ? sumNullable(waterGrams, iceGrams)

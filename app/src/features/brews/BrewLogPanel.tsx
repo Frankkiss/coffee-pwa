@@ -11,6 +11,7 @@ import {
   toBrewLogUpdatePayload,
   withFallbackBeanId,
 } from './brewForm'
+import { getBrewFormPresentation } from './brewFormPresentation'
 import { BrewLogDetailPanel } from './BrewLogDetailPanel'
 import type { BrewForm, BrewLog, BrewLogFilters, BrewLogUpdatePayload, BrewMode } from './brewTypes'
 import './brews.css'
@@ -57,6 +58,7 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
     () => withFallbackBeanId(form, firstBeanId),
     [firstBeanId, form],
   )
+  const formPresentation = getBrewFormPresentation(form.brewMode, form.brewVariant)
   const availableMethods = useMemo(() => {
     const methods = new Set(brewMethodOptions)
     brewLogs.forEach((log) => {
@@ -78,25 +80,43 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
   function updateBrewMode(nextMode: BrewMode | '') {
     setForm((current) => {
       const linked = linkModeToMethod(nextMode, current.method)
+      const brewVariant = nextMode === 'cold_brew'
+        ? (current.brewVariant || 'ready_to_drink')
+        : ''
+      const presentation = getBrewFormPresentation(nextMode, brewVariant)
       return {
         ...current,
         ...linked,
-        brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
-        iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
+        method: nextMode === 'cold_brew' ? '冷萃' : linked.method,
+        brewVariant,
+        iceGrams: presentation.showIceGrams ? current.iceGrams : '',
         beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
       }
     })
+  }
+
+  function updateBrewVariant(nextVariant: BrewForm['brewVariant']) {
+    setForm((current) => ({
+      ...current,
+      brewVariant: nextVariant,
+      iceGrams: nextVariant === 'concentrate' ? current.iceGrams : '',
+    }))
   }
 
   function updateMethod(nextMethod: string) {
     setForm((current) => {
       const linked = linkMethodToMode(nextMethod, current.brewMode)
       const nextMode = linked.brewMode
+      const brewVariant = nextMode === 'cold_brew'
+        ? (current.brewVariant || 'ready_to_drink')
+        : ''
+      const presentation = getBrewFormPresentation(nextMode, brewVariant)
       return {
         ...current,
         ...linked,
-        brewVariant: nextMode === 'cold_brew' ? (current.brewVariant || 'ready_to_drink') : '',
-        iceGrams: nextMode === 'iced_pourover' ? current.iceGrams : '',
+        method: nextMode === 'cold_brew' ? '冷萃' : linked.method,
+        brewVariant,
+        iceGrams: presentation.showIceGrams ? current.iceGrams : '',
         beverageGrams: nextMode === 'espresso' ? current.beverageGrams : '',
       }
     })
@@ -262,27 +282,29 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
             {form.brewMode === 'cold_brew' ? (
               <label>
                 冷萃类型
-                <select value={form.brewVariant} onChange={(event) => updateField('brewVariant', event.target.value)}>
+                <select value={form.brewVariant} onChange={(event) => updateBrewVariant(event.target.value as BrewForm['brewVariant'])}>
                   <option value="ready_to_drink">直接饮用</option>
                   <option value="concentrate">浓缩基底</option>
                 </select>
               </label>
             ) : null}
 
-            <label>
-              具体方法
-              <select
-                value={form.method}
-                onChange={(event) => updateMethod(event.target.value)}
-              >
-                <option value="">未选择</option>
-                {Array.from(new Set([...brewMethodOptions, form.method].filter(Boolean))).map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {formPresentation.showMethod ? (
+              <label>
+                具体方法
+                <select
+                  value={form.method}
+                  onChange={(event) => updateMethod(event.target.value)}
+                >
+                  <option value="">未选择</option>
+                  {Array.from(new Set([...brewMethodOptions, form.method].filter(Boolean))).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
             <label>
               器具
@@ -328,7 +350,7 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
                   onChange={(event) => updateField('waterGrams', event.target.value)} placeholder="克" />
               </label>
             ) : null}
-            {form.brewMode === 'iced_pourover' ? (
+            {formPresentation.showIceGrams ? (
               <label>
                 冰量
                 <input inputMode="decimal" value={form.iceGrams}
