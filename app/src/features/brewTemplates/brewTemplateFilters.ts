@@ -1,49 +1,19 @@
-import type {
-  BrewTemplate,
-  BrewTemplateDifficulty,
-  BrewTemplateFilters,
-} from './brewTemplateTypes'
+import { getTemplateModeMetadata } from './brewTemplateMode'
+import type { BrewTemplate, BrewTemplateFilters } from './brewTemplateTypes'
 
-export function filterBrewTemplates(
-  templates: BrewTemplate[],
-  filters: BrewTemplateFilters,
-) {
+export function filterBrewTemplates(templates: BrewTemplate[], filters: BrewTemplateFilters) {
+  if (!filters.mode) return templates
+
   return templates.filter((template) => {
-    if (!filters.includeChampionReferences && template.isChampionReference) {
-      return false
+    const metadata = getTemplateModeMetadata(template)
+    if (filters.mode === 'cold_brew_ready_to_drink') {
+      return metadata.brewMode === 'cold_brew' && metadata.brewVariant === 'ready_to_drink'
     }
-
-    if (filters.brewer && !template.brewer.includes(filters.brewer)) {
-      return false
+    if (filters.mode === 'cold_brew_concentrate') {
+      return metadata.brewMode === 'cold_brew' && metadata.brewVariant === 'concentrate'
     }
-
-    if (filters.difficulty && template.difficulty !== filters.difficulty) {
-      return false
-    }
-
-    if (filters.flavor && !matchesFlavor(template, filters.flavor)) {
-      return false
-    }
-
-    return true
+    return metadata.brewMode === filters.mode
   })
-}
-
-export function getBrewTemplateFilterOptions(templates: BrewTemplate[]) {
-  const brewers = new Set<string>()
-  const flavors = new Set<string>()
-  const difficulties: BrewTemplateDifficulty[] = ['easy', 'medium', 'advanced']
-
-  templates.forEach((template) => {
-    brewers.add(template.brewer)
-    template.suitableFor.forEach((tag) => flavors.add(tag))
-  })
-
-  return {
-    brewers: Array.from(brewers).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN')),
-    flavors: Array.from(flavors).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN')),
-    difficulties,
-  }
 }
 
 export function summarizePourSteps(template: BrewTemplate) {
@@ -57,20 +27,10 @@ export function formatTemplateTime(seconds: number) {
   if (seconds >= 3600) {
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.round((seconds % 3600) / 60)
-
     return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`
   }
 
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
-
   return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`
-}
-
-function matchesFlavor(template: BrewTemplate, flavor: string) {
-  return (
-    template.suitableFor.includes(flavor) ||
-    template.flavorGoal.includes(flavor) ||
-    template.adjustmentRules.some((rule) => rule.includes(flavor))
-  )
 }

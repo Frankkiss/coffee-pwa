@@ -84,7 +84,7 @@
 .brew-template-filters {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 320px);
 }
 
 .brew-template-filters label {
@@ -231,6 +231,18 @@
 .brew-template-list {
   display: grid;
   gap: 12px;
+}
+
+.brew-template-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.brew-template-group > h3 {
+  color: var(--color-coffee-dark);
+  font-size: 1.05rem;
+  margin: 0;
 }
 
 .brew-template-card {

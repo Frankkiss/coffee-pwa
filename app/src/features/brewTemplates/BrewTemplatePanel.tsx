@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   filterBrewTemplates,
   formatTemplateTime,
-  getBrewTemplateFilterOptions,
   summarizePourSteps,
 } from './brewTemplateFilters'
 import {
@@ -49,10 +48,7 @@ export function BrewTemplatePanel() {
   const runtime = useSyncRuntime()
   const repository = runtime.repositories?.brewTemplates ?? null
   const [filters, setFilters] = useState<BrewTemplateFilters>({
-    brewer: '',
-    flavor: '',
-    difficulty: '',
-    includeChampionReferences: false,
+    mode: '',
   })
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null)
   const [userTemplates, setUserTemplates] = useState<BrewTemplate[]>([])
@@ -109,11 +105,12 @@ export function BrewTemplatePanel() {
 
     return applyUserTemplateOverrides(systemTemplates, userTemplates)
   }, [userTemplates])
-  const options = useMemo(() => getBrewTemplateFilterOptions(allTemplates), [allTemplates])
   const filteredTemplates = useMemo(
     () => filterBrewTemplates(allTemplates, filters),
     [allTemplates, filters],
   )
+  const filteredUserTemplates = filteredTemplates.filter((template) => template.source === 'user')
+  const filteredSystemTemplates = filteredTemplates.filter((template) => template.source !== 'user')
 
   function updateFilter<T extends keyof BrewTemplateFilters>(
     field: T,
@@ -242,7 +239,7 @@ export function BrewTemplatePanel() {
       </div>
 
       <p className="brew-template-panel__intro">
-        系统模板和我的模板分开管理，AI 推荐会优先参考这里。
+        我的模板优先显示；系统核心模板按当前四类冲煮方式整理，AI 推荐只参考相同方式。
       </p>
 
       {editingState ? (
@@ -258,61 +255,18 @@ export function BrewTemplatePanel() {
 
       <div className="brew-template-filters" aria-label="冲煮模板筛选">
         <label>
-          器具
+          冲煮方式
           <select
-            value={filters.brewer}
-            onChange={(event) => updateFilter('brewer', event.target.value)}
+            value={filters.mode}
+            onChange={(event) => updateFilter('mode', event.target.value as BrewTemplateFilters['mode'])}
           >
-            <option value="">全部器具</option>
-            {options.brewers.map((brewer) => (
-              <option key={brewer} value={brewer}>
-                {brewer}
-              </option>
-            ))}
+            <option value="">全部模板</option>
+            <option value="hot_pourover">热手冲</option>
+            <option value="iced_pourover">冰手冲</option>
+            <option value="cold_brew_ready_to_drink">冷萃 · 直接饮用</option>
+            <option value="cold_brew_concentrate">冷萃 · 浓缩基底</option>
+            <option value="espresso">意式</option>
           </select>
-        </label>
-
-        <label>
-          风味倾向
-          <select
-            value={filters.flavor}
-            onChange={(event) => updateFilter('flavor', event.target.value)}
-          >
-            <option value="">全部风味</option>
-            {options.flavors.map((flavor) => (
-              <option key={flavor} value={flavor}>
-                {flavor}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          难度
-          <select
-            value={filters.difficulty}
-            onChange={(event) =>
-              updateFilter('difficulty', event.target.value as BrewTemplateDifficulty | '')
-            }
-          >
-            <option value="">全部难度</option>
-            {options.difficulties.map((difficulty) => (
-              <option key={difficulty} value={difficulty}>
-                {difficultyLabels[difficulty]}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="brew-template-checkbox">
-          <input
-            type="checkbox"
-            checked={filters.includeChampionReferences}
-            onChange={(event) =>
-              updateFilter('includeChampionReferences', event.target.checked)
-            }
-          />
-          显示冠军参考
         </label>
       </div>
 
@@ -320,22 +274,35 @@ export function BrewTemplatePanel() {
       {error ? <p className="brew-template-error">{error}</p> : null}
       {isLoading ? <p className="brew-template-empty">读取我的模板...</p> : null}
 
-      <div className="brew-template-list" aria-live="polite">
+      <div aria-live="polite">
         {filteredTemplates.length === 0 && !isLoading ? (
-          <p className="brew-template-empty">没有匹配的模板，可以放宽筛选条件。</p>
+          <p className="brew-template-empty">这个方式下还没有模板。</p>
         ) : null}
-        {filteredTemplates.map((template) => (
-          <TemplateCard
-            key={`${template.source ?? 'system'}-${template.id}`}
-            isExpanded={expandedTemplateId === template.id}
-            template={template}
-            onCopy={() => startCopy(template)}
-            onDelete={() => handleDelete(template)}
-            onEdit={() => startEdit(template)}
-            onToggle={() => toggleTemplate(template.id)}
-            syncBadge={template.source === 'user' ? getEntitySyncBadge(runtime.statusByEntityId[template.id]) : null}
-          />
-        ))}
+        {filteredUserTemplates.length > 0 ? (
+          <section className="brew-template-group" aria-labelledby="my-brew-templates-title">
+            <h3 id="my-brew-templates-title">我的模板</h3>
+            <div className="brew-template-list">
+              {filteredUserTemplates.map((template) => (
+                <TemplateCard key={`user-${template.id}`} isExpanded={expandedTemplateId === template.id}
+                  template={template} onCopy={() => startCopy(template)} onDelete={() => handleDelete(template)}
+                  onEdit={() => startEdit(template)} onToggle={() => toggleTemplate(template.id)}
+                  syncBadge={getEntitySyncBadge(runtime.statusByEntityId[template.id])} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {filteredSystemTemplates.length > 0 ? (
+          <section className="brew-template-group" aria-labelledby="system-brew-templates-title">
+            <h3 id="system-brew-templates-title">系统核心模板</h3>
+            <div className="brew-template-list">
+              {filteredSystemTemplates.map((template) => (
+                <TemplateCard key={`system-${template.id}`} isExpanded={expandedTemplateId === template.id}
+                  template={template} onCopy={() => startCopy(template)} onDelete={() => handleDelete(template)}
+                  onEdit={() => startEdit(template)} onToggle={() => toggleTemplate(template.id)} syncBadge={null} />
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </section>
   )

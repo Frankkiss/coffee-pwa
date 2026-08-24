@@ -91,7 +91,7 @@ describe('method-aware rule recommendation', () => {
 
   it.each([
     ['ready_to_drink', 12, 16],
-    ['concentrate', 7, 10],
+    ['concentrate', 5, 8],
   ] as const)('keeps cold-brew %s inside its ratio range', (variant, min, max) => {
     const result = generateMethodAwareRuleRecommendation(context('cold_brew', variant), [bean()], [], brewTemplates)
     const denominator = Number(result?.recommended.ratio?.split(':')[1])
@@ -103,5 +103,24 @@ describe('method-aware rule recommendation', () => {
   it('keeps the user-confirmed espresso dose fixed and derives beverage output', () => {
     const result = generateMethodAwareRuleRecommendation(context('espresso'), [bean()], [], brewTemplates)
     expect(result?.recommended).toMatchObject({ brewMode: 'espresso', coffeeGrams: 18, beverageGrams: 36, waterGrams: null })
+  })
+
+  it('selects templates by explicit mode metadata instead of template ids', () => {
+    const renamedTemplates = brewTemplates.map((template, index) => ({
+      ...template,
+      id: `core-recipe-${index + 1}`,
+    }))
+
+    const result = generateMethodAwareRuleRecommendation(
+      context('cold_brew', 'concentrate'),
+      [bean()],
+      [],
+      renamedTemplates,
+    )
+
+    expect(result?.templateCandidates).toHaveLength(2)
+    expect(result?.templateCandidates.every((candidate) =>
+      renamedTemplates.find((template) => template.id === candidate.id)?.brewVariant === 'concentrate',
+    )).toBe(true)
   })
 })

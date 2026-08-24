@@ -45,6 +45,8 @@ export type BrewTemplate = {
   sourceNotes: string
   sourceUrls: string[]
   isChampionReference: boolean
+  brewMode?: BrewMode
+  brewVariant?: BrewVariant | null
   source?: BrewTemplateSource
   userId?: string
   copiedFromTemplateId?: string | null
@@ -52,12 +54,9 @@ export type BrewTemplate = {
   updatedAt?: string
 }
 
-export type BrewTemplateFilters = {
-  brewer: string
-  flavor: string
-  difficulty: BrewTemplateDifficulty | ''
-  includeChampionReferences: boolean
-}
+export type BrewTemplateModeFilter = '' | BrewMode | 'cold_brew_ready_to_drink' | 'cold_brew_concentrate'
+
+export type BrewTemplateFilters = { mode: BrewTemplateModeFilter }
 
 /**
  * A complete template row after server-response validation.
@@ -98,3 +97,4 @@ export type UserBrewTemplatePayload = Omit<
   UserBrewTemplateRow,
   'id' | 'created_at' | 'updated_at' | 'deleted_at' | 'schema_version'
 >
+import type { BrewMode, BrewVariant } from '../brews/brewTypes'

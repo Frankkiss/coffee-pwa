@@ -9,6 +9,7 @@ import {
   summarizePourSteps,
 } from '../brewTemplates/brewTemplateFilters'
 import { brewTemplates } from '../brewTemplates/brewTemplates'
+import { getTemplateModeMetadata } from '../brewTemplates/brewTemplateMode'
 import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
 import type { BrewTemplateCandidate } from './recommendationTypes'
 
@@ -23,8 +24,10 @@ export function selectTemplateCandidates(
   templates = brewTemplates,
 ): BrewTemplateCandidate[] {
   const scored = templates
-    .filter((template) => !template.id.startsWith('iced-pourover-')
-      && !template.id.startsWith('espresso-'))
+    .filter((template) => {
+      const mode = getTemplateModeMetadata(template).brewMode
+      return mode === 'hot_pourover' || mode === 'cold_brew'
+    })
     .map((template) => scoreTemplate(targetBean, template))
     .filter((candidate) => candidate.score > 0)
     .sort((left, right) => right.score - left.score || rankTemplate(left) - rankTemplate(right))

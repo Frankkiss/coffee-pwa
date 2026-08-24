@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
+import { brewTemplates } from '../brewTemplates/brewTemplates'
 import { selectTemplateCandidates } from './templateRecommendation'
 
 function createBean(overrides: Partial<Bean> = {}): Bean {
@@ -41,10 +42,12 @@ describe('selectTemplateCandidates', () => {
     expect(candidates).toHaveLength(3)
     expect(candidates[0].isChampionReference).toBe(false)
     expect(candidates[0].reasons.join(' / ')).toContain('处理法匹配')
-    expect(candidates.some((candidate) => candidate.name.includes('水洗浅烘'))).toBe(true)
+    expect(candidates.every((candidate) =>
+      brewTemplates.find((template) => template.id === candidate.id)?.brewMode === 'hot_pourover',
+    )).toBe(true)
   })
 
-  it('keeps champion references optional and never first', () => {
+  it('does not reintroduce retired champion references', () => {
     const candidates = selectTemplateCandidates(
       createBean({
         process: '日晒',
@@ -55,7 +58,7 @@ describe('selectTemplateCandidates', () => {
 
     expect(candidates).toHaveLength(3)
     expect(candidates[0].isChampionReference).toBe(false)
-    expect(candidates.filter((candidate) => candidate.isChampionReference).length).toBeLessThanOrEqual(1)
+    expect(candidates.every((candidate) => !candidate.isChampionReference)).toBe(true)
   })
 
   it('treats ultra-light roast beans as compatible with light-roast templates', () => {

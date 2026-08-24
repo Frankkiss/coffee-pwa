@@ -2,6 +2,7 @@ import type { Bean } from '../beans/beanTypes'
 import { normalizeBrewMode, normalizeBrewVariant } from '../brews/brewMode'
 import type { BrewLog, BrewMode } from '../brews/brewTypes'
 import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
+import { getTemplateModeMetadata } from '../brewTemplates/brewTemplateMode'
 import { formatTemplateTime, summarizePourSteps } from '../brewTemplates/brewTemplateFilters'
 import { countSharedRuleTokens, getBeanProcessFamilies, getRoastBand, getSharedBeanFlavorTags } from './beanMetadataRules'
 import { deriveFeedbackAdjustments } from './feedbackAdjustments'
@@ -148,13 +149,13 @@ function parametersFromTemplate(context: RecommendationContext, template: BrewTe
 
 function modeParameters(context: RecommendationContext, base: RecommendedBrewParameters): RecommendedBrewParameters {
   const ratioRange = context.mode === 'cold_brew'
-    ? (context.variant === 'concentrate' ? [7, 10] : [12, 16])
+    ? (context.variant === 'concentrate' ? [5, 8] : [12, 16])
     : context.mode === 'espresso' ? [1.5, 3] : [14, 18]
   const safe = {
     ...base,
     ratio: clampRatio(base.ratio, ratioRange[0], ratioRange[1]),
     waterTemperatureC: base.waterTemperatureC === null ? null : clamp(base.waterTemperatureC, context.mode === 'hot_pourover' ? 84 : 85, 96),
-    totalTimeSeconds: base.totalTimeSeconds === null ? null : clamp(base.totalTimeSeconds, context.mode === 'espresso' ? 20 : 90, context.mode === 'espresso' ? 40 : context.mode === 'cold_brew' ? 64_800 : 300),
+    totalTimeSeconds: base.totalTimeSeconds === null ? null : clamp(base.totalTimeSeconds, context.mode === 'espresso' ? 20 : 90, context.mode === 'espresso' ? 40 : context.mode === 'cold_brew' ? 86_400 : 300),
   }
   const coffee = context.mode === 'espresso' ? context.espressoDoseGrams : safe.coffeeGrams
   if (context.mode === 'iced_pourover') {
@@ -175,11 +176,11 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
 }
 
 function selectMethodTemplates(context: RecommendationContext, templates: BrewTemplate[]): BrewTemplateCandidate[] {
-  return templates.filter((template) => templateMatchesMode(template, context.mode))
-    .filter((template) => context.mode !== 'cold_brew'
-      || (context.variant === 'concentrate'
-        ? template.id.includes('concentrate')
-        : !template.id.includes('concentrate')))
+  return templates.filter((template) => {
+    const metadata = getTemplateModeMetadata(template)
+    if (metadata.brewMode !== context.mode) return false
+    return context.mode !== 'cold_brew' || metadata.brewVariant === context.variant
+  })
     .map((template) => ({
       id: template.id, name: template.name, brewer: template.brewer, ratio: template.ratio,
       waterTemperature: `${template.waterTemperatureC.min}-${template.waterTemperatureC.max}°C`,
@@ -190,14 +191,6 @@ function selectMethodTemplates(context: RecommendationContext, templates: BrewTe
     }))
     .sort((left, right) => Number(left.isChampionReference) - Number(right.isChampionReference) || right.score - left.score)
     .slice(0, 3)
-}
-
-function templateMatchesMode(template: BrewTemplate, mode: BrewMode) {
-  if (mode === 'iced_pourover') return template.id.startsWith('iced-pourover-')
-  if (mode === 'espresso') return template.id.startsWith('espresso-')
-  if (mode === 'cold_brew') return template.category === 'cold-brew'
-  return !template.id.startsWith('iced-pourover-') && !template.id.startsWith('espresso-')
-    && ['daily-pourover', 'immersion-hybrid', 'bean-specific', 'champion-reference'].includes(template.category)
 }
 
 function applyBoundedAdjustments(base: RecommendedBrewParameters, feedback: ReturnType<typeof deriveFeedbackAdjustments>, freshnessDelta: -1 | 0 | 1) {
