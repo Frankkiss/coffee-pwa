@@ -34,6 +34,13 @@ export function getFreshnessAdjustment(input: {
   if (age <= normalEnd) {
     return { ...emptyFreshness(), stage: 'normal', roastAgeDays: age }
   }
+  if (input.mode === 'cold_brew') {
+    return {
+      stage: 'aged', roastAgeDays: age, bloomTimeDeltaSeconds: 0,
+      extractionDelta: 0, confidencePenalty: true,
+      reason: '放置时间较久，冷萃不做温度补偿，降低推荐置信度并建议关注风味衰减',
+    }
+  }
   return {
     stage: 'aged', roastAgeDays: age, bloomTimeDeltaSeconds: 0,
     extractionDelta: 1, confidencePenalty: false,

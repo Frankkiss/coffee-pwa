@@ -27,4 +27,17 @@ describe('freshness rules', () => {
     expect(getFreshnessAdjustment({ ...base, mode: 'iced_pourover' })).toMatchObject({ bloomTimeDeltaSeconds: 10, confidencePenalty: false })
     expect(getFreshnessAdjustment({ ...base, mode: 'espresso' })).toMatchObject({ bloomTimeDeltaSeconds: 0, confidencePenalty: true })
   })
+
+  it('does not apply a temperature-style extraction delta to aged cold brew', () => {
+    expect(getFreshnessAdjustment({
+      roastLevel: '浅烘',
+      roastDate: '2026-06-01',
+      mode: 'cold_brew',
+      now: new Date('2026-08-23T12:00:00Z'),
+    })).toMatchObject({
+      stage: 'aged',
+      extractionDelta: 0,
+      confidencePenalty: true,
+    })
+  })
 })

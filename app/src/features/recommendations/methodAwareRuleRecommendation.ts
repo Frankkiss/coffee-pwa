@@ -225,7 +225,31 @@ function applyBoundedAdjustments(
       allowedRanges.ratioDenominator.max,
     )
   }
-  return result
+  return recomputeOutputMasses(result)
+}
+
+function recomputeOutputMasses(recipe: RecommendedBrewParameters): RecommendedBrewParameters {
+  const coffee = recipe.coffeeGrams
+  const denominator = ratioDenominator(recipe.ratio)
+  if (coffee === null || coffee === undefined) return recipe
+
+  if (recipe.brewMode === 'espresso') {
+    return { ...recipe, waterGrams: null, iceGrams: null, beverageGrams: Math.round(coffee * denominator) }
+  }
+  if (recipe.brewMode === 'iced_pourover') {
+    const previousTotal = (recipe.waterGrams ?? 0) + (recipe.iceGrams ?? 0)
+    const previousIceShare = previousTotal > 0 ? (recipe.iceGrams ?? 0) / previousTotal : 0.35
+    const iceShare = clamp(previousIceShare, 0.25, 0.45)
+    const total = Math.round(coffee * denominator)
+    const ice = Math.round(total * iceShare)
+    return { ...recipe, waterGrams: total - ice, iceGrams: ice, beverageGrams: null }
+  }
+  return {
+    ...recipe,
+    waterGrams: Math.round(coffee * denominator),
+    iceGrams: recipe.brewMode === 'cold_brew' ? recipe.iceGrams ?? null : null,
+    beverageGrams: null,
+  }
 }
 
 function clampToAllowedRanges(

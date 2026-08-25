@@ -189,4 +189,37 @@ describe('method-aware rule recommendation', () => {
     expect(result?.templateCandidates[0].id).toBe('hot-orea-balanced-flat')
     expect(result?.baseSource).toMatchObject({ type: 'template', templateId: 'hot-orea-balanced-flat' })
   })
+
+  it.each([
+    ['hot_pourover', null],
+    ['iced_pourover', null],
+    ['cold_brew', 'ready_to_drink'],
+    ['cold_brew', 'concentrate'],
+    ['espresso', null],
+  ] as const)('recomputes output mass after a %s concentration adjustment', (mode, variant) => {
+    const targetBean = bean()
+    const lowBodyLog = log(mode, {
+      id: `${mode}-${variant ?? 'default'}-feedback`,
+      rating: 2,
+      body: 1,
+      brew_variant: variant,
+      coffee_grams: mode === 'cold_brew' ? 50 : mode === 'espresso' ? 18 : 15,
+      water_grams: mode === 'cold_brew' ? 700 : mode === 'espresso' ? null : 225,
+      ice_grams: mode === 'iced_pourover' ? 75 : null,
+      beverage_grams: mode === 'espresso' ? 36 : null,
+      ratio: mode === 'cold_brew' ? (variant === 'concentrate' ? '1:7' : '1:14') : mode === 'espresso' ? '1:2' : '1:15',
+    })
+    const result = generateMethodAwareRuleRecommendation(
+      context(mode, variant), [targetBean], [lowBodyLog], brewTemplates,
+    )
+    const recipe = result?.recommended
+    const denominator = Number(recipe?.ratio?.split(':')[1])
+    const output = mode === 'espresso'
+      ? recipe?.beverageGrams
+      : mode === 'iced_pourover'
+        ? (recipe?.waterGrams ?? 0) + (recipe?.iceGrams ?? 0)
+        : recipe?.waterGrams
+
+    expect((output ?? 0) / (recipe?.coffeeGrams ?? 1)).toBeCloseTo(denominator, 1)
+  })
 })
