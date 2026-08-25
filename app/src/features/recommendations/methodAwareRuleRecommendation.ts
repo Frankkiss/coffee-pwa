@@ -13,6 +13,7 @@ import type {
   BrewRecommendationCandidate,
   BrewTemplateCandidate,
   RecommendedBrewParameters,
+  RecommendationAllowedRanges,
   RecommendationConfidence,
   RuleRecommendationResult,
 } from './recommendationTypes'
@@ -37,9 +38,11 @@ export function generateMethodAwareRuleRecommendation(
     : null
   if (!primary && !baseTemplate) return null
 
-  const base = primary
+  const sourceBase = primary
     ? primary.recommended
     : parametersFromTemplate(context, baseTemplate as BrewTemplate)
+  const allowedRanges = getRecommendationAllowedRanges(context, sourceBase, baseTemplate)
+  const base = clampToAllowedRanges(sourceBase, allowedRanges)
   const latestFeedback = matchingLogs
     .filter((log) => log.bean_id === context.targetBean.id && log.rating !== null)
     .toSorted((left, right) => Date.parse(right.brewed_at) - Date.parse(left.brewed_at))[0] ?? null
@@ -50,7 +53,12 @@ export function generateMethodAwareRuleRecommendation(
     mode: context.mode,
     now: context.now,
   })
-  const recommended = applyBoundedAdjustments(base, feedbackAdjustments, freshnessAdjustment.extractionDelta)
+  const recommended = applyBoundedAdjustments(
+    base,
+    feedbackAdjustments,
+    freshnessAdjustment.extractionDelta,
+    allowedRanges,
+  )
   recommended.bloomTimeDeltaSeconds = freshnessAdjustment.bloomTimeDeltaSeconds
 
   return {
@@ -77,7 +85,7 @@ export function generateMethodAwareRuleRecommendation(
       espressoDoseGrams: context.espressoDoseGrams,
       tasteGoals: context.tasteGoals,
     },
-    allowedRanges: getRecommendationAllowedRanges(context, recommended),
+    allowedRanges,
   }
 }
 
@@ -149,12 +157,16 @@ function parametersFromTemplate(context: RecommendationContext, template: BrewTe
 
 function modeParameters(context: RecommendationContext, base: RecommendedBrewParameters): RecommendedBrewParameters {
   const ratioRange = context.mode === 'cold_brew'
-    ? (context.variant === 'concentrate' ? [5, 8] : [12, 16])
+    ? (context.variant === 'concentrate' ? [5, 10] : [12, 16])
     : context.mode === 'espresso' ? [1.5, 3] : [14, 18]
   const safe = {
     ...base,
     ratio: clampRatio(base.ratio, ratioRange[0], ratioRange[1]),
-    waterTemperatureC: base.waterTemperatureC === null ? null : clamp(base.waterTemperatureC, context.mode === 'hot_pourover' ? 84 : 85, 96),
+    waterTemperatureC: base.waterTemperatureC === null
+      ? null
+      : context.mode === 'cold_brew'
+        ? base.waterTemperatureC
+        : clamp(base.waterTemperatureC, context.mode === 'hot_pourover' ? 84 : context.mode === 'iced_pourover' ? 86 : 85, 96),
     totalTimeSeconds: base.totalTimeSeconds === null ? null : clamp(base.totalTimeSeconds, context.mode === 'espresso' ? 20 : 90, context.mode === 'espresso' ? 40 : context.mode === 'cold_brew' ? 86_400 : 300),
   }
   const coffee = context.mode === 'espresso' ? context.espressoDoseGrams : safe.coffeeGrams
@@ -166,7 +178,7 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
   }
   if (context.mode === 'cold_brew') {
     const dose = coffee ?? 50
-    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: dose, waterGrams: Math.round(dose * ratioDenominator(safe.ratio)), iceGrams: null, beverageGrams: null, waterTemperatureC: 6 }
+    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: dose, waterGrams: Math.round(dose * ratioDenominator(safe.ratio)), iceGrams: null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
   }
   if (context.mode === 'espresso') {
     const dose = coffee as number
@@ -193,14 +205,59 @@ function selectMethodTemplates(context: RecommendationContext, templates: BrewTe
     .slice(0, 3)
 }
 
-function applyBoundedAdjustments(base: RecommendedBrewParameters, feedback: ReturnType<typeof deriveFeedbackAdjustments>, freshnessDelta: -1 | 0 | 1) {
+function applyBoundedAdjustments(
+  base: RecommendedBrewParameters,
+  feedback: ReturnType<typeof deriveFeedbackAdjustments>,
+  freshnessDelta: -1 | 0 | 1,
+  allowedRanges: RecommendationAllowedRanges,
+) {
   const result = { ...base }
   const extraction = feedback.find((item) => item.target === 'extraction')
   const extractionDelta = extraction ? (extraction.direction === 'increase' ? 1 : -1) : freshnessDelta
-  if (result.waterTemperatureC !== null && extractionDelta) result.waterTemperatureC = clamp(result.waterTemperatureC + extractionDelta, 84, 96)
+  if (result.waterTemperatureC !== null && extractionDelta && allowedRanges.waterTemperatureC) {
+    result.waterTemperatureC = clamp(
+      result.waterTemperatureC + extractionDelta,
+      allowedRanges.waterTemperatureC.min,
+      allowedRanges.waterTemperatureC.max,
+    )
+  }
   const concentration = feedback.find((item) => item.target === 'concentration')
-  if (concentration && result.ratio) result.ratio = adjustRatio(result.ratio, concentration.direction === 'increase' ? -0.5 : 0.5)
+  if (concentration && result.ratio) {
+    result.ratio = clampRatio(
+      adjustRatio(result.ratio, concentration.direction === 'increase' ? -0.5 : 0.5),
+      allowedRanges.ratioDenominator.min,
+      allowedRanges.ratioDenominator.max,
+    )
+  }
   return result
+}
+
+function clampToAllowedRanges(
+  recipe: RecommendedBrewParameters,
+  allowedRanges: RecommendationAllowedRanges,
+): RecommendedBrewParameters {
+  return {
+    ...recipe,
+    ratio: clampRatio(
+      recipe.ratio,
+      allowedRanges.ratioDenominator.min,
+      allowedRanges.ratioDenominator.max,
+    ),
+    waterTemperatureC: recipe.waterTemperatureC === null || !allowedRanges.waterTemperatureC
+      ? recipe.waterTemperatureC
+      : clamp(
+          recipe.waterTemperatureC,
+          allowedRanges.waterTemperatureC.min,
+          allowedRanges.waterTemperatureC.max,
+        ),
+    totalTimeSeconds: recipe.totalTimeSeconds === null
+      ? recipe.totalTimeSeconds
+      : clamp(
+          recipe.totalTimeSeconds,
+          allowedRanges.totalTimeSeconds.min,
+          allowedRanges.totalTimeSeconds.max,
+        ),
+  }
 }
 
 function confidence(primary: BrewRecommendationCandidate | null, penalty: boolean): RecommendationConfidence {

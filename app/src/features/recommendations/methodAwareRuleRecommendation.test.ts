@@ -91,7 +91,7 @@ describe('method-aware rule recommendation', () => {
 
   it.each([
     ['ready_to_drink', 12, 16],
-    ['concentrate', 5, 8],
+    ['concentrate', 5, 10],
   ] as const)('keeps cold-brew %s inside its ratio range', (variant, min, max) => {
     const result = generateMethodAwareRuleRecommendation(context('cold_brew', variant), [bean()], [], brewTemplates)
     const denominator = Number(result?.recommended.ratio?.split(':')[1])
@@ -103,6 +103,53 @@ describe('method-aware rule recommendation', () => {
   it('keeps the user-confirmed espresso dose fixed and derives beverage output', () => {
     const result = generateMethodAwareRuleRecommendation(context('espresso'), [bean()], [], brewTemplates)
     expect(result?.recommended).toMatchObject({ brewMode: 'espresso', coffeeGrams: 18, beverageGrams: 36, waterGrams: null })
+  })
+
+  it('preserves the Toddy template source boundaries', () => {
+    const result = generateMethodAwareRuleRecommendation(
+      context('cold_brew', 'concentrate'), [bean()], [], brewTemplates,
+    )
+
+    expect(result?.baseSource).toMatchObject({ type: 'template', templateId: 'cold-concentrate-toddy' })
+    expect(result?.allowedRanges).toMatchObject({
+      ratioDenominator: { min: 5, max: 6 },
+      waterTemperatureC: { min: 18, max: 24 },
+      totalTimeSeconds: { min: 43_200, max: 86_400 },
+    })
+    expect(Number(result?.recommended.ratio?.split(':')[1])).toBeGreaterThanOrEqual(5)
+    expect(Number(result?.recommended.ratio?.split(':')[1])).toBeLessThanOrEqual(6)
+    expect(result?.recommended.waterTemperatureC).toBeGreaterThanOrEqual(18)
+    expect(result?.recommended.waterTemperatureC).toBeLessThanOrEqual(24)
+    expect(result?.recommended.totalTimeSeconds).toBeGreaterThanOrEqual(43_200)
+    expect(result?.recommended.totalTimeSeconds).toBeLessThanOrEqual(86_400)
+  })
+
+  it('keeps aged refrigerated cold brew inside its final temperature range', () => {
+    const target = bean({ roast_date: '2026-06-01' })
+    const coldLog = log('cold_brew', {
+      brew_variant: 'ready_to_drink',
+      coffee_grams: 50,
+      water_grams: 700,
+      ratio: '1:14',
+      water_temperature_c: 6,
+      total_time_seconds: 43_200,
+    })
+    const coldContext = createRecommendationContext({
+      targetBean: target,
+      mode: 'cold_brew',
+      variant: 'ready_to_drink',
+      brewer: '冷萃壶',
+      grinder: 'C40',
+      espressoDoseGrams: null,
+      tasteGoals: ['甜感'],
+      now: new Date('2026-08-23T12:00:00Z'),
+    })
+
+    const result = generateMethodAwareRuleRecommendation(coldContext, [target], [coldLog], brewTemplates)
+
+    expect(result?.allowedRanges?.waterTemperatureC).toEqual({ min: 4, max: 8 })
+    expect(result?.recommended.waterTemperatureC).toBeGreaterThanOrEqual(4)
+    expect(result?.recommended.waterTemperatureC).toBeLessThanOrEqual(8)
   })
 
   it('selects templates by explicit mode metadata instead of template ids', () => {
