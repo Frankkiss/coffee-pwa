@@ -10,6 +10,10 @@
 
 自 2026-08-23 起，包装图片来源导入以 [`2026-08-23-deepseek-vision-source-import-design.md`](./2026-08-23-deepseek-vision-source-import-design.md) 为准；浏览器本地 OCR 已由服务端 DeepSeek 视觉模型替代。
 
+自 2026-08-23 起，四类冲煮推荐、历史筛选、模板边界、反馈修正与 DeepSeek 输出约束以
+[`2026-08-23-method-aware-recommendation-design.md`](./2026-08-23-method-aware-recommendation-design.md)
+为详细设计依据。2026-08-26 的推荐正确性修订继续沿用来源模板参数，并要求规则配方、允许范围和派生克数保持一致。
+
 ## 目标
 
 制作一款个人长期使用的咖啡工具，优先服务安卓手机。第一版采用 PWA + 云数据库方案，不做蓝牙秤、社区分享或复杂设备生态。核心目标是稳定记录咖啡豆信息、冲煮记录，并结合历史记录与 AI 辅助推荐新豆的冲煮方案。
