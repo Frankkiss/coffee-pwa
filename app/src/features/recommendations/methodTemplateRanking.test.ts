@@ -70,7 +70,14 @@ describe('method template ranking', () => {
       roast_level: null,
       flavor_tags: [],
       blend_notes: '深烘 巧克力',
-      blend_components: [{ origin: '巴西', process: '日晒', variety: '波旁', percentage: 100 }],
+      blend_components: [{
+        origin: '巴西',
+        process: '日晒',
+        variety: '波旁',
+        percentage: 100,
+        role: '主体',
+        notes: '仅用于确认排序不会读取组成豆信息',
+      }],
     })
 
     const ranked = rankMethodTemplates(hotContext(targetBean, 'V60'), brewTemplates)
