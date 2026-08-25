@@ -2,13 +2,13 @@ import type { Bean } from '../beans/beanTypes'
 import { normalizeBrewMode, normalizeBrewVariant } from '../brews/brewMode'
 import type { BrewLog, BrewMode } from '../brews/brewTypes'
 import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
-import { getTemplateModeMetadata } from '../brewTemplates/brewTemplateMode'
 import { formatTemplateTime, summarizePourSteps } from '../brewTemplates/brewTemplateFilters'
 import { countSharedRuleTokens, getBeanProcessFamilies, getRoastBand, getSharedBeanFlavorTags } from './beanMetadataRules'
 import { deriveFeedbackAdjustments } from './feedbackAdjustments'
 import { getFreshnessAdjustment } from './freshnessRules'
 import type { RecommendationContext } from './recommendationContext'
 import { getRecommendationAllowedRanges } from './recommendationRanges'
+import { rankMethodTemplates, type RankedMethodTemplate } from './methodTemplateRanking'
 import type {
   BrewRecommendationCandidate,
   BrewTemplateCandidate,
@@ -31,11 +31,10 @@ export function generateMethodAwareRuleRecommendation(
   const candidates = basePool
     .map((log) => scoreHistory(context, beanById.get(log.bean_id ?? '') ?? null, log))
     .sort((left, right) => right.score - left.score || Date.parse(right.brewLog.brewed_at) - Date.parse(left.brewLog.brewed_at))
-  const templateCandidates = selectMethodTemplates(context, templates)
+  const rankedTemplates = rankMethodTemplates(context, templates)
+  const templateCandidates = rankedTemplates.slice(0, 3).map(toTemplateCandidate)
   const primary = candidates[0] ?? null
-  const baseTemplate = !primary && templateCandidates[0]
-    ? templates.find((template) => template.id === templateCandidates[0].id) ?? null
-    : null
+  const baseTemplate = !primary ? rankedTemplates[0]?.template ?? null : null
   if (!primary && !baseTemplate) return null
 
   const sourceBase = primary
@@ -187,22 +186,19 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
   return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: null, beverageGrams: null }
 }
 
-function selectMethodTemplates(context: RecommendationContext, templates: BrewTemplate[]): BrewTemplateCandidate[] {
-  return templates.filter((template) => {
-    const metadata = getTemplateModeMetadata(template)
-    if (metadata.brewMode !== context.mode) return false
-    return context.mode !== 'cold_brew' || metadata.brewVariant === context.variant
-  })
-    .map((template) => ({
-      id: template.id, name: template.name, brewer: template.brewer, ratio: template.ratio,
-      waterTemperature: `${template.waterTemperatureC.min}-${template.waterTemperatureC.max}°C`,
-      targetTime: `${formatTemplateTime(template.targetTimeSeconds.min)}-${formatTemplateTime(template.targetTimeSeconds.max)}`,
-      pourSummary: summarizePourSteps(template), isChampionReference: template.isChampionReference,
-      score: template.difficulty === 'easy' ? 2 : 1,
-      reasons: [`${methodLabel(context.mode)}模板`],
-    }))
-    .sort((left, right) => Number(left.isChampionReference) - Number(right.isChampionReference) || right.score - left.score)
-    .slice(0, 3)
+function toTemplateCandidate({ template, score, reasons }: RankedMethodTemplate): BrewTemplateCandidate {
+  return {
+    id: template.id,
+    name: template.name,
+    brewer: template.brewer,
+    ratio: template.ratio,
+    waterTemperature: `${template.waterTemperatureC.min}-${template.waterTemperatureC.max}°C`,
+    targetTime: `${formatTemplateTime(template.targetTimeSeconds.min)}-${formatTemplateTime(template.targetTimeSeconds.max)}`,
+    pourSummary: summarizePourSteps(template),
+    isChampionReference: template.isChampionReference,
+    score,
+    reasons,
+  }
 }
 
 function applyBoundedAdjustments(

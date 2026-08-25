@@ -100,9 +100,9 @@ describe('method-aware rule recommendation', () => {
     expect(result?.recommended.brewVariant).toBe(variant)
   })
 
-  it('keeps the user-confirmed espresso dose fixed and derives beverage output', () => {
+  it('keeps the user-confirmed espresso dose fixed and derives template-matched beverage output', () => {
     const result = generateMethodAwareRuleRecommendation(context('espresso'), [bean()], [], brewTemplates)
-    expect(result?.recommended).toMatchObject({ brewMode: 'espresso', coffeeGrams: 18, beverageGrams: 36, waterGrams: null })
+    expect(result?.recommended).toMatchObject({ brewMode: 'espresso', coffeeGrams: 18, beverageGrams: 45, waterGrams: null })
   })
 
   it('preserves the Toddy template source boundaries', () => {
@@ -169,5 +169,24 @@ describe('method-aware rule recommendation', () => {
     expect(result?.templateCandidates.every((candidate) =>
       renamedTemplates.find((template) => template.id === candidate.id)?.brewVariant === 'concentrate',
     )).toBe(true)
+  })
+
+  it('uses the same equipment-aware template for the first candidate and base source', () => {
+    const targetBean = bean()
+    const oreaContext = createRecommendationContext({
+      targetBean,
+      mode: 'hot_pourover',
+      variant: null,
+      brewer: 'Orea 平底滤杯',
+      grinder: 'C40',
+      espressoDoseGrams: null,
+      tasteGoals: ['甜感'],
+      now: new Date('2026-08-23T12:00:00Z'),
+    })
+
+    const result = generateMethodAwareRuleRecommendation(oreaContext, [targetBean], [], brewTemplates)
+
+    expect(result?.templateCandidates[0].id).toBe('hot-orea-balanced-flat')
+    expect(result?.baseSource).toMatchObject({ type: 'template', templateId: 'hot-orea-balanced-flat' })
   })
 })
