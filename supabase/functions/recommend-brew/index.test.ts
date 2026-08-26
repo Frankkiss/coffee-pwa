@@ -94,8 +94,9 @@ function dependencies(
   };
 }
 
-Deno.test("recommend-brew uses the shared vision model with a text-only request", async () => {
+Deno.test("recommend-brew uses bounded high-intensity reasoning with a text-only request", async () => {
   let upstreamBody: Record<string, unknown> = {};
+  let timeoutDelay = 0;
   const response = await handleRecommendBrewRequest(
     request(validBody()),
     dependencies({
@@ -110,12 +111,20 @@ Deno.test("recommend-brew uses the shared vision model with a text-only request"
           ),
         );
       },
+      setTimeout: (_callback, delay) => {
+        timeoutDelay = delay;
+        return 1;
+      },
+      clearTimeout: () => undefined,
     }),
   );
 
   assertEquals(response.status, 200);
   assertEquals(upstreamBody?.model, "deepseek-v4-flash-vision-exp");
-  assertEquals(upstreamBody?.thinking, { type: "disabled" });
+  assertEquals(upstreamBody?.thinking, { type: "enabled" });
+  assertEquals(upstreamBody?.reasoning_effort, "high");
+  assertEquals(upstreamBody?.max_tokens, 2500);
+  assertEquals(timeoutDelay, 135_000);
   const messages = upstreamBody?.messages as Array<{
     role: string;
     content: unknown;
@@ -249,7 +258,7 @@ Deno.test("recommend-brew rejects malformed JSON and invalid recommendation shap
   }
 });
 
-Deno.test("recommend-brew aborts DeepSeek after 90000ms and returns a stable timeout code", async () => {
+Deno.test("recommend-brew aborts DeepSeek after 135000ms and returns a stable timeout code", async () => {
   let timeoutDelay = 0;
   let signalWasAborted = false;
   const response = await handleRecommendBrewRequest(
@@ -270,7 +279,7 @@ Deno.test("recommend-brew aborts DeepSeek after 90000ms and returns a stable tim
     }),
   );
 
-  assertEquals(timeoutDelay, 90_000);
+  assertEquals(timeoutDelay, 135_000);
   assertEquals(signalWasAborted, true);
   assertEquals(response.status, 200);
   assertEquals((await response.json()).error, "AI_TIMEOUT");

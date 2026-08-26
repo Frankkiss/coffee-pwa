@@ -1285,6 +1285,6 @@ If no correction was required, do not create an empty commit.
 
 ### Task 6: Prevent repeated vision-model recommendation timeouts
 
-- [ ] Add a failing Edge request test requiring `thinking: { type: "disabled" }`.
-- [ ] Explicitly disable thinking for the bounded JSON optimization request without changing the 90-second safety timeout.
-- [ ] Run the complete `recommend-brew` Deno suite, deploy only that function, and verify an authenticated recommendation in production.
+- [x] Update the Edge request test to require `thinking: { type: "enabled" }`, `reasoning_effort: "high"`, and `max_tokens: 2500`; verify that it fails against the previous disabled-thinking request.
+- [x] Keep high-intensity thinking for the bounded JSON optimization request and raise the application timeout from 90 seconds to 135 seconds, below Supabase's 150-second request boundary.
+- [ ] Run the complete `recommend-brew` Deno suite and formatting check, then deploy only that function and verify an authenticated recommendation in production.

@@ -24,7 +24,7 @@ const corsHeaders = {
 const maxRequestBodyBytes = 262_144;
 const maxDeepSeekResponseBytes = 262_144;
 const maxAiTextCharacters = 50_000;
-const deepSeekTimeoutMs = 90_000;
+const deepSeekTimeoutMs = 135_000;
 
 export type RecommendBrewDependencies = {
   getApiKey: () => string | undefined;
@@ -160,7 +160,9 @@ export async function handleRecommendBrewRequest(
             },
           ],
           response_format: { type: "json_object" },
-          thinking: { type: "disabled" },
+          thinking: { type: "enabled" },
+          reasoning_effort: "high",
+          max_tokens: 2500,
           stream: false,
         }),
         signal: controller.signal,
