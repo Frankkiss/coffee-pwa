@@ -58,9 +58,9 @@ content: [{ type: "text", text: buildPrompt(payload) }]
 
 ## Vision Recommendation Timeout
 
-视觉实验模型生成结构化冲煮建议可能超过原有 30 秒。`recommend-brew` 的上游等待时间设为 90 秒，低于 Supabase 托管 Edge Function 的 150 秒请求空闲上限，并保留 `AbortController` 主动中止。
+视觉实验模型生成结构化冲煮建议可能超过原有 90 秒。`recommend-brew` 保留高强度思考，但将总输出限制为 2500 token；上游等待时间设为 135 秒，低于 Supabase 托管 Edge Function 的 150 秒请求空闲上限，并保留 `AbortController` 主动中止及响应收尾余量。
 
-超时后仍返回稳定的 `AI_TIMEOUT`，前端继续显示规则推荐；不自动重试，避免重复消耗配额或产生并发建议。本次调整只改变等待窗口，不改变提示词、规则计算、模型参数、输出结构或保存行为。
+超时后仍返回稳定的 `AI_TIMEOUT`，前端继续显示规则推荐；不自动重试，避免重复消耗配额或产生并发建议。本次调整不改变规则计算、输出结构或保存行为。
 
 ## Non-Goals
 
