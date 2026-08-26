@@ -104,6 +104,15 @@ const templateKeys = [
   "score",
   "reasons",
 ];
+const stepKeys = [
+  "label",
+  "startSeconds",
+  "endSeconds",
+  "targetType",
+  "targetGrams",
+  "action",
+];
+const targetTypes = ["water", "ice", "beverage", "none"] as const;
 
 function hasExactly(
   value: unknown,
@@ -249,7 +258,75 @@ export function validateStructuredAiResponse(
     if (range === null ? actual != null : !inside(actual, range)) return null;
   }
   if (!consistentMass(recipe, selection.mode)) return null;
+  if (!validBrewSteps(value.pourPlan, recipe, selection.mode)) return null;
   return value;
+}
+
+function validBrewSteps(
+  value: unknown,
+  recipe: Record<string, unknown>,
+  mode: RecommendationRequest["selection"]["mode"],
+) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 8) {
+    return false;
+  }
+  let previousStart = -1;
+  const targets = new Map<string, number[]>();
+
+  for (const raw of value) {
+    if (!hasExactly(raw, stepKeys) || !text(raw.label) || !text(raw.action)) {
+      return false;
+    }
+    if (
+      !finite(raw.startSeconds) || raw.startSeconds < 0 ||
+      raw.startSeconds < previousStart
+    ) return false;
+    if (
+      raw.endSeconds !== null &&
+      (!finite(raw.endSeconds) || raw.endSeconds < raw.startSeconds)
+    ) return false;
+    if (
+      !targetTypes.includes(
+        raw.targetType as typeof targetTypes[number],
+      )
+    ) return false;
+    if (
+      raw.targetType === "none"
+        ? raw.targetGrams !== null
+        : !finite(raw.targetGrams) || raw.targetGrams <= 0
+    ) return false;
+    previousStart = raw.startSeconds;
+    if (raw.targetType !== "none") {
+      const values = targets.get(String(raw.targetType)) ?? [];
+      values.push(raw.targetGrams as number);
+      targets.set(String(raw.targetType), values);
+    }
+  }
+
+  const allowed = mode === "espresso"
+    ? new Set(["beverage", "none"])
+    : mode === "hot_pourover"
+    ? new Set(["water", "none"])
+    : new Set(["water", "ice", "none"]);
+  if ([...targets.keys()].some((key) => !allowed.has(key))) return false;
+  if (
+    (mode === "cold_brew" || mode === "espresso") &&
+    value.some((step) =>
+      isRecord(step) && /绕圈|闷蒸|分段注水/.test(String(step.action))
+    )
+  ) return false;
+
+  return finalTargetMatches(targets.get("water"), recipe.waterGrams) &&
+    finalTargetMatches(targets.get("ice"), recipe.iceGrams) &&
+    finalTargetMatches(targets.get("beverage"), recipe.beverageGrams);
+}
+
+function finalTargetMatches(values: number[] | undefined, expected: unknown) {
+  if (expected === null || expected === undefined) return values === undefined;
+  if (!finite(expected) || !values || values.length === 0) return false;
+  return values.every((value, index) =>
+    index === 0 || value >= values[index - 1]
+  ) && Math.abs(values[values.length - 1] - expected) <= 0.1;
 }
 
 function recordWithOnly(
