@@ -21,8 +21,10 @@ describe('normalizeAiRecommendationResponse', () => {
         pourPlan: [
           {
             label: '闷蒸',
-            time: '0:00-0:30',
-            waterGrams: 30,
+            startSeconds: 0,
+            endSeconds: 30,
+            targetType: 'water',
+            targetGrams: 30,
             action: '轻柔绕圈',
           },
         ],
@@ -43,7 +45,10 @@ describe('normalizeAiRecommendationResponse', () => {
       {
         label: '闷蒸',
         time: '0:00-0:30',
-        waterGrams: 30,
+        startSeconds: 0,
+        endSeconds: 30,
+        targetType: 'water',
+        targetGrams: 30,
         action: '轻柔绕圈',
       },
     ])
@@ -94,10 +99,29 @@ describe('normalizeAiRecommendationResponse', () => {
       {
         label: '第 1 段',
         time: '',
-        waterGrams: null,
+        startSeconds: null,
+        endSeconds: null,
+        targetType: 'none',
+        targetGrams: null,
         action: '注水到 120g',
       },
     ])
     expect(result.structured?.adjustments).toEqual([])
+  })
+
+  it('adapts a saved legacy waterGrams step', () => {
+    const result = normalizeAiRecommendationResponse({
+      configured: true,
+      structured: {
+        recipe: {},
+        pourPlan: [{ label: '闷蒸', time: '0:00-0:30', waterGrams: 30, action: '轻柔绕圈' }],
+      },
+    })
+
+    expect(result.structured?.pourPlan[0]).toMatchObject({
+      targetType: 'water',
+      targetGrams: 30,
+      time: '0:00-0:30',
+    })
   })
 })

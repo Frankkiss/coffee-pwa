@@ -124,17 +124,22 @@ export type StructuredAiRecipe = {
   totalTimeSeconds: number | null
 }
 
-export type StructuredAiPourStep = {
+export type StructuredAiStepTarget = 'water' | 'ice' | 'beverage' | 'none'
+
+export type StructuredAiBrewStep = {
   label: string
   time: string
-  waterGrams: number | null
+  startSeconds: number | null
+  endSeconds: number | null
+  targetType: StructuredAiStepTarget
+  targetGrams: number | null
   action: string
 }
 
 export type StructuredAiRecommendation = {
   summary: string
   recipe: StructuredAiRecipe
-  pourPlan: StructuredAiPourStep[]
+  pourPlan: StructuredAiBrewStep[]
   adjustments: string[]
   reasons: string[]
   riskNotes: string[]

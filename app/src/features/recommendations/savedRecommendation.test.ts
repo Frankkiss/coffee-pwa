@@ -160,7 +160,10 @@ describe('buildSavedRecommendationPayload', () => {
           {
             label: '闷蒸',
             time: '0:00-0:30',
-            waterGrams: 30,
+            startSeconds: 0,
+            endSeconds: 30,
+            targetType: 'water',
+            targetGrams: 30,
             action: '轻柔绕圈',
           },
         ],
@@ -219,7 +222,8 @@ describe('buildSavedRecommendationPayload', () => {
           pourPlan: [
             {
               label: '闷蒸',
-              waterGrams: 30,
+              targetType: 'water',
+              targetGrams: 30,
             },
           ],
           adjustments: ['偏酸就升高水温 1°C'],

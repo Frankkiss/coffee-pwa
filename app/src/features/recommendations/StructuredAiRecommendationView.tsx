@@ -1,4 +1,7 @@
-import type { StructuredAiRecommendation } from './recommendationTypes'
+import type {
+  StructuredAiBrewStep,
+  StructuredAiRecommendation,
+} from './recommendationTypes'
 
 type StructuredAiRecommendationViewProps = {
   recommendation: StructuredAiRecommendation
@@ -39,13 +42,13 @@ export function StructuredAiRecommendationView({
 
       {recommendation.pourPlan.length > 0 ? (
         <div className="recommendation-ai-steps">
-          <h4>分段注水</h4>
+          <h4>冲煮步骤</h4>
           <ol>
             {recommendation.pourPlan.map((step) => (
               <li key={`${step.label}-${step.time}-${step.action}`}>
                 <strong>{step.label}</strong>
                 <span>
-                  {[step.time, formatNumber(step.waterGrams, 'g'), step.action]
+                  {[step.time, formatStepTarget(step), step.action]
                     .filter(Boolean)
                     .join(' / ')}
                 </span>
@@ -83,4 +86,14 @@ function StructuredList({ title, items }: { title: string; items: string[] }) {
 
 function formatNumber(value: number | null | undefined, suffix: string) {
   return value == null ? null : `${value}${suffix}`
+}
+
+function formatStepTarget(step: StructuredAiBrewStep) {
+  if (step.targetGrams === null || step.targetType === 'none') return null
+  const label = {
+    water: '水量',
+    ice: '冰量',
+    beverage: '出液',
+  }[step.targetType]
+  return `${label} ${step.targetGrams}g`
 }

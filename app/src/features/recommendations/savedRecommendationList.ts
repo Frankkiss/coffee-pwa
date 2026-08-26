@@ -250,9 +250,17 @@ function formatPourStep(step: unknown) {
   }
 
   const label = getString(step.label) ?? '分段'
+  const targetGrams = getNumber(step.targetGrams) ?? getNumber(step.waterGrams)
+  const targetType = getString(step.targetType)
+    ?? (getNumber(step.waterGrams) !== null ? 'water' : null)
+  const targetLabel = targetType === 'ice' ? '冰量'
+    : targetType === 'beverage' ? '出液'
+    : targetType === 'water' ? '水量'
+    : null
+  const amount = targetLabel && targetGrams !== null ? `${targetLabel} ${targetGrams}g` : null
   const parts = [
     getString(step.time),
-    getNumber(step.waterGrams) !== null ? `${step.waterGrams}g` : null,
+    amount,
     getString(step.action),
   ].filter(Boolean)
 

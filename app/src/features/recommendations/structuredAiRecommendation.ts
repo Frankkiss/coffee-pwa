@@ -1,10 +1,11 @@
 import type {
   AiRecommendationResponse,
-  StructuredAiPourStep,
+  StructuredAiBrewStep,
   StructuredAiRecipe,
   StructuredAiRecommendation,
 } from './recommendationTypes'
 import type { AiRecommendationContext } from './aiRecommendationContext'
+import { validateAiBrewSteps } from './aiBrewStepValidation'
 import { validateAiRecipe } from './aiRecipeValidation'
 
 const emptyRecipe: StructuredAiRecipe = {
@@ -27,7 +28,10 @@ export function normalizeAiRecommendationResponse(
   const suggestion = stringValue(record.suggestion)
   let error = stringValue(record.error) || undefined
   let structured = normalizeStructuredRecommendation(record.structured, suggestion)
-  if (structured && context && !validateAiRecipe(structured.recipe, context)) {
+  if (structured && context && (
+    !validateAiRecipe(structured.recipe, context)
+    || !validateAiBrewSteps(structured.pourPlan, structured.recipe, context)
+  )) {
     structured = null
     error = 'AI_BOUNDARY_VIOLATION'
   }
@@ -88,7 +92,7 @@ export function normalizeStructuredRecommendation(
   }
 }
 
-function normalizePourPlan(value: unknown): StructuredAiPourStep[] {
+function normalizePourPlan(value: unknown): StructuredAiBrewStep[] {
   if (!Array.isArray(value)) {
     return []
   }
@@ -105,14 +109,42 @@ function normalizePourPlan(value: unknown): StructuredAiPourStep[] {
         return null
       }
 
+      const startSeconds = nonNegativeNumberOrNull(item.startSeconds)
+      const endSeconds = nonNegativeNumberOrNull(item.endSeconds)
+      const legacyWaterGrams = numberOrNull(item.waterGrams)
+      const targetType = stepTargetOrNull(item.targetType)
+        ?? (legacyWaterGrams !== null ? 'water' : 'none')
+      const targetGrams = numberOrNull(item.targetGrams) ?? legacyWaterGrams
+
       return {
         label: stringValue(item.label) || `第 ${index + 1} 段`,
-        time: stringValue(item.time),
-        waterGrams: numberOrNull(item.waterGrams),
+        time: startSeconds !== null
+          ? formatStepTime(startSeconds, endSeconds)
+          : stringValue(item.time),
+        startSeconds,
+        endSeconds,
+        targetType,
+        targetGrams: targetType === 'none' ? null : targetGrams,
         action,
       }
     })
-    .filter((item): item is StructuredAiPourStep => item !== null)
+    .filter((item): item is StructuredAiBrewStep => item !== null)
+}
+
+function nonNegativeNumberOrNull(value: unknown) {
+  const parsed = numberOrNull(value)
+  return parsed !== null && parsed >= 0 ? parsed : null
+}
+
+function stepTargetOrNull(value: unknown) {
+  return value === 'water' || value === 'ice' || value === 'beverage' || value === 'none'
+    ? value
+    : null
+}
+
+function formatStepTime(startSeconds: number, endSeconds: number | null) {
+  const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  return endSeconds === null ? format(startSeconds) : `${format(startSeconds)}-${format(endSeconds)}`
 }
 
 function stringArray(value: unknown) {
