@@ -1282,3 +1282,9 @@ If no correction was required, do not create an empty commit.
 - Edge and frontend reject mode-incompatible or mass-inconsistent AI steps.
 - Old saved recommendations remain readable.
 - Full tests, lint, build and mobile verification have recorded evidence before any push or production deployment.
+
+### Task 6: Prevent repeated vision-model recommendation timeouts
+
+- [ ] Add a failing Edge request test requiring `thinking: { type: "disabled" }`.
+- [ ] Explicitly disable thinking for the bounded JSON optimization request without changing the 90-second safety timeout.
+- [ ] Run the complete `recommend-brew` Deno suite, deploy only that function, and verify an authenticated recommendation in production.

@@ -115,6 +115,7 @@ Deno.test("recommend-brew uses the shared vision model with a text-only request"
 
   assertEquals(response.status, 200);
   assertEquals(upstreamBody?.model, "deepseek-v4-flash-vision-exp");
+  assertEquals(upstreamBody?.thinking, { type: "disabled" });
   const messages = upstreamBody?.messages as Array<{
     role: string;
     content: unknown;

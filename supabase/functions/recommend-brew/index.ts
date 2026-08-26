@@ -160,6 +160,7 @@ export async function handleRecommendBrewRequest(
             },
           ],
           response_format: { type: "json_object" },
+          thinking: { type: "disabled" },
           stream: false,
         }),
         signal: controller.signal,
