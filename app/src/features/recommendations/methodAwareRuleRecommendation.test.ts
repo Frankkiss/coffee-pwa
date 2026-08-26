@@ -222,4 +222,77 @@ describe('method-aware rule recommendation', () => {
 
     expect((output ?? 0) / (recipe?.coffeeGrams ?? 1)).toBeCloseTo(denominator, 1)
   })
+
+  it('uses an incomplete high-rated history only as a reference and falls back to a template base', () => {
+    const result = generateMethodAwareRuleRecommendation(
+      context('hot_pourover'),
+      [bean()],
+      [log('hot_pourover', {
+        id: 'fragment',
+        rating: 5,
+        coffee_grams: null,
+        water_grams: 240,
+        ratio: '1:16',
+      })],
+      brewTemplates,
+    )
+
+    expect(result?.primary).toBeNull()
+    expect(result?.references.map((item) => item.brewLog.id)).toContain('fragment')
+    expect(result?.baseSource.type).toBe('template')
+    expect(result?.recommended.coffeeGrams).toBeGreaterThan(0)
+  })
+
+  it('derives a missing cold-brew ratio from real masses', () => {
+    const result = generateMethodAwareRuleRecommendation(
+      context('cold_brew', 'ready_to_drink'),
+      [bean()],
+      [log('cold_brew', {
+        brew_variant: 'ready_to_drink',
+        coffee_grams: 50,
+        water_grams: 700,
+        ratio: null,
+      })],
+      brewTemplates,
+    )
+
+    expect(result?.primary).not.toBeNull()
+    expect(result?.recommended.ratio).toBe('1:14')
+    expect(result?.allowedRanges?.ratioDenominator).toEqual({ min: 13.5, max: 14.5 })
+  })
+
+  it('fills non-core history parameters from the best compatible template', () => {
+    const result = generateMethodAwareRuleRecommendation(
+      context('hot_pourover'),
+      [bean()],
+      [log('hot_pourover', {
+        water_temperature_c: null,
+        total_time_seconds: null,
+        grind_setting: null,
+      })],
+      brewTemplates,
+    )
+
+    expect(result?.primary).not.toBeNull()
+    expect(result?.recommended.waterTemperatureC).not.toBeNull()
+    expect(result?.recommended.totalTimeSeconds).not.toBeNull()
+    expect(result?.recommended.grindSetting).not.toBeNull()
+  })
+
+  it('does not narrow a ratio range around an invented default', () => {
+    const result = generateMethodAwareRuleRecommendation(
+      context('cold_brew', 'concentrate'),
+      [bean()],
+      [log('cold_brew', {
+        brew_variant: 'concentrate',
+        coffee_grams: null,
+        water_grams: null,
+        ratio: null,
+        grind_setting: '粗',
+      })],
+      [],
+    )
+
+    expect(result).toBeNull()
+  })
 })

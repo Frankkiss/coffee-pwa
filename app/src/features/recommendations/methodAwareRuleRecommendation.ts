@@ -6,7 +6,9 @@ import { formatTemplateTime, summarizePourSteps } from '../brewTemplates/brewTem
 import { countSharedRuleTokens, getBeanProcessFamilies, getRoastBand, getSharedBeanFlavorTags } from './beanMetadataRules'
 import { deriveFeedbackAdjustments } from './feedbackAdjustments'
 import { getFreshnessAdjustment } from './freshnessRules'
+import { analyzeHistoryRecipe } from './historyRecipeFacts'
 import type { RecommendationContext } from './recommendationContext'
+import { parseRatioDenominator } from './recommendationPolicy'
 import { getRecommendationAllowedRanges } from './recommendationRanges'
 import { rankMethodTemplates, type RankedMethodTemplate } from './methodTemplateRanking'
 import type {
@@ -27,11 +29,28 @@ export function generateMethodAwareRuleRecommendation(
   if (context.mode === 'espresso' && context.espressoDoseGrams === null) return null
   const beanById = new Map(beans.map((bean) => [bean.id, bean]))
   const matchingLogs = brewLogs.filter((log) => matchesMode(log, context))
-  const basePool = selectRatingTier(matchingLogs.filter(hasUsableParameters))
-  const candidates = basePool
-    .map((log) => scoreHistory(context, beanById.get(log.bean_id ?? '') ?? null, log))
-    .sort((left, right) => right.score - left.score || Date.parse(right.brewLog.brewed_at) - Date.parse(left.brewLog.brewed_at))
   const rankedTemplates = rankMethodTemplates(context, templates)
+  const fallbackTemplate = rankedTemplates.find((item) => item.reasons.includes('器具匹配'))?.template
+    ?? (!context.gear.brewer ? rankedTemplates[0]?.template ?? null : null)
+  const referenceCandidates = matchingLogs
+    .map((log) => scoreHistory(
+      context,
+      beanById.get(log.bean_id ?? '') ?? null,
+      log,
+      fallbackTemplate,
+    ))
+    .sort(compareCandidates)
+  const basePool = selectRatingTier(
+    matchingLogs.filter((log) => analyzeHistoryRecipe(log, context.mode).eligible),
+  )
+  const candidates = basePool
+    .map((log) => scoreHistory(
+      context,
+      beanById.get(log.bean_id ?? '') ?? null,
+      log,
+      fallbackTemplate,
+    ))
+    .sort(compareCandidates)
   const templateCandidates = rankedTemplates.slice(0, 3).map(toTemplateCandidate)
   const primary = candidates[0] ?? null
   const baseTemplate = !primary ? rankedTemplates[0]?.template ?? null : null
@@ -63,7 +82,7 @@ export function generateMethodAwareRuleRecommendation(
   return {
     targetBean: context.targetBean,
     primary,
-    references: candidates.slice(0, 3),
+    references: referenceCandidates.slice(0, 3),
     templateCandidates,
     recommended,
     confidence: confidence(primary, freshnessAdjustment.confidencePenalty),
@@ -109,7 +128,12 @@ function selectRatingTier(logs: BrewLog[]) {
   return logs.filter((log) => log.rating === null)
 }
 
-function scoreHistory(context: RecommendationContext, sourceBean: Bean | null, log: BrewLog): BrewRecommendationCandidate {
+function scoreHistory(
+  context: RecommendationContext,
+  sourceBean: Bean | null,
+  log: BrewLog,
+  fallbackTemplate: BrewTemplate | null,
+): BrewRecommendationCandidate {
   let score = 0
   const reasons: string[] = []
   if (sourceBean?.id === context.targetBean.id) { score += 20; reasons.push('同豆、同方式') }
@@ -125,19 +149,38 @@ function scoreHistory(context: RecommendationContext, sourceBean: Bean | null, l
   const sharedFlavors = getSharedBeanFlavorTags(context.targetBean, sourceBean)
   if (sharedFlavors.length) { score += Math.min(sharedFlavors.length * 2, 6); reasons.push(`共享风味：${sharedFlavors.join('、')}`) }
   if (log.rating !== null) { score += log.rating * 2; reasons.push(`满意度 ${log.rating}/5`) }
-  return { bean: sourceBean, brewLog: log, score, reasons, recommended: parametersFromHistory(context, log) }
+  return {
+    bean: sourceBean,
+    brewLog: log,
+    score,
+    reasons,
+    recommended: parametersFromHistory(context, log, fallbackTemplate),
+  }
 }
 
-function parametersFromHistory(context: RecommendationContext, log: BrewLog): RecommendedBrewParameters {
+function parametersFromHistory(
+  context: RecommendationContext,
+  log: BrewLog,
+  fallbackTemplate: BrewTemplate | null,
+): RecommendedBrewParameters {
+  const facts = analyzeHistoryRecipe(log, context.mode)
   const grinderCompatible = !context.gear.grinder || sameText(log.grinder, context.gear.grinder)
   return modeParameters(context, {
     method: methodLabel(context.mode),
-    dripper: context.gear.brewer || log.dripper,
+    dripper: context.gear.brewer || log.dripper || fallbackTemplate?.brewer || null,
     grinder: context.gear.grinder || log.grinder,
-    grindSetting: grinderCompatible ? log.grind_setting : null,
-    ratio: log.ratio,
-    waterTemperatureC: log.water_temperature_c,
-    totalTimeSeconds: log.total_time_seconds,
+    grindSetting: grinderCompatible
+      ? log.grind_setting ?? fallbackTemplate?.grindSize ?? null
+      : null,
+    ratio: facts.ratio,
+    waterTemperatureC: log.water_temperature_c
+      ?? (fallbackTemplate
+        ? midpoint(fallbackTemplate.waterTemperatureC.min, fallbackTemplate.waterTemperatureC.max)
+        : null),
+    totalTimeSeconds: log.total_time_seconds
+      ?? (fallbackTemplate
+        ? midpoint(fallbackTemplate.targetTimeSeconds.min, fallbackTemplate.targetTimeSeconds.max)
+        : null),
     coffeeGrams: log.coffee_grams,
     waterGrams: log.water_grams,
     iceGrams: log.ice_grams ?? null,
@@ -176,19 +219,25 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
     totalTimeSeconds: base.totalTimeSeconds === null ? null : clamp(base.totalTimeSeconds, context.mode === 'espresso' ? 20 : 90, context.mode === 'espresso' ? 40 : context.mode === 'cold_brew' ? 86_400 : 300),
   }
   const coffee = context.mode === 'espresso' ? context.espressoDoseGrams : safe.coffeeGrams
+  const denominator = ratioDenominator(safe.ratio)
+  if (denominator === null || coffee === null || coffee === undefined) {
+    return {
+      ...safe,
+      brewMode: context.mode,
+      brewVariant: context.mode === 'cold_brew' ? context.variant : null,
+    }
+  }
   if (context.mode === 'iced_pourover') {
-    const total = ratioDenominator(safe.ratio) * (coffee ?? 15)
+    const total = denominator * coffee
     const requestedIce = safe.iceGrams ?? Math.round(total * 0.35)
     const ice = clamp(requestedIce, Math.round(total * 0.25), Math.round(total * 0.45))
     return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: ice, waterGrams: total - ice, beverageGrams: null }
   }
   if (context.mode === 'cold_brew') {
-    const dose = coffee ?? 50
-    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: dose, waterGrams: Math.round(dose * ratioDenominator(safe.ratio)), iceGrams: null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
+    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: coffee, waterGrams: Math.round(coffee * denominator), iceGrams: null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
   }
   if (context.mode === 'espresso') {
-    const dose = coffee as number
-    return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: dose, waterGrams: null, iceGrams: null, beverageGrams: Math.round(dose * ratioDenominator(safe.ratio)) }
+    return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, waterGrams: null, iceGrams: null, beverageGrams: Math.round(coffee * denominator) }
   }
   return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: null, beverageGrams: null }
 }
@@ -238,7 +287,7 @@ function applyBoundedAdjustments(
 function recomputeOutputMasses(recipe: RecommendedBrewParameters): RecommendedBrewParameters {
   const coffee = recipe.coffeeGrams
   const denominator = ratioDenominator(recipe.ratio)
-  if (coffee === null || coffee === undefined) return recipe
+  if (coffee === null || coffee === undefined || denominator === null) return recipe
 
   if (recipe.brewMode === 'espresso') {
     return { ...recipe, waterGrams: null, iceGrams: null, beverageGrams: Math.round(coffee * denominator) }
@@ -293,15 +342,23 @@ function confidence(primary: BrewRecommendationCandidate | null, penalty: boolea
   return value
 }
 
-function hasUsableParameters(log: BrewLog) { return Boolean(log.ratio || log.grind_setting || log.water_temperature_c || log.total_time_seconds || log.beverage_grams || log.ice_grams) }
+function compareCandidates(left: BrewRecommendationCandidate, right: BrewRecommendationCandidate) {
+  return right.score - left.score
+    || Date.parse(right.brewLog.brewed_at) - Date.parse(left.brewLog.brewed_at)
+}
 function sameText(left: string | null | undefined, right: string | null | undefined) { return Boolean(left && right && left.trim().toLowerCase() === right.trim().toLowerCase()) }
 function sharedProcessFamily(target: Bean, source: Bean | null) { const targetFamilies = new Set(getBeanProcessFamilies(target)); return source ? getBeanProcessFamilies(source).some((family) => targetFamilies.has(family)) : false }
 function midpoint(min: number, max: number) { return Math.round((min + max) / 2) }
-function ratioDenominator(ratio: string | null) { const value = ratio?.match(/1\s*:\s*(\d+(?:\.\d+)?)/)?.[1]; return value ? Number(value) : 15 }
-function adjustRatio(ratio: string, delta: number) { return `1:${Math.round((ratioDenominator(ratio) + delta) * 10) / 10}` }
+function ratioDenominator(ratio: string | null) { return parseRatioDenominator(ratio) }
+function adjustRatio(ratio: string, delta: number) {
+  const denominator = ratioDenominator(ratio)
+  return denominator === null ? ratio : `1:${Math.round((denominator + delta) * 10) / 10}`
+}
 function clamp(value: number, min: number, max: number) { return Math.min(Math.max(value, min), max) }
 function methodLabel(mode: BrewMode) { return ({ hot_pourover: '热手冲', iced_pourover: '冰手冲', cold_brew: '冷萃', espresso: '意式' } as const)[mode] }
 function clampRatio(ratio: string | null, min: number, max: number) {
-  const denominator = clamp(ratioDenominator(ratio), min, max)
+  const parsed = ratioDenominator(ratio)
+  if (parsed === null) return null
+  const denominator = clamp(parsed, min, max)
   return `1:${Math.round(denominator * 10) / 10}`
 }
