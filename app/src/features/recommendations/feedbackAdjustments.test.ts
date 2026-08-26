@@ -30,4 +30,28 @@ describe('feedback adjustments', () => {
   it('does not treat sensory intensity as satisfaction without a rating', () => {
     expect(deriveFeedbackAdjustments(log({ rating: null, bitterness: 5 }), [])).toEqual([])
   })
+
+  it.each([
+    ['偏苦，有点涩', 'extraction', 'decrease'],
+    ['酸得尖，像没萃开', 'extraction', 'increase'],
+    ['甜感不足，喝起来空', 'extraction', 'increase'],
+    ['太淡了，水感明显', 'concentration', 'increase'],
+    ['太厚重，尾段发闷', 'concentration', 'decrease'],
+  ] as const)('parses low-rated plain-language feedback: %s', (notes, target, direction) => {
+    expect(deriveFeedbackAdjustments(log({ rating: 2, notes }), []))
+      .toContainEqual(expect.objectContaining({ target, direction }))
+  })
+
+  it.each([
+    '酸得舒服，果酸很明亮',
+    '醇厚但平衡，我很喜欢',
+  ] as const)('does not turn accepted sensory language into a correction: %s', (notes) => {
+    expect(deriveFeedbackAdjustments(log({ rating: 2, notes }), ['明亮']))
+      .toEqual([])
+  })
+
+  it('does not adjust a high-rated brew from ordinary tasting notes', () => {
+    expect(deriveFeedbackAdjustments(log({ rating: 4, notes: '莓果酸质，醇厚甜感' }), []))
+      .toEqual([])
+  })
 })

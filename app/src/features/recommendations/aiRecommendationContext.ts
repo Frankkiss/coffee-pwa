@@ -98,7 +98,12 @@ export function buildAiRecommendationContext(
       baseSource: result.baseSource,
       reasons: {
         bean: result.primary?.reasons.slice(0, 8) ?? [],
-        feedback: result.feedbackAdjustments?.map((item) => item.reason) ?? [],
+        feedback: [
+          ...(result.feedbackAdjustments?.map((item) => item.reason) ?? []),
+          ...(result.feedbackSource?.notes
+            ? [`上一杯评分 ${result.feedbackSource.rating}/5，原始反馈：${result.feedbackSource.notes}`]
+            : []),
+        ],
         freshness: result.freshnessAdjustment?.reason ? [result.freshnessAdjustment.reason] : [],
       },
     },

@@ -15,6 +15,33 @@ describe('buildAiRecommendationContext', () => {
     expect(context.rule.allowedRanges.ratioDenominator).toEqual({ min: 14, max: 18 })
     expect(context.templates.alternatives).toHaveLength(2)
   })
+
+  it('includes the bounded original low-score feedback for DeepSeek interpretation', () => {
+    const result = createResult()
+    result.feedbackAdjustments = [{
+      source: 'feedback',
+      priority: 'primary',
+      target: 'extraction',
+      direction: 'decrease',
+      reason: '上一杯偏苦，降低萃取压力',
+      limits: { temperatureC: 2, timePercent: 10, ratioDenominator: 0.5, grindSteps: 1 },
+    }]
+    const resultWithFeedback = result as RuleRecommendationResult & {
+      feedbackSource: { brewLogId: string; rating: number; notes: string }
+    }
+    resultWithFeedback.feedbackSource = {
+      brewLogId: 'brew-feedback',
+      rating: 2,
+      notes: '偏苦，有点涩',
+    }
+
+    const context = buildAiRecommendationContext(resultWithFeedback)
+
+    expect(context.rule.reasons.feedback).toEqual([
+      '上一杯偏苦，降低萃取压力',
+      '上一杯评分 2/5，原始反馈：偏苦，有点涩',
+    ])
+  })
 })
 
 function createResult(): RuleRecommendationResult {

@@ -410,7 +410,7 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
             <textarea
               value={form.notes}
               onChange={(event) => updateField('notes', event.target.value)}
-              placeholder="这杯的口感、问题和下次调整"
+              placeholder="例如：偏苦有点涩、酸得尖、太淡，或醇厚但很喜欢"
               rows={3}
             />
           </label>

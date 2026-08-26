@@ -75,6 +75,13 @@ export function generateMethodAwareRuleRecommendation(
       ...(freshnessAdjustment.reason ? [freshnessAdjustment.reason] : []),
     ],
     feedbackAdjustments,
+    feedbackSource: latestFeedback && latestFeedback.rating !== null
+      ? {
+          brewLogId: latestFeedback.id,
+          rating: latestFeedback.rating,
+          notes: (latestFeedback.notes ?? '').slice(0, 240),
+        }
+      : null,
     freshnessAdjustment,
     selection: {
       mode: context.mode,

@@ -44,6 +44,12 @@ export type RecommendationSelection = {
   tasteGoals: string[]
 }
 
+export type RecommendationFeedbackSource = {
+  brewLogId: string
+  rating: number
+  notes: string
+}
+
 export type RuleRecommendationBaseSource =
   | {
       type: 'history'
@@ -89,6 +95,7 @@ export type RuleRecommendationResult = {
   baseSource: RuleRecommendationBaseSource
   beanAdjustmentReasons: string[]
   feedbackAdjustments?: FeedbackAdjustment[]
+  feedbackSource?: RecommendationFeedbackSource | null
   freshnessAdjustment?: FreshnessAdjustment
   selection?: RecommendationSelection
   allowedRanges?: RecommendationAllowedRanges
