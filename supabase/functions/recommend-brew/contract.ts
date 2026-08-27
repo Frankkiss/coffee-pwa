@@ -1,7 +1,9 @@
 export type NumericRange = { min: number; max: number };
 
 export type AiValidationFailure =
-  | "INVALID_SHAPE"
+  | "OUTPUT_TRUNCATED"
+  | "INVALID_JSON"
+  | "MISSING_RECIPE"
   | "MODE_LOCK"
   | "EQUIPMENT_LOCK"
   | "GRIND_LOCK"
@@ -246,7 +248,7 @@ export function getStructuredAiResponseViolation(
   value: unknown,
   context: RecommendationRequest,
 ): AiValidationFailure | null {
-  if (!isRecord(value) || !isRecord(value.recipe)) return "INVALID_SHAPE";
+  if (!isRecord(value) || !isRecord(value.recipe)) return "MISSING_RECIPE";
   const recipe = value.recipe;
   const selection = context.selection;
   if (

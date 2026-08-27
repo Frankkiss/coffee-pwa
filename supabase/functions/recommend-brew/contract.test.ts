@@ -86,6 +86,10 @@ Deno.test("bounded contract rejects extra request keys and out-of-range recipes"
     "GRIND_LOCK",
   );
   assertEquals(
+    getStructuredAiResponseViolation(null, request as never),
+    "MISSING_RECIPE",
+  );
+  assertEquals(
     validateStructuredAiResponse(
       { recipe: { ...recipe, ratio: "1:4" } },
       request as never,

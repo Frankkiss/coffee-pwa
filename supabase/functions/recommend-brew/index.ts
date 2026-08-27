@@ -181,14 +181,20 @@ export async function handleRecommendBrewRequest(
     }
 
     const data = await readBoundedJsonResponse(deepSeekResponse);
-    const content = data?.choices?.[0]?.message?.content;
+    const choice = data?.choices?.[0];
+    const content = choice?.message?.content;
     if (typeof content !== "string") {
       return finish(aiErrorResponse("AI_UPSTREAM_ERROR"));
     }
 
     const suggestion = content.slice(0, maxAiTextCharacters);
     const parsed = parseStructuredRecommendation(suggestion);
-    const validationFailure = getStructuredAiResponseViolation(parsed, payload);
+    const validationFailure: AiValidationFailure | null =
+      choice?.finish_reason === "length"
+        ? "OUTPUT_TRUNCATED"
+        : parsed === null
+        ? "INVALID_JSON"
+        : getStructuredAiResponseViolation(parsed, payload);
     const structured = validateStructuredAiResponse(parsed, payload);
     if (!structured) {
       return finish(
@@ -198,7 +204,7 @@ export async function handleRecommendBrewRequest(
           structured: null,
           error: "AI_BOUNDARY_VIOLATION",
         }),
-        validationFailure ?? "INVALID_SHAPE",
+        validationFailure ?? "MISSING_RECIPE",
       );
     }
 
