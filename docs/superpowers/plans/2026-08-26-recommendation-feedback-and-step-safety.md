@@ -1287,7 +1287,7 @@ If no correction was required, do not create an empty commit.
 
 - [x] Update the Edge request test to require `thinking: { type: "enabled" }`, `reasoning_effort: "high"`, and `max_tokens: 2500`; verify that it fails against the previous disabled-thinking request.
 - [x] Keep high-intensity thinking for the bounded JSON optimization request and raise the application timeout from 90 seconds to 135 seconds, below Supabase's 150-second request boundary.
-- [ ] Run the complete `recommend-brew` Deno suite and formatting check, then deploy only that function and verify an authenticated recommendation in production.
+- [x] Run the complete `recommend-brew` Deno suite and formatting check, then deploy only that function and verify an authenticated recommendation in production.
 
 ### Task 7: Diagnose rejected structured recommendations without logging user data
 
@@ -1298,6 +1298,6 @@ If no correction was required, do not create an empty commit.
 
 ### Task 8: Preserve high-intensity reasoning without truncating the JSON result
 
-- [ ] Update the Edge request and prompt tests first to require a 16384-token ceiling plus a completion-priority instruction while retaining enabled thinking, high reasoning effort, and the 135-second timeout.
-- [ ] Raise the DeepSeek output ceiling to 16384 after production confirmed that 2500, 4096, and 8192 all truncate; require concise non-repetitive reasoning that prioritizes the final JSON, without relaxing validation, adding retries, or changing fallback behavior.
-- [ ] Run the complete Edge suite and formatting check, deploy only `recommend-brew`, then verify one authenticated production recommendation before pushing.
+- [x] Update the Edge request and prompt tests first to require a 16384-token ceiling plus a completion-priority instruction while retaining enabled thinking, high reasoning effort, and the 135-second timeout.
+- [x] Raise the DeepSeek output ceiling to 16384 after production confirmed that 2500, 4096, and 8192 all truncate; require concise non-repetitive reasoning that prioritizes the final JSON, without relaxing validation, adding retries, or changing fallback behavior.
+- [x] Run the complete Edge suite and formatting check, deploy only `recommend-brew`, then verify one authenticated production recommendation before pushing.
