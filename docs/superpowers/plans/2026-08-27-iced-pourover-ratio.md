@@ -21,7 +21,7 @@
 - Modify: `app/src/features/brews/brewLogDetailModel.ts`
 - Modify: `app/src/features/brews/brewLogDetailModel.test.ts`
 
-- [ ] **Step 1: Write failing ratio tests**
+- [x] **Step 1: Write failing ratio tests**
 
 Add tests proving `15g coffee + 150g hot water + 90g ice` saves and displays as `1:10`, and an old iced row with stored `1:16` displays `1:10` from its real masses. A legacy iced row missing either coffee or hot water must return no derived ratio.
 
@@ -31,25 +31,25 @@ expect(getCanonicalBrewRatio({ ...icedLog, coffee_grams: 15, water_grams: 150, r
 expect(getCanonicalBrewRatio({ ...icedLog, water_grams: null, ratio: '1:16' })).toBeNull()
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `npm --prefix app test -- src/features/brews/brewRatio.test.ts src/features/brews/brewMethodMeasurements.test.ts src/features/brews/brewLogDetailModel.test.ts`
 
 Expected: FAIL because iced records still add ice to the ratio and views still read stored `ratio` directly.
 
-- [ ] **Step 3: Implement the pure helper and use it at write/read boundaries**
+- [x] **Step 3: Implement the pure helper and use it at write/read boundaries**
 
 Implement `deriveRatioFromMasses(mode, coffee, water, beverage)` so iced, hot pour-over, and cold brew use water, while espresso uses beverage. Implement `getCanonicalBrewRatio(log)` so valid iced masses override the stored ratio and incomplete iced rows return `null`; non-iced records retain their stored ratio for compatibility. Remove `sumNullable` from `brewForm.ts`.
 
 Use the canonical ratio in the brew card summary and detail model. Label iced detail ratios `粉水比（仅热水）` and iced water `热水量`.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the command from Step 2.
 
 Expected: all focused brew tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/features/brews

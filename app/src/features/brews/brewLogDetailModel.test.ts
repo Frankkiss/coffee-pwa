@@ -75,6 +75,20 @@ describe('buildBrewLogDetailView', () => {
     expect(emptyDetail.pourStepEmptyText).toBe('暂未记录分段注水')
   })
 
+  it('derives and labels an iced pour-over ratio from hot water only', () => {
+    const detail = buildBrewLogDetailView(createBrewLog({
+      brew_mode: 'iced_pourover',
+      ice_grams: 90,
+      coffee_grams: 15,
+      water_grams: 150,
+      ratio: '1:16',
+    }), '冰手冲豆')
+
+    expect(detail.parameterFields).toContainEqual({ label: '热水量', value: '150 g' })
+    expect(detail.parameterFields).toContainEqual({ label: '冰量', value: '90 g' })
+    expect(detail.parameterFields).toContainEqual({ label: '粉水比（仅热水）', value: '1:10' })
+  })
+
   it('keeps sparse logs readable', () => {
     const detail = buildBrewLogDetailView(
       createBrewLog({

@@ -1,6 +1,7 @@
 import type { BrewForm, BrewLog, BrewLogInsertPayload, BrewLogUpdatePayload } from './brewTypes'
 import { isMethodCompatible } from './brewMethodLinkage'
 import { normalizeBrewMode, normalizeBrewVariant } from './brewMode'
+import { deriveRatioFromMasses } from './brewRatio'
 
 export function createInitialBrewForm(beanId = ''): BrewForm {
   return {
@@ -100,12 +101,6 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
     || (brewMode === 'cold_brew' && brewVariant === 'concentrate')
   const iceGrams = storesIceGrams ? optionalNumber(form.iceGrams) : null
   const beverageGrams = brewMode === 'espresso' ? optionalNumber(form.beverageGrams) : null
-  const ratioWaterGrams = brewMode === 'iced_pourover'
-    ? sumNullable(waterGrams, iceGrams)
-    : brewMode === 'espresso'
-      ? beverageGrams
-      : waterGrams
-
   return {
     bean_id: beanId,
     method: optionalText(method),
@@ -119,7 +114,7 @@ export function toBrewLogUpdatePayload(form: BrewForm): BrewLogUpdatePayload {
     grind_setting: optionalText(form.grindSetting),
     coffee_grams: coffeeGrams,
     water_grams: waterGrams,
-    ratio: calculateRatio(coffeeGrams, ratioWaterGrams),
+    ratio: deriveRatioFromMasses(brewMode, coffeeGrams, waterGrams, beverageGrams),
     water_temperature_c: optionalNumber(form.waterTemperatureC),
     total_time_seconds: optionalNumber(form.totalTimeSeconds),
     pour_steps: [],
@@ -152,22 +147,8 @@ function optionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function sumNullable(left: number | null, right: number | null) {
-  if (left === null && right === null) return null
-  return (left ?? 0) + (right ?? 0)
-}
-
 function numberToFormValue(value: number | null) {
   return value === null ? '' : String(value)
-}
-
-function calculateRatio(coffeeGrams: number | null, waterGrams: number | null) {
-  if (!coffeeGrams || !waterGrams) {
-    return null
-  }
-
-  const ratio = waterGrams / coffeeGrams
-  return `1:${Number.isInteger(ratio) ? ratio : ratio.toFixed(1)}`
 }
 
 function parseFlavorTags(value: string) {

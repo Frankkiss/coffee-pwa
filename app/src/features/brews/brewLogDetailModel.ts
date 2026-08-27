@@ -1,4 +1,6 @@
 import type { BrewLog } from './brewTypes'
+import { normalizeBrewMode } from './brewMode'
+import { getCanonicalBrewRatio } from './brewRatio'
 
 type DetailField = {
   label: string
@@ -49,15 +51,16 @@ export function buildBrewLogDetailView(log: BrewLog, beanName: string): BrewLogD
 }
 
 function buildParameterFields(log: BrewLog): DetailField[] {
+  const mode = normalizeBrewMode(log)
   return [
     textField('滤纸', log.filter_paper),
     textField('磨豆机', log.grinder),
     textField('研磨度', log.grind_setting),
     numberField('粉量', log.coffee_grams, ' g'),
-    numberField('水量', log.water_grams, ' g'),
+    numberField(mode === 'iced_pourover' ? '热水量' : '水量', log.water_grams, ' g'),
     numberField('冰量', log.ice_grams ?? null, ' g'),
     numberField('出液量', log.beverage_grams ?? null, ' g'),
-    textField('粉水比', log.ratio),
+    textField(mode === 'iced_pourover' ? '粉水比（仅热水）' : '粉水比', getCanonicalBrewRatio(log)),
     numberField('水温', log.water_temperature_c, '°C'),
     timeField('总时间', log.total_time_seconds),
   ].filter((field): field is DetailField => field !== null)

@@ -19,7 +19,7 @@ describe('method-aware brew measurements', () => {
       water_grams: 150,
       ice_grams: 90,
       beverage_grams: null,
-      ratio: '1:16',
+      ratio: '1:10',
     })
   })
 
