@@ -169,7 +169,7 @@ export async function handleRecommendBrewRequest(
           response_format: { type: "json_object" },
           thinking: { type: "enabled" },
           reasoning_effort: "high",
-          max_tokens: 4096,
+          max_tokens: 8192,
           stream: false,
         }),
         signal: controller.signal,

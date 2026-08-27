@@ -1298,6 +1298,6 @@ If no correction was required, do not create an empty commit.
 
 ### Task 8: Preserve high-intensity reasoning without truncating the JSON result
 
-- [ ] Update the Edge request test first to require a 4096-token output ceiling while retaining enabled thinking, high reasoning effort, and the 135-second timeout.
-- [ ] Raise only the DeepSeek output ceiling from 2500 to 4096; do not relax recipe validation, add retries, or change fallback behavior.
+- [ ] Update the Edge request test first to require an 8192-token output ceiling while retaining enabled thinking, high reasoning effort, and the 135-second timeout.
+- [ ] Raise only the DeepSeek output ceiling to 8192 after production confirmed that both 2500 and 4096 truncate; do not relax recipe validation, add retries, or change fallback behavior.
 - [ ] Run the complete Edge suite and formatting check, deploy only `recommend-brew`, then verify one authenticated production recommendation before pushing.
