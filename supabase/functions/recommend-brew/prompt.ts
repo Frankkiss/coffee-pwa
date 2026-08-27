@@ -9,6 +9,7 @@ export function buildBoundedPrompt(payload: RecommendationRequest) {
   ].join("\n");
   return [
     "规则层已经选择了基础来源并完成确定性配方。请只在 allowedRanges 内优化参数、步骤和中文解释。",
+    "请充分但简洁地推理，禁止反复复述输入；必须优先完成最终 JSON，不要把全部输出预算用于分析。",
     "不得改变 brewMode、brewVariant、brewer、grinder 或意式 espressoDoseGrams；不得创造磨豆机刻度、器具、压力参数或跨方式引用。",
     "必须只返回 JSON，不要返回 Markdown。recipe 必须完整复述所有锁定字段。",
     "输出字段：summary；recipe；pourPlan；adjustments（规则配方与 AI 修改差异）；reasons；riskNotes；rawText。",

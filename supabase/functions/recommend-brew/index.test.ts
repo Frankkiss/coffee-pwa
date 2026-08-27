@@ -123,7 +123,7 @@ Deno.test("recommend-brew uses bounded high-intensity reasoning with a text-only
   assertEquals(upstreamBody?.model, "deepseek-v4-flash-vision-exp");
   assertEquals(upstreamBody?.thinking, { type: "enabled" });
   assertEquals(upstreamBody?.reasoning_effort, "high");
-  assertEquals(upstreamBody?.max_tokens, 8192);
+  assertEquals(upstreamBody?.max_tokens, 16_384);
   assertEquals(timeoutDelay, 135_000);
   const messages = upstreamBody?.messages as Array<{
     role: string;

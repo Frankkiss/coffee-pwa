@@ -31,4 +31,6 @@ Deno.test("prompt defines typed steps and all four mode boundaries", () => {
   assertStringIncludes(prompt, "cold_brew");
   assertStringIncludes(prompt, "espresso");
   assertStringIncludes(prompt, "原始反馈");
+  assertStringIncludes(prompt, "禁止反复复述输入");
+  assertStringIncludes(prompt, "优先完成最终 JSON");
 });
