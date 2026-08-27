@@ -1294,4 +1294,10 @@ If no correction was required, do not create an empty commit.
 - [x] Add failing contract tests that require a fixed validation failure code while preserving `validateStructuredAiResponse` compatibility.
 - [x] Add a failing Edge test requiring the fixed failure code in the single security log entry and confirming prompts, AI bodies, bean data, feedback, and parameter values remain absent.
 - [x] Implement the minimal fixed-code validator and attach only that code to the existing security log entry.
-- [ ] Run all Edge tests and formatting checks, deploy only `recommend-brew`, and use one authenticated draft generation to identify the production failure stage before changing prompt or validation behavior.
+- [x] Run all Edge tests and formatting checks, deploy only `recommend-brew`, and use one authenticated draft generation to identify the production failure stage before changing prompt or validation behavior.
+
+### Task 8: Preserve high-intensity reasoning without truncating the JSON result
+
+- [ ] Update the Edge request test first to require a 4096-token output ceiling while retaining enabled thinking, high reasoning effort, and the 135-second timeout.
+- [ ] Raise only the DeepSeek output ceiling from 2500 to 4096; do not relax recipe validation, add retries, or change fallback behavior.
+- [ ] Run the complete Edge suite and formatting check, deploy only `recommend-brew`, then verify one authenticated production recommendation before pushing.
