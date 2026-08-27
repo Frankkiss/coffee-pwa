@@ -331,6 +331,38 @@ Deno.test("recommend-brew bounds the upstream body before parsing JSON", async (
   assertEquals(cancelled, true);
 });
 
+Deno.test("recommend-brew logs only a fixed validation failure code", async () => {
+  const logs: string[] = [];
+  const response = await handleRecommendBrewRequest(
+    request(validBody({
+      targetBean: { id: "bean-1", name: "PRIVATE BEAN DATA" },
+    })),
+    dependencies({
+      log: (entry) => logs.push(JSON.stringify(entry)),
+      fetch: () =>
+        Promise.resolve(
+          new Response(JSON.stringify({
+            choices: [{ message: { content: "PRIVATE AI RESPONSE" } }],
+          })),
+        ),
+    }),
+  );
+
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).error, "AI_BOUNDARY_VIOLATION");
+  assertEquals(logs.length, 1);
+  assertStringIncludes(logs[0], '"aiValidationFailure":"INVALID_SHAPE"');
+  assertEquals(logs[0].includes("PRIVATE BEAN DATA"), false);
+  assertEquals(logs[0].includes("PRIVATE AI RESPONSE"), false);
+  assertEquals(Object.keys(JSON.parse(logs[0])).sort(), [
+    "aiValidationFailure",
+    "elapsedMs",
+    "requestId",
+    "status",
+    "userHash",
+  ]);
+});
+
 Deno.test("recommend-brew redacts secrets, prompts, and upstream bodies from responses and logs", async () => {
   const logs: string[] = [];
   const response = await handleRecommendBrewRequest(

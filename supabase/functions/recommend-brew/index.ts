@@ -1,6 +1,8 @@
 import { requireUser, type RequireUserResult } from "../_shared/auth.ts";
 import { consumeRateLimit } from "../_shared/rateLimit.ts";
 import {
+  type AiValidationFailure,
+  getStructuredAiResponseViolation,
   isBoundedRecommendationRequest,
   type RecommendationRequest,
   validateStructuredAiResponse,
@@ -12,6 +14,7 @@ type SecurityLogEntry = {
   status: number;
   elapsedMs: number;
   userHash: string;
+  aiValidationFailure?: AiValidationFailure;
 };
 
 const corsHeaders = {
@@ -79,12 +82,16 @@ export async function handleRecommendBrewRequest(
   }
 
   const userHash = await hashUserId(authentication.user.id);
-  const finish = (response: Response) => {
+  const finish = (
+    response: Response,
+    aiValidationFailure?: AiValidationFailure,
+  ) => {
     dependencies.log({
       requestId,
       status: response.status,
       elapsedMs: Math.max(0, dependencies.now() - startedAt),
       userHash,
+      ...(aiValidationFailure ? { aiValidationFailure } : {}),
     });
     const headers = new Headers(response.headers);
     headers.set("X-Request-Id", requestId);
@@ -181,6 +188,7 @@ export async function handleRecommendBrewRequest(
 
     const suggestion = content.slice(0, maxAiTextCharacters);
     const parsed = parseStructuredRecommendation(suggestion);
+    const validationFailure = getStructuredAiResponseViolation(parsed, payload);
     const structured = validateStructuredAiResponse(parsed, payload);
     if (!structured) {
       return finish(
@@ -190,6 +198,7 @@ export async function handleRecommendBrewRequest(
           structured: null,
           error: "AI_BOUNDARY_VIOLATION",
         }),
+        validationFailure ?? "INVALID_SHAPE",
       );
     }
 

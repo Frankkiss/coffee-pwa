@@ -1,5 +1,21 @@
 export type NumericRange = { min: number; max: number };
 
+export type AiValidationFailure =
+  | "INVALID_SHAPE"
+  | "MODE_LOCK"
+  | "EQUIPMENT_LOCK"
+  | "GRIND_LOCK"
+  | "ESPRESSO_DOSE_LOCK"
+  | "RATIO_RANGE"
+  | "WATER_TEMPERATURE_RANGE"
+  | "COFFEE_RANGE"
+  | "WATER_RANGE"
+  | "ICE_RANGE"
+  | "BEVERAGE_RANGE"
+  | "TIME_RANGE"
+  | "MASS_CONSISTENCY"
+  | "BREW_STEPS";
+
 export type RecommendationRequest = {
   version: 2;
   targetBean: Record<string, unknown>;
@@ -221,45 +237,57 @@ export function validateStructuredAiResponse(
   value: unknown,
   context: RecommendationRequest,
 ) {
-  if (!isRecord(value) || !isRecord(value.recipe)) return null;
+  return getStructuredAiResponseViolation(value, context) === null
+    ? value as Record<string, unknown>
+    : null;
+}
+
+export function getStructuredAiResponseViolation(
+  value: unknown,
+  context: RecommendationRequest,
+): AiValidationFailure | null {
+  if (!isRecord(value) || !isRecord(value.recipe)) return "INVALID_SHAPE";
   const recipe = value.recipe;
   const selection = context.selection;
   if (
     recipe.brewMode !== selection.mode ||
     (recipe.brewVariant ?? null) !== selection.variant
-  ) return null;
+  ) return "MODE_LOCK";
   if (
     !same(recipe.dripper, selection.brewer) ||
     !same(recipe.grinder, selection.grinder)
-  ) return null;
+  ) return "EQUIPMENT_LOCK";
   if (
     selection.grinder &&
     recipe.grindSetting !== context.rule.recipe.grindSetting
-  ) return null;
+  ) return "GRIND_LOCK";
   if (
     selection.mode === "espresso" &&
     recipe.coffeeGrams !== selection.espressoDoseGrams
-  ) return null;
+  ) return "ESPRESSO_DOSE_LOCK";
   if (
     !inside(ratio(recipe.ratio), context.rule.allowedRanges.ratioDenominator)
-  ) return null;
-  for (
-    const key of [
-      "waterTemperatureC",
-      "coffeeGrams",
-      "waterGrams",
-      "iceGrams",
-      "beverageGrams",
-      "totalTimeSeconds",
-    ]
-  ) {
+  ) return "RATIO_RANGE";
+  const parameterFailures = [
+    ["waterTemperatureC", "WATER_TEMPERATURE_RANGE"],
+    ["coffeeGrams", "COFFEE_RANGE"],
+    ["waterGrams", "WATER_RANGE"],
+    ["iceGrams", "ICE_RANGE"],
+    ["beverageGrams", "BEVERAGE_RANGE"],
+    ["totalTimeSeconds", "TIME_RANGE"],
+  ] as const;
+  for (const [key, failure] of parameterFailures) {
     const range = context.rule.allowedRanges[key];
     const actual = recipe[key];
-    if (range === null ? actual != null : !inside(actual, range)) return null;
+    if (range === null ? actual != null : !inside(actual, range)) {
+      return failure;
+    }
   }
-  if (!consistentMass(recipe, selection.mode)) return null;
-  if (!validBrewSteps(value.pourPlan, recipe, selection.mode)) return null;
-  return value;
+  if (!consistentMass(recipe, selection.mode)) return "MASS_CONSISTENCY";
+  if (!validBrewSteps(value.pourPlan, recipe, selection.mode)) {
+    return "BREW_STEPS";
+  }
+  return null;
 }
 
 function validBrewSteps(

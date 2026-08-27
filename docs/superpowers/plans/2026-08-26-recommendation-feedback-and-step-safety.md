@@ -1288,3 +1288,10 @@ If no correction was required, do not create an empty commit.
 - [x] Update the Edge request test to require `thinking: { type: "enabled" }`, `reasoning_effort: "high"`, and `max_tokens: 2500`; verify that it fails against the previous disabled-thinking request.
 - [x] Keep high-intensity thinking for the bounded JSON optimization request and raise the application timeout from 90 seconds to 135 seconds, below Supabase's 150-second request boundary.
 - [ ] Run the complete `recommend-brew` Deno suite and formatting check, then deploy only that function and verify an authenticated recommendation in production.
+
+### Task 7: Diagnose rejected structured recommendations without logging user data
+
+- [x] Add failing contract tests that require a fixed validation failure code while preserving `validateStructuredAiResponse` compatibility.
+- [x] Add a failing Edge test requiring the fixed failure code in the single security log entry and confirming prompts, AI bodies, bean data, feedback, and parameter values remain absent.
+- [x] Implement the minimal fixed-code validator and attach only that code to the existing security log entry.
+- [ ] Run all Edge tests and formatting checks, deploy only `recommend-brew`, and use one authenticated draft generation to identify the production failure stage before changing prompt or validation behavior.

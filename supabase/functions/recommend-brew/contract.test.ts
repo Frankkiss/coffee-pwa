@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  getStructuredAiResponseViolation,
   isBoundedRecommendationRequest,
   validateStructuredAiResponse,
 } from "./contract.ts";
@@ -64,8 +65,25 @@ Deno.test("bounded contract rejects extra request keys and out-of-range recipes"
     totalTimeSeconds: 28,
   };
   assertEquals(
-    validateStructuredAiResponse({ recipe, pourPlan: espressoSteps }, request as never) !== null,
+    validateStructuredAiResponse(
+      { recipe, pourPlan: espressoSteps },
+      request as never,
+    ) !== null,
     true,
+  );
+  assertEquals(
+    getStructuredAiResponseViolation(
+      { recipe, pourPlan: espressoSteps },
+      request as never,
+    ),
+    null,
+  );
+  assertEquals(
+    getStructuredAiResponseViolation(
+      { recipe: { ...recipe, grindSetting: "9" }, pourPlan: espressoSteps },
+      request as never,
+    ),
+    "GRIND_LOCK",
   );
   assertEquals(
     validateStructuredAiResponse(
@@ -98,6 +116,13 @@ Deno.test("bounded contract rejects extra request keys and out-of-range recipes"
       pourPlan: [{ ...espressoSteps[0], targetGrams: 54 }],
     }, request as never),
     null,
+  );
+  assertEquals(
+    getStructuredAiResponseViolation({
+      recipe,
+      pourPlan: [{ ...espressoSteps[0], targetGrams: 54 }],
+    }, request as never),
+    "BREW_STEPS",
   );
 });
 
