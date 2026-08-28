@@ -119,16 +119,18 @@ git commit -m "fix: align iced recommendation ratios"
 - Modify: `app/src/features/recommendations/aiRecipeValidation.test.ts`
 - Modify: `app/src/features/recommendations/RecommendationPanel.tsx`
 - Modify: `app/src/features/recommendations/StructuredAiRecommendationView.tsx`
+- Create: `app/src/features/recommendations/recommendationRanges.test.ts`
+- Modify: `app/src/features/recommendations/recommendationRanges.ts`
 - Modify: `supabase/functions/recommend-brew/contract.ts`
 - Modify: `supabase/functions/recommend-brew/contract.test.ts`
 - Modify: `supabase/functions/recommend-brew/prompt.ts`
 - Modify: `supabase/functions/recommend-brew/prompt.test.ts`
 
-- [ ] **Step 1: Write failing frontend and Edge tests**
+- [x] **Step 1: Write failing frontend and Edge tests**
 
 Add an iced recipe with 15g coffee, 150g hot water, 75g ice, and ratio `1:10`; require both validators to accept it. Change only the ratio to `1:15` and require rejection because that value incorrectly includes ice. Require the prompt to include `冰手冲粉水比只计算热水，不包含冰量`.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -139,17 +141,17 @@ npx --yes deno test --allow-env supabase/functions/recommend-brew/contract.test.
 
 Expected: FAIL because both validators still compare the ratio with hot water plus ice and the prompt omits the semantic rule.
 
-- [ ] **Step 3: Implement frontend, Edge, and copy changes**
+- [x] **Step 3: Implement frontend, Edge, and copy changes**
 
 In both mass validators, compare iced ratio against `waterGrams / coffeeGrams`; continue independently validating `iceGrams` and final water/ice step targets. Add the explicit prompt sentence. In rule and structured AI cards, label iced ratios `粉水比（仅热水）`, hot water `热水量`, and keep `冰量` separate.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the commands from Step 2.
 
 Expected: all focused frontend and Edge tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/features/recommendations supabase/functions/recommend-brew

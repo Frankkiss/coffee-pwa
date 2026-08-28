@@ -42,7 +42,7 @@ function hasConsistentMass(recipe: StructuredAiRecipe, mode: AiRecommendationCon
   const output = mode === 'espresso'
     ? recipe.beverageGrams
     : mode === 'iced_pourover'
-      ? recipe.waterGrams !== null && recipe.iceGrams != null ? recipe.waterGrams + recipe.iceGrams : null
+      ? recipe.waterGrams
       : recipe.waterGrams
   return typeof output === 'number' && Math.abs(output / coffee - denominator) <= 0.15
 }

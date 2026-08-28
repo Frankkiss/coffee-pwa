@@ -389,9 +389,7 @@ function consistentMass(
   const output = mode === "espresso"
     ? recipe.beverageGrams
     : mode === "iced_pourover"
-    ? finite(recipe.waterGrams) && finite(recipe.iceGrams)
-      ? recipe.waterGrams + recipe.iceGrams
-      : null
+    ? recipe.waterGrams
     : recipe.waterGrams;
   return finite(output) && Math.abs(output / coffee - denominator) <= 0.15;
 }

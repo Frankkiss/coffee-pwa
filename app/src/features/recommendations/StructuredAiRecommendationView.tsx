@@ -10,14 +10,15 @@ type StructuredAiRecommendationViewProps = {
 export function StructuredAiRecommendationView({
   recommendation,
 }: StructuredAiRecommendationViewProps) {
+  const isIcedPourOver = recommendation.recipe.brewMode === 'iced_pourover'
   const recipeFields = [
     ['方法', recommendation.recipe.method],
     ['子类型', recommendation.recipe.brewVariant === 'concentrate' ? '浓缩基底' : recommendation.recipe.brewVariant === 'ready_to_drink' ? '直接饮用' : null],
     ['器具', recommendation.recipe.dripper],
     ['磨豆机', recommendation.recipe.grinder],
-    ['粉水比', recommendation.recipe.ratio],
+    [isIcedPourOver ? '粉水比（仅热水）' : '粉水比', recommendation.recipe.ratio],
     ['粉量', formatNumber(recommendation.recipe.coffeeGrams, 'g')],
-    ['热水 / 水量', formatNumber(recommendation.recipe.waterGrams, 'g')],
+    [isIcedPourOver ? '热水量' : '水量', formatNumber(recommendation.recipe.waterGrams, 'g')],
     ['冰量', formatNumber(recommendation.recipe.iceGrams, 'g')],
     ['出液量', formatNumber(recommendation.recipe.beverageGrams, 'g')],
     ['水温', formatNumber(recommendation.recipe.waterTemperatureC, '°C')],

@@ -52,8 +52,8 @@ export function getRecommendationAllowedRanges(
       ratioDenominator: ratio,
       waterTemperatureC: sourceTemperature ?? { min: 86, max: 96 },
       coffeeGrams: fixed(coffee),
-      waterGrams: { min: totalMin * 0.55, max: totalMax * 0.75 },
-      iceGrams: { min: totalMin * 0.25, max: totalMax * 0.45 },
+      waterGrams: { min: totalMin, max: totalMax },
+      iceGrams: { min: totalMin / 3, max: totalMax },
       beverageGrams: null,
       totalTimeSeconds: sourceTime ?? { min: 90, max: 300 },
     }

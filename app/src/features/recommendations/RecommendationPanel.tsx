@@ -413,7 +413,7 @@ export function RecommendationPanel({ session, supabase, onUseDraft }: Recommend
             <h3>{aiRecommendation?.structured ? '规则基础方案' : '规则方案'}</h3>
             <dl>
               <div>
-                <dt>粉水比</dt>
+                <dt>{ruleRecommendation.recommended.brewMode === 'iced_pourover' ? '粉水比（仅热水）' : '粉水比'}</dt>
                 <dd>{ruleRecommendation.recommended.ratio ?? '未记录'}</dd>
               </div>
               <div>

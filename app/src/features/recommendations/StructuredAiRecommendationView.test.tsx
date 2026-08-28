@@ -27,4 +27,25 @@ describe('StructuredAiRecommendationView', () => {
     expect(html).toContain('出液 36g')
     expect(html).not.toContain('分段注水')
   })
+
+  it('labels iced pour-over ratio as hot-water-only and keeps ice separate', () => {
+    const recommendation: StructuredAiRecommendation = {
+      summary: '冰手冲基准。',
+      recipe: {
+        method: '冰手冲', brewMode: 'iced_pourover', brewVariant: null,
+        dripper: 'V60', grinder: 'C40', grindSetting: '20 clicks',
+        waterTemperatureC: 92, coffeeGrams: 15, waterGrams: 150,
+        iceGrams: 75, beverageGrams: null, ratio: '1:10', totalTimeSeconds: 120,
+      },
+      pourPlan: [], adjustments: [], reasons: [], riskNotes: [], rawText: '',
+    }
+    const html = renderToStaticMarkup(
+      <StructuredAiRecommendationView recommendation={recommendation} />,
+    )
+
+    expect(html).toContain('粉水比（仅热水）')
+    expect(html).toContain('热水量')
+    expect(html).toContain('冰量')
+    expect(html).not.toContain('热水 / 水量')
+  })
 })

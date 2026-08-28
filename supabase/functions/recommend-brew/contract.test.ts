@@ -184,3 +184,76 @@ Deno.test("structured contract rejects hand-pour language for cold brew", () => 
     null,
   );
 });
+
+Deno.test("iced pour-over ratio uses hot water and excludes ice", () => {
+  const icedRequest = {
+    ...request,
+    selection: {
+      mode: "iced_pourover",
+      variant: null,
+      brewer: "V60",
+      grinder: "C40",
+      espressoDoseGrams: null,
+    },
+    rule: {
+      ...request.rule,
+      recipe: { grindSetting: "20 clicks" },
+      allowedRanges: {
+        ratioDenominator: { min: 7, max: 12 },
+        waterTemperatureC: { min: 88, max: 96 },
+        coffeeGrams: { min: 15, max: 15 },
+        waterGrams: { min: 145, max: 155 },
+        iceGrams: { min: 70, max: 80 },
+        beverageGrams: null,
+        totalTimeSeconds: { min: 90, max: 150 },
+      },
+    },
+  };
+  const icedRecipe = {
+    brewMode: "iced_pourover",
+    brewVariant: null,
+    dripper: "V60",
+    grinder: "C40",
+    grindSetting: "20 clicks",
+    waterTemperatureC: 92,
+    coffeeGrams: 15,
+    waterGrams: 150,
+    iceGrams: 75,
+    beverageGrams: null,
+    ratio: "1:10",
+    totalTimeSeconds: 120,
+  };
+  const pourPlan = [
+    {
+      label: "注水",
+      startSeconds: 0,
+      endSeconds: 100,
+      targetType: "water",
+      targetGrams: 150,
+      action: "注水至 150g",
+    },
+    {
+      label: "冷却",
+      startSeconds: 100,
+      endSeconds: 120,
+      targetType: "ice",
+      targetGrams: 75,
+      action: "滴滤至 75g 冰上",
+    },
+  ];
+
+  assertEquals(
+    validateStructuredAiResponse(
+      { recipe: icedRecipe, pourPlan },
+      icedRequest as never,
+    ) !== null,
+    true,
+  );
+  assertEquals(
+    validateStructuredAiResponse({
+      recipe: { ...icedRecipe, ratio: "1:15" },
+      pourPlan,
+    }, icedRequest as never),
+    null,
+  );
+});

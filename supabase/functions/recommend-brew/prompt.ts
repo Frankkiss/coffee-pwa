@@ -3,7 +3,7 @@ import type { RecommendationRequest } from "./contract.ts";
 export function buildBoundedPrompt(payload: RecommendationRequest) {
   const modeInstructions = [
     "hot_pourover：步骤只能使用 water/none；最后一个 water 目标必须等于 recipe.waterGrams。",
-    "iced_pourover：步骤只能使用 water/ice/none；最后 water 与 ice 目标必须分别等于 recipe.waterGrams 和 recipe.iceGrams。",
+    "iced_pourover：冰手冲粉水比只计算热水，不包含冰量；步骤只能使用 water/ice/none；最后 water 与 ice 目标必须分别等于 recipe.waterGrams 和 recipe.iceGrams。",
     "cold_brew：使用混合、浸泡、过滤、稀释或加冰语义，不得生成闷蒸、绕圈或分段注水。",
     "espresso：步骤只能使用 beverage/none；最后 beverage 目标必须等于 recipe.beverageGrams，不得生成手冲注水。",
   ].join("\n");
