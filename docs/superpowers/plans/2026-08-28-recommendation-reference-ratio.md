@@ -18,7 +18,7 @@
 - Modify: `app/src/features/recommendations/RecommendationPanel.tsx`
 - Modify: `docs/superpowers/plans/2026-08-28-recommendation-reference-ratio.md`
 
-- [ ] **Step 1: Write the failing presentation test**
+- [x] **Step 1: Write the failing presentation test**
 
 Render a reference candidate whose stored brew log contains `1:15.6` but whose canonical recommendation contains `1:9.4`:
 
@@ -33,7 +33,7 @@ expect(html).not.toContain('1:15.6')
 
 Add a second candidate with `recommended.ratio: null` and require the list to show `参数待补充` rather than its stored legacy ratio.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -43,7 +43,7 @@ npm --prefix app test -- src/features/recommendations/RecommendationHistoryRefer
 
 Expected: FAIL because the component does not exist yet and the current page reads `candidate.brewLog.ratio`.
 
-- [ ] **Step 3: Implement the focused reference component**
+- [x] **Step 3: Implement the focused reference component**
 
 Create a component with this read boundary:
 
@@ -70,7 +70,7 @@ export function RecommendationHistoryReferences({ references }: Props) {
 
 Replace the inline reference list in `RecommendationPanel.tsx` with `<RecommendationHistoryReferences references={ruleRecommendation.references} />`. Do not modify `BrewLog`, IndexedDB, sync payloads, backups, database migrations, or Edge Functions.
 
-- [ ] **Step 4: Run focused and full frontend verification**
+- [x] **Step 4: Run focused and full frontend verification**
 
 Run:
 
@@ -83,7 +83,7 @@ npm --prefix app run build
 
 Expected: the focused regression passes; all frontend tests pass; lint and production build exit with code 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/features/recommendations/RecommendationHistoryReferences.tsx app/src/features/recommendations/RecommendationHistoryReferences.test.tsx app/src/features/recommendations/RecommendationPanel.tsx docs/superpowers/plans/2026-08-28-recommendation-reference-ratio.md

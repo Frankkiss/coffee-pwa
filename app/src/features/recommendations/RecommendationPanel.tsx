@@ -23,6 +23,7 @@ import {
   type SavedRecommendationCard,
 } from './savedRecommendationList'
 import { StructuredAiRecommendationView } from './StructuredAiRecommendationView'
+import { RecommendationHistoryReferences } from './RecommendationHistoryReferences'
 import { createRecommendationContext } from './recommendationContext'
 import { toBrewDraft } from './brewDraft'
 import './recommendations.css'
@@ -482,20 +483,7 @@ export function RecommendationPanel({ session, supabase, onUseDraft }: Recommend
             <p>{ruleRecommendation.beanAdjustmentReasons.join('；')}</p>
           </article>
 
-          <div className="recommendation-references">
-            <h3>参考历史记录</h3>
-            {ruleRecommendation.references.length === 0 ? <p>暂无可用历史记录，先使用模板兜底。</p> : null}
-            {ruleRecommendation.references.map((candidate) => (
-              <article key={candidate.brewLog.id}>
-                <strong>{candidate.bean?.name ?? '未知咖啡豆'}</strong>
-                <span>
-                  {[candidate.brewLog.ratio, candidate.brewLog.rating ? `${candidate.brewLog.rating}/5` : null]
-                    .filter(Boolean)
-                    .join(' / ') || '参数待补充'}
-                </span>
-              </article>
-            ))}
-          </div>
+          <RecommendationHistoryReferences references={ruleRecommendation.references} />
 
           <div className="recommendation-templates">
             <h3>候选冲煮模板</h3>
