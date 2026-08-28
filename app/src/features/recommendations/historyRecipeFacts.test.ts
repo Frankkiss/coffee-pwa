@@ -16,7 +16,7 @@ function log(overrides: Partial<BrewLog>): BrewLog {
 describe('history recipe facts', () => {
   it('derives each mode ratio from its real output masses', () => {
     expect(analyzeHistoryRecipe(log({ coffee_grams: 15, water_grams: 240 }), 'hot_pourover').ratio).toBe('1:16')
-    expect(analyzeHistoryRecipe(log({ coffee_grams: 15, water_grams: 150, ice_grams: 75 }), 'iced_pourover').ratio).toBe('1:15')
+    expect(analyzeHistoryRecipe(log({ coffee_grams: 15, water_grams: 150, ice_grams: 75 }), 'iced_pourover').ratio).toBe('1:10')
     expect(analyzeHistoryRecipe(log({ coffee_grams: 50, water_grams: 700 }), 'cold_brew').ratio).toBe('1:14')
     expect(analyzeHistoryRecipe(log({ coffee_grams: 18, beverage_grams: 36 }), 'espresso').ratio).toBe('1:2')
   })
@@ -32,8 +32,8 @@ describe('history recipe facts', () => {
     expect(analyzeHistoryRecipe(log({ coffee_grams: 18 }), 'espresso').eligible).toBe(false)
   })
 
-  it('keeps ratio-only iced history as reference-only because the hot-water/ice split is unknown', () => {
+  it('does not trust a ratio-only iced history because its stored semantics are ambiguous', () => {
     expect(analyzeHistoryRecipe(log({ coffee_grams: 15, ratio: '1:15' }), 'iced_pourover'))
-      .toMatchObject({ ratio: '1:15', ratioSource: 'recorded', eligible: false })
+      .toEqual({ ratio: null, ratioSource: null, eligible: false })
   })
 })

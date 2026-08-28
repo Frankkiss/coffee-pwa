@@ -84,9 +84,14 @@ describe('method-aware rule recommendation', () => {
 
   it('calculates iced pour-over hot water and ice separately', () => {
     const result = generateMethodAwareRuleRecommendation(context('iced_pourover'), [bean()], [], brewTemplates)
-    expect(result?.recommended).toMatchObject({ brewMode: 'iced_pourover', coffeeGrams: 15, iceGrams: expect.any(Number), waterGrams: expect.any(Number) })
-    expect((result?.recommended.iceGrams ?? 0) / 225).toBeGreaterThanOrEqual(0.25)
-    expect((result?.recommended.iceGrams ?? 0) / 225).toBeLessThanOrEqual(0.45)
+    const recipe = result?.recommended
+    const denominator = Number(recipe?.ratio?.split(':')[1])
+    const total = (recipe?.waterGrams ?? 0) + (recipe?.iceGrams ?? 0)
+
+    expect(recipe).toMatchObject({ brewMode: 'iced_pourover', coffeeGrams: 15 })
+    expect((recipe?.waterGrams ?? 0) / (recipe?.coffeeGrams ?? 1)).toBeCloseTo(denominator, 1)
+    expect((recipe?.iceGrams ?? 0) / total).toBeGreaterThanOrEqual(0.25)
+    expect((recipe?.iceGrams ?? 0) / total).toBeLessThanOrEqual(0.5)
   })
 
   it.each([
@@ -204,10 +209,10 @@ describe('method-aware rule recommendation', () => {
       body: 1,
       brew_variant: variant,
       coffee_grams: mode === 'cold_brew' ? 50 : mode === 'espresso' ? 18 : 15,
-      water_grams: mode === 'cold_brew' ? 700 : mode === 'espresso' ? null : 225,
+      water_grams: mode === 'cold_brew' ? 700 : mode === 'espresso' ? null : mode === 'iced_pourover' ? 150 : 225,
       ice_grams: mode === 'iced_pourover' ? 75 : null,
       beverage_grams: mode === 'espresso' ? 36 : null,
-      ratio: mode === 'cold_brew' ? (variant === 'concentrate' ? '1:7' : '1:14') : mode === 'espresso' ? '1:2' : '1:15',
+      ratio: mode === 'cold_brew' ? (variant === 'concentrate' ? '1:7' : '1:14') : mode === 'espresso' ? '1:2' : mode === 'iced_pourover' ? '1:10' : '1:15',
     })
     const result = generateMethodAwareRuleRecommendation(
       context(mode, variant), [targetBean], [lowBodyLog], brewTemplates,
@@ -216,9 +221,7 @@ describe('method-aware rule recommendation', () => {
     const denominator = Number(recipe?.ratio?.split(':')[1])
     const output = mode === 'espresso'
       ? recipe?.beverageGrams
-      : mode === 'iced_pourover'
-        ? (recipe?.waterGrams ?? 0) + (recipe?.iceGrams ?? 0)
-        : recipe?.waterGrams
+      : recipe?.waterGrams
 
     expect((output ?? 0) / (recipe?.coffeeGrams ?? 1)).toBeCloseTo(denominator, 1)
   })

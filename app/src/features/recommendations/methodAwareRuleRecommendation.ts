@@ -8,7 +8,7 @@ import { deriveFeedbackAdjustments } from './feedbackAdjustments'
 import { getFreshnessAdjustment } from './freshnessRules'
 import { analyzeHistoryRecipe } from './historyRecipeFacts'
 import type { RecommendationContext } from './recommendationContext'
-import { parseRatioDenominator } from './recommendationPolicy'
+import { getRatioEnvelope, parseRatioDenominator } from './recommendationPolicy'
 import { getRecommendationAllowedRanges } from './recommendationRanges'
 import { rankMethodTemplates, type RankedMethodTemplate } from './methodTemplateRanking'
 import type {
@@ -199,15 +199,14 @@ function parametersFromTemplate(context: RecommendationContext, template: BrewTe
     totalTimeSeconds: midpoint(template.targetTimeSeconds.min, template.targetTimeSeconds.max),
     coffeeGrams: template.doseGrams,
     waterGrams: template.waterGrams,
-    iceGrams: null,
+    iceGrams: template.iceGrams ?? null,
     beverageGrams: null,
   })
 }
 
 function modeParameters(context: RecommendationContext, base: RecommendedBrewParameters): RecommendedBrewParameters {
-  const ratioRange = context.mode === 'cold_brew'
-    ? (context.variant === 'concentrate' ? [5, 10] : [12, 16])
-    : context.mode === 'espresso' ? [1.5, 3] : [14, 18]
+  const ratioEnvelope = getRatioEnvelope(context.mode, context.variant)
+  const ratioRange = [ratioEnvelope.min, ratioEnvelope.max] as const
   const safe = {
     ...base,
     ratio: clampRatio(base.ratio, ratioRange[0], ratioRange[1]),
@@ -228,10 +227,14 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
     }
   }
   if (context.mode === 'iced_pourover') {
-    const total = denominator * coffee
-    const requestedIce = safe.iceGrams ?? Math.round(total * 0.35)
-    const ice = clamp(requestedIce, Math.round(total * 0.25), Math.round(total * 0.45))
-    return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: ice, waterGrams: total - ice, beverageGrams: null }
+    const water = Math.round(denominator * coffee)
+    const previousTotal = (safe.waterGrams ?? 0) + (safe.iceGrams ?? 0)
+    const previousIceShare = previousTotal > 0 && safe.iceGrams != null
+      ? safe.iceGrams / previousTotal
+      : 0.35
+    const iceShare = clamp(previousIceShare, 0.25, 0.5)
+    const ice = Math.round(water * iceShare / (1 - iceShare))
+    return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: ice, waterGrams: water, beverageGrams: null }
   }
   if (context.mode === 'cold_brew') {
     return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: coffee, waterGrams: Math.round(coffee * denominator), iceGrams: null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
@@ -295,10 +298,10 @@ function recomputeOutputMasses(recipe: RecommendedBrewParameters): RecommendedBr
   if (recipe.brewMode === 'iced_pourover') {
     const previousTotal = (recipe.waterGrams ?? 0) + (recipe.iceGrams ?? 0)
     const previousIceShare = previousTotal > 0 ? (recipe.iceGrams ?? 0) / previousTotal : 0.35
-    const iceShare = clamp(previousIceShare, 0.25, 0.45)
-    const total = Math.round(coffee * denominator)
-    const ice = Math.round(total * iceShare)
-    return { ...recipe, waterGrams: total - ice, iceGrams: ice, beverageGrams: null }
+    const iceShare = clamp(previousIceShare, 0.25, 0.5)
+    const water = Math.round(coffee * denominator)
+    const ice = Math.round(water * iceShare / (1 - iceShare))
+    return { ...recipe, waterGrams: water, iceGrams: ice, beverageGrams: null }
   }
   return {
     ...recipe,

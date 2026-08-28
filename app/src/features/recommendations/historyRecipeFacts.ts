@@ -1,4 +1,5 @@
 import type { BrewLog, BrewMode } from '../brews/brewTypes'
+import { deriveRatioFromMasses } from '../brews/brewRatio'
 import { parseRatioDenominator } from './recommendationPolicy'
 
 export type HistoryRecipeFacts = {
@@ -9,19 +10,12 @@ export type HistoryRecipeFacts = {
 
 export function analyzeHistoryRecipe(log: BrewLog, mode: BrewMode): HistoryRecipeFacts {
   const coffee = positive(log.coffee_grams)
-  const water = positive(log.water_grams)
-  const ice = positive(log.ice_grams)
-  const beverage = positive(log.beverage_grams)
-  const weightedDenominator = coffee === null ? null
-    : mode === 'espresso' && beverage !== null ? beverage / coffee
-    : mode === 'iced_pourover' && water !== null && ice !== null ? (water + ice) / coffee
-    : mode !== 'espresso' && mode !== 'iced_pourover' && water !== null ? water / coffee
-    : null
-  const recordedDenominator = parseRatioDenominator(log.ratio)
+  const weightedRatio = deriveRatioFromMasses(mode, coffee, log.water_grams, log.beverage_grams)
+  const weightedDenominator = parseRatioDenominator(weightedRatio)
+  const recordedDenominator = mode === 'iced_pourover' ? null : parseRatioDenominator(log.ratio)
   const denominator = weightedDenominator ?? recordedDenominator
   const ratio = denominator === null ? null : formatRatio(denominator)
   const eligible = coffee !== null && denominator !== null
-    && (mode !== 'iced_pourover' || weightedDenominator !== null)
 
   return {
     ratio,

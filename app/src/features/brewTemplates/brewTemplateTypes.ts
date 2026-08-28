@@ -27,6 +27,7 @@ export type BrewTemplate = {
   filter: string
   doseGrams: number
   waterGrams: number
+  iceGrams?: number
   ratio: string
   waterTemperatureC: {
     min: number

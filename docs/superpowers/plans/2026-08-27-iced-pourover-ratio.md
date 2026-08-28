@@ -68,7 +68,7 @@ git commit -m "fix: correct iced brew record ratios"
 - Modify: `app/src/features/brewTemplates/brewTemplates.ts`
 - Modify: `app/src/features/brewTemplates/brewTemplateMode.test.ts`
 
-- [ ] **Step 1: Write failing history, template, and rule tests**
+- [x] **Step 1: Write failing history, template, and rule tests**
 
 Change the iced history expectation from `(150 + 75) / 15 = 1:15` to `150 / 15 = 1:10`. Add assertions that Orea uses 150g hot water, 75g ice and `1:10`, while Seven Miles uses 105g hot water, 105g ice and `1:7`. Update the mass invariant:
 
@@ -79,13 +79,13 @@ expect((ratioMass ?? 0) / (recipe.coffeeGrams ?? 1)).toBeCloseTo(denominator, 1)
 
 Assert `getRatioEnvelope('iced_pourover', null)` equals `{ min: 7, max: 12 }`.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `npm --prefix app test -- src/features/recommendations/historyRecipeFacts.test.ts src/features/recommendations/methodAwareRuleRecommendation.test.ts src/features/brewTemplates/brewTemplateMode.test.ts`
 
 Expected: FAIL because history, templates, ranges, and recomputation still use total liquid.
 
-- [ ] **Step 3: Implement the new rule invariant**
+- [x] **Step 3: Implement the new rule invariant**
 
 Reuse `deriveRatioFromMasses` in history analysis. Add optional `iceGrams` to in-memory `BrewTemplate`, set the two system template values explicitly, and correct their final hot-water targets and source notes.
 
@@ -99,13 +99,13 @@ const ice = Math.round(water * share / (1 - share))
 
 Use the explicit system-template ice when present and retain the existing 35% total-liquid fallback only for templates without an ice field. Change the iced global ratio envelope to `1:7–1:12`; keep template/history local windows at ±0.5.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the command from Step 2.
 
 Expected: all focused history/template/rule tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/features/recommendations app/src/features/brewTemplates

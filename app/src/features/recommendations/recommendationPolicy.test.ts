@@ -10,6 +10,10 @@ describe('recommendation policy', () => {
     expect(getRatioEnvelope('cold_brew', 'concentrate')).toEqual({ min: 5, max: 10 })
   })
 
+  it('uses a hot-water-only envelope for iced pour-over', () => {
+    expect(getRatioEnvelope('iced_pourover', null)).toEqual({ min: 7, max: 12 })
+  })
+
   it('uses the conservative range when no reliable concentrate source exists', () => {
     expect(getFallbackRatioRange('cold_brew', 'concentrate')).toEqual({ min: 7, max: 10 })
   })

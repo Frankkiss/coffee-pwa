@@ -9,6 +9,7 @@ export function getRatioEnvelope(
     return variant === 'concentrate' ? range(5, 10) : range(12, 16)
   }
   if (mode === 'espresso') return range(1.5, 3)
+  if (mode === 'iced_pourover') return range(7, 12)
   return range(14, 18)
 }
 
