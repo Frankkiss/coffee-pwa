@@ -163,7 +163,7 @@ git commit -m "fix: enforce iced ratio AI boundaries"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-08-27-iced-pourover-ratio.md`
 
-- [ ] **Step 1: Run complete frontend verification**
+- [x] **Step 1: Run complete frontend verification**
 
 Run:
 
@@ -175,7 +175,7 @@ npm --prefix app run build
 
 Expected: all tests PASS, ESLint exits 0, and Vite production build completes.
 
-- [ ] **Step 2: Run complete Edge verification**
+- [x] **Step 2: Run complete Edge verification**
 
 Run:
 
@@ -189,6 +189,8 @@ Expected: all Edge tests PASS and all six recommend-brew files are formatted.
 - [ ] **Step 3: Verify mobile-sized core flows**
 
 At a phone-sized viewport, confirm an iced brew with 15g coffee, 150g hot water, and 90g ice shows `1:10`; an old conflicting row also displays `1:10`; Orea and Seven Miles rule recommendations show `1:10`/`1:7`, separate hot water and ice, and no total-liquid ratio explanation. Do not save an AI result during verification.
+
+Blocked on 2026-08-28: the 390×844 browser session reached the local app, but the local runtime has no `VITE_SUPABASE_URL` and stops at the configuration screen. Unit/component coverage verifies the labels and ratio derivation without reading or copying production credentials; interactive data-flow verification remains a deployment gate.
 
 - [ ] **Step 4: Record verification and commit**
 
