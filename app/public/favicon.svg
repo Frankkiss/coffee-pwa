@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#e3aa78"/>
-  <circle cx="256" cy="256" r="176" fill="#f7ead6"/>
-  <path fill="#7a4f3f" d="M176 220h132v54a74 74 0 0 1-148 0v-38a16 16 0 0 1 16-16Zm148 16h18a34 34 0 0 1 0 68h-23a92 92 0 0 0 5-30v-38Zm0 24v14c0 2 0 4-.1 6H342a10 10 0 0 0 0-20h-18ZM174 338h152a12 12 0 0 1 0 24H174a12 12 0 0 1 0-24Zm43-171c-12-24 16-33 7-53 33 20 8 42 20 60 7 11-21 7-27-7Zm58 0c-12-24 16-33 7-53 33 20 8 42 20 60 7 11-21 7-27-7Z"/>
-  <text x="256" y="424" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="58" font-weight="700" fill="#7a4f3f">咖Day</text>
-</svg>
