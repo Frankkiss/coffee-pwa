@@ -53,10 +53,10 @@ export function createBeanFormFromSourceDraft(draft: SourceImportDraft): BeanFor
     flavorNotes: draft.flavorNotes,
     netWeightGrams: '',
     price: numberToFormValue(draft.price),
-    sourceUrl: draft.sourceUrl,
+    sourceUrl: '',
     beanType: draft.beanType,
-    blendComponents: draft.blendComponents,
-    blendNotes: draft.blendNotes,
+    blendComponents: [],
+    blendNotes: '',
     notes: draft.notes,
   }
 }

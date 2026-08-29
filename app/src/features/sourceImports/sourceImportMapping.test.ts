@@ -77,7 +77,24 @@ describe('source import mapping', () => {
       altitudeMeters: '1900',
       flavorTags: '柑橘, 蜂蜜',
       beanType: 'single_origin',
+      sourceUrl: '',
+    })
+  })
+
+  it('keeps AI blend internals out of the user-confirmed bean draft', () => {
+    const draft = normalizeSourceImportDraft({
+      name: 'House Blend',
+      beanType: 'blend',
       sourceUrl: 'https://example.com/bean',
+      blendComponents: [{ origin: 'Brazil', percentage: 60 }],
+      blendNotes: '60% Brazil',
+    })
+
+    expect(createBeanFormFromSourceDraft(draft)).toMatchObject({
+      beanType: 'blend',
+      sourceUrl: '',
+      blendComponents: [],
+      blendNotes: '',
     })
   })
 
