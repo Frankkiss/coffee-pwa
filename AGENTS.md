@@ -13,11 +13,14 @@ Primary user environment:
 
 ## Current Design Source
 
-Use the design document as the source of truth before implementation:
+Use the stable documentation index and the relevant canonical design before implementation:
 
-- `docs/superpowers/specs/2026-06-12-coffee-pwa-design.md`
+- `docs/README.md`
+- `docs/product-design.md`
+- `docs/data-architecture.md`
+- `docs/ai-recommendation.md`
 
-When requirements conflict, update the design document first, commit it, then update implementation plans.
+When requirements conflict, update the relevant canonical design first, commit it, then update implementation plans.
 
 ## Implementation Principles
 

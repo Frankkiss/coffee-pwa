@@ -34,3 +34,9 @@ Edge Function setup:
 - Function config: `supabase/config.toml`
 - Shared DeepSeek secret name: `DEEPSEEK_VISION_API_KEY`
 - Detailed guide: `docs/operations/deepseek-edge-function-setup.md`
+
+Current architecture and production procedures:
+
+- Data architecture: `docs/data-architecture.md`
+- AI and recommendation contracts: `docs/ai-recommendation.md`
+- Production runbook: `docs/operations/production-runbook.md`

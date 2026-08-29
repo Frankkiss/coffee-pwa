@@ -74,7 +74,7 @@ If DeepSeek does not appear, the rule recommendation should still work. Check:
 - `import-source` is deployed.
 - The browser is logged in, because `verify_jwt = true` is enabled for both functions.
 
-After both functions have been deployed and verified, the retired `DEEPSEEK_API_KEY` secret may be removed. Do not remove it before the new shared secret and both deployments are confirmed.
+Both current functions read only `DEEPSEEK_VISION_API_KEY`. A retired secret is not part of the current setup and must not be reintroduced into frontend or deployment configuration.
 
 ## CLI Secret Alternative
 
