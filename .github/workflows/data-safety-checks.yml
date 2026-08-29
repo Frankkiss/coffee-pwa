@@ -119,14 +119,8 @@ jobs:
         with:
           deno-version: 2.9.5
 
-      - name: Test shared Edge Function guards
-        run: deno test supabase/functions/_shared/auth.test.ts supabase/functions/_shared/rateLimit.test.ts --allow-env
-
-      - name: Test import source Edge Function
-        run: deno test supabase/functions/import-source/index.test.ts --allow-env
-
-      - name: Test brew recommendation Edge Function
-        run: deno test supabase/functions/recommend-brew/index.test.ts --allow-env
+      - name: Test all Edge Functions
+        run: deno test supabase/functions --allow-env
 
   pages-artifact:
     if: inputs.upload_pages_artifact
