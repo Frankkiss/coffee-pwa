@@ -101,11 +101,21 @@ describe('CSV export', () => {
   it('builds a brew logs CSV with array fields and escaped quotes', () => {
     const csv = buildBrewLogsCsv([createBrewLog()])
 
+    const [headerLine, rowLine] = csv.split('\n')
+    const headers = headerLine.split(',')
+    const row = rowLine.split(',')
+
     expect(csv).toContain('咖啡豆ID,冲煮时间,方式')
     expect(csv).toContain('citrus、honey')
     expect(csv).toContain('冲煮模式,冷萃类型,冰量,意式出液克数')
     expect(csv).toContain('espresso,,,30')
     expect(csv).toContain('"clean ""sweet"" cup"')
+    expect(headers).toHaveLength(row.length)
+    expect(row[headers.indexOf('方式')]).toBe('V60')
+    expect(row[headers.indexOf('器具')]).toBe('Hario')
+    expect(row[headers.indexOf('冲煮模式')]).toBe('espresso')
+    expect(row[headers.indexOf('意式出液克数')]).toBe('30')
+    expect(headers).toContain('粉水比（冰手冲仅热水）')
   })
 
   it('creates date-based CSV filenames', () => {
