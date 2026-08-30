@@ -92,7 +92,7 @@ select throws_ok(
     }
   }]'::jsonb)$$,
   'P0001',
-  'INVALID_METHOD_MEASUREMENT',
+  'INVALID_PAYLOAD[1]: INVALID_METHOD_MEASUREMENT',
   'sync rejects serving ice for ready-to-drink cold brew templates'
 );
 
