@@ -49,10 +49,10 @@ function readLocalSupabaseConfig() {
   try {
     const executable = process.platform === 'win32'
       ? process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe'
-      : 'npx'
+      : 'supabase'
     const args = process.platform === 'win32'
       ? ['/d', '/s', '/c', 'npx --yes supabase status -o env']
-      : ['--yes', 'supabase', 'status', '-o', 'env']
+      : ['status', '-o', 'env']
     output = execFileSync(executable, args, {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],

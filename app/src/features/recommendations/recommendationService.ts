@@ -44,19 +44,6 @@ export async function loadRuleRecommendationData(repositories: RuleRecommendatio
   }
 }
 
-export function createRecommendationForBean(
-  beanId: string,
-  data: Awaited<ReturnType<typeof loadRuleRecommendationData>>,
-) {
-  const targetBean = data.beans.find((bean) => bean.id === beanId)
-
-  if (!targetBean) {
-    return null
-  }
-
-  return generateRuleRecommendation(targetBean, data.beans, data.brewLogs, data.templates)
-}
-
 export function createRecommendationForContext(
   context: import('./recommendationContext').RecommendationContext,
   data: Awaited<ReturnType<typeof loadRuleRecommendationData>>,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
 import type { BrewTemplate } from '../brewTemplates/brewTemplateTypes'
+import { createRecommendationContext } from './recommendationContext'
 import { generateRuleRecommendation } from './ruleRecommendation'
 
 function createBean(overrides: Partial<Bean> = {}): Bean {
@@ -101,15 +102,26 @@ const customTemplate = {
   sourceNotes: '自定义模板',
   sourceUrls: [],
   isChampionReference: false,
+  brewMode: 'cold_brew',
+  brewVariant: 'ready_to_drink',
   source: 'user',
   userId: 'user-1',
 } satisfies BrewTemplate
 
 describe('generateRuleRecommendation with custom templates', () => {
   it('uses custom brew templates as template candidates', () => {
+    const targetBean = createBean()
     const result = generateRuleRecommendation(
-      createBean(),
-      [createBean()],
+      createRecommendationContext({
+        targetBean,
+        mode: 'cold_brew',
+        variant: 'ready_to_drink',
+        brewer: '冷萃壶',
+        grinder: '',
+        espressoDoseGrams: null,
+        tasteGoals: ['甜感'],
+      }),
+      [targetBean],
       [createBrewLog()],
       [customTemplate],
     )

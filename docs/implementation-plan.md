@@ -51,11 +51,13 @@
 
 **文件：** 已确认无引用的组件/旧推荐入口、`supabase/functions/import-source/index.ts`、GitHub Actions 和忽略的本地 CLI 文件。
 
-- [ ] 用 `rg`、类型检查和测试证明候选文件无生产引用，再删除孤立组件和旧豆子单模式推荐入口。
-- [ ] 删除来源 Prompt 中不再使用的拼配组成要求，同时保留旧响应/旧数据读取兼容。
-- [ ] 移除 foundation push 上重复触发的独立质量工作流，保留 Pages 部署调用门禁和 PR/手动门禁。
-- [ ] 精确核对本地 Supabase CLI 文件；只移除已确认损坏且有可恢复来源的重复副本，不触碰迁移和用户数据。
+- [x] 用 `rg`、类型检查和测试证明候选文件无生产引用，再删除孤立组件和旧豆子单模式推荐入口。
+- [x] 删除来源 Prompt 中不再使用的拼配组成要求，同时保留旧响应/旧数据读取兼容。
+- [x] 移除 foundation push 上重复触发的独立质量工作流，保留 Pages 部署调用门禁和 PR/手动门禁。
+- [x] 精确核对本地 Supabase CLI 文件；只移除已确认损坏且有可恢复来源的重复副本，不触碰迁移和用户数据。
 - [ ] 运行全量前端、Edge Function、数据库测试、lint、build、核心 E2E、Git 状态和秘密扫描；提交 `chore: remove obsolete project paths`。
+
+本机验证限制（2026-08-30）：前端全量测试、lint、build、Git 状态和秘密扫描已通过；当前设备未安装 Docker Desktop 与 Deno，因此数据库 pgTAP、Edge Function 测试和依赖本地 Supabase 的核心 E2E 留给已配置的 GitHub Actions 门禁执行。
 
 ## 完成边界
 

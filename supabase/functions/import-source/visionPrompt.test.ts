@@ -28,4 +28,7 @@ Deno.test("vision source prompt tells the model to inspect the attached packagin
 
   assertStringIncludes(prompt, "包装图片");
   assertStringIncludes(prompt, "不要猜测");
+  if (prompt.includes("blendComponents") || prompt.includes("blendNotes")) {
+    throw new Error("source prompt must not ask users to maintain blend composition fields");
+  }
 });

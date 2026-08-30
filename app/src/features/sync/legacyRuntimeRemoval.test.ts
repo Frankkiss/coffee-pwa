@@ -9,6 +9,8 @@ const deprecatedModules = [
   'features/beans/beanService.ts',
   'features/brews/brewLogService.ts',
   'features/brewTemplates/brewTemplateService.ts',
+  'features/beans/BlendComponentEditor.tsx',
+  'features/recommendations/templateRecommendation.ts',
 ]
 
 describe('legacy runtime removal gate', () => {

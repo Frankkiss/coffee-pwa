@@ -357,7 +357,7 @@ export async function requestDeepSeekDraft(
 function buildPrompt(sourceUrl: string, sourceText: string) {
   return [
     "请从随附包装图片和/或以下商品详情文本中提取咖啡豆资料，返回严格 JSON。",
-    "字段：name, roaster, origin, farmOrStation, process, variety, altitudeMeters, roastDate, roastLevel, flavorTags, flavorNotes, netWeightGrams, price, beanType, blendComponents, blendNotes, notes, confidence, missingFields。",
+    "字段：name, roaster, origin, farmOrStation, process, variety, altitudeMeters, roastDate, roastLevel, flavorTags, flavorNotes, netWeightGrams, price, beanType, notes, confidence, missingFields。",
     "要求：",
     "1. 找不到的字段用空字符串、null 或空数组。",
     "2. altitudeMeters、netWeightGrams、price 如果无法确定，返回 null。",
@@ -365,13 +365,12 @@ function buildPrompt(sourceUrl: string, sourceText: string) {
     "4. confidence 只能是 high、medium、low。",
     "5. missingFields 写出建议用户补充的字段。",
     "6. beanType 只能是 single_origin 或 blend；如果原文出现拼配、Blend、配方豆、多产区、多处理法组合，返回 blend，否则返回 single_origin。",
-    "7. blendComponents 是数组；拼配豆尽量拆出 origin, process, variety, percentage, role, notes。比例不确定必须返回 null，不能猜测比例或主次；找不到的字段用空字符串。",
-    "8. blendNotes 保存原文里与拼配组成有关的说明，方便用户核对。拼配比例未知时，notes 可描述该组成可能的风味作用，但不要假设它是主体。",
-    "9. 只记录包装图片或详情文字中明确出现的事实；看不清或有冲突时降低 confidence 并列入 missingFields，不要猜测。",
-    "10. 如果原文是英文，请尽量翻译为自然中文后再写入字段。处理法、烘焙度、风味标签、风味描述、备注、缺失字段必须优先使用中文。",
-    "11. 专有名称可以保留原文，尤其是烘焙商、庄园、处理站、品种、产品名；但常见咖啡术语要中文化，例如 Washed=水洗、Natural=日晒、Honey=蜜处理、Anaerobic=厌氧、Light Roast=浅烘、Medium Roast=中烘。",
-    "12. flavorTags 使用短中文词条，例如 citrus=柑橘、honey=蜂蜜、jasmine=茉莉、berry=莓果、floral=花香、chocolate=巧克力。flavorNotes 可写成中文短句。",
-    "13. missingFields 只能返回中文字段名，例如 烘焙日期、净含量、产地、处理法、品种、海拔、拼配组成。",
+    "7. 拼配豆只提取整包层面的产地、处理法、品种和风味文字；不要拆分或猜测拼配组成、比例和各组成作用。",
+    "8. 只记录包装图片或详情文字中明确出现的事实；看不清或有冲突时降低 confidence 并列入 missingFields，不要猜测。",
+    "9. 如果原文是英文，请尽量翻译为自然中文后再写入字段。处理法、烘焙度、风味标签、风味描述、备注、缺失字段必须优先使用中文。",
+    "10. 专有名称可以保留原文，尤其是烘焙商、庄园、处理站、品种、产品名；但常见咖啡术语要中文化，例如 Washed=水洗、Natural=日晒、Honey=蜜处理、Anaerobic=厌氧、Light Roast=浅烘、Medium Roast=中烘。",
+    "11. flavorTags 使用短中文词条，例如 citrus=柑橘、honey=蜂蜜、jasmine=茉莉、berry=莓果、floral=花香、chocolate=巧克力。flavorNotes 可写成中文短句。",
+    "12. missingFields 只能返回中文字段名，例如 烘焙日期、净含量、产地、处理法、品种、海拔。",
     `sourceUrl: ${sourceUrl}`,
     `sourceText: ${sourceText}`,
   ].join("\n");
