@@ -38,9 +38,9 @@ begin
     'FUNCTION private.apply_brew_template_mutation(',
     'FUNCTION private.apply_brew_template_mutation_before_method_fields('
   );
-  if pg_catalog.position(
+  if pg_catalog.strpos(
+    v_definition,
     'FUNCTION private.apply_brew_template_mutation_before_method_fields('
-    in v_definition
   ) = 0 then
     raise exception 'Unable to preserve the previous brew-template mutation function';
   end if;
@@ -173,9 +173,9 @@ begin
     'FUNCTION private.validate_backup_preview_row(',
     'FUNCTION private.validate_backup_preview_row_before_template_method_fields('
   );
-  if pg_catalog.position(
+  if pg_catalog.strpos(
+    v_definition,
     'FUNCTION private.validate_backup_preview_row_before_template_method_fields('
-    in v_definition
   ) = 0 then
     raise exception 'Unable to preserve the previous backup validator';
   end if;
