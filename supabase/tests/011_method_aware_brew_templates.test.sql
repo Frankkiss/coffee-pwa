@@ -5,10 +5,10 @@ set local search_path = extensions, public, pg_catalog;
 
 select no_plan();
 
-select has_column('public', 'brew_templates', 'brew_mode');
-select has_column('public', 'brew_templates', 'brew_variant');
-select has_column('public', 'brew_templates', 'ice_grams');
-select has_column('public', 'brew_templates', 'beverage_grams');
+select has_column('public', 'brew_templates', 'brew_mode', 'brew_templates exposes brew mode');
+select has_column('public', 'brew_templates', 'brew_variant', 'brew_templates exposes brew variant');
+select has_column('public', 'brew_templates', 'ice_grams', 'brew_templates exposes ice mass');
+select has_column('public', 'brew_templates', 'beverage_grams', 'brew_templates exposes beverage mass');
 
 insert into auth.users (id, email)
 values (
@@ -76,7 +76,7 @@ select is(
 );
 
 select throws_ok(
-  $$select public.apply_sync_batch(2, '[{
+  $$select public.apply_sync_batch(1, '[{
     "mutationId":"92000000-0000-4000-8000-000000000021",
     "deviceId":"92000000-0000-4000-8000-000000000012",
     "entityType":"brewTemplate",
