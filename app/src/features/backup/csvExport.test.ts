@@ -118,6 +118,22 @@ describe('CSV export', () => {
     expect(headers).toContain('粉水比（冰手冲仅热水）')
   })
 
+  it('exports an iced pour-over ratio derived from hot water instead of the legacy stored ratio', () => {
+    const csv = buildBrewLogsCsv([createBrewLog({
+      brew_mode: 'iced_pourover',
+      method: '手冲',
+      coffee_grams: 16,
+      water_grams: 150,
+      ice_grams: 100,
+      ratio: '1:15.6',
+    })])
+    const [headerLine, rowLine] = csv.split('\n')
+    const headers = headerLine.split(',')
+    const row = rowLine.split(',')
+
+    expect(row[headers.indexOf('粉水比（冰手冲仅热水）')]).toBe('1:9.4')
+  })
+
   it('creates date-based CSV filenames', () => {
     const date = new Date('2026-06-14T01:00:00.000Z')
 

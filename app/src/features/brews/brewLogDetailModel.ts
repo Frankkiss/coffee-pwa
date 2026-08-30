@@ -1,5 +1,5 @@
 import type { BrewLog } from './brewTypes'
-import { normalizeBrewMode } from './brewMode'
+import { getBrewModeDisplayLabel, normalizeBrewMode } from './brewMode'
 import { getCanonicalBrewRatio } from './brewRatio'
 
 type DetailField = {
@@ -29,7 +29,7 @@ export type BrewLogDetailView = {
 }
 
 export function buildBrewLogDetailView(log: BrewLog, beanName: string): BrewLogDetailView {
-  const method = textOrEmpty(log.method)
+  const method = getBrewModeDisplayLabel(log)
   const dripper = textOrEmpty(log.dripper)
   const subtitleParts = [method, dripper].filter(Boolean)
 

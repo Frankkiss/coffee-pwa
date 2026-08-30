@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { allowsIceGrams, normalizeBrewMode, normalizeBrewVariant } from './brewMode'
+import {
+  allowsIceGrams,
+  getBrewModeDisplayLabel,
+  normalizeBrewMode,
+  normalizeBrewVariant,
+} from './brewMode'
 
 describe('normalizeBrewMode', () => {
   it.each([
@@ -35,5 +40,27 @@ describe('allowsIceGrams', () => {
     expect(allowsIceGrams('cold_brew', 'concentrate')).toBe(true)
     expect(allowsIceGrams('cold_brew', 'ready_to_drink')).toBe(false)
     expect(allowsIceGrams('hot_pourover', null)).toBe(false)
+  })
+})
+
+describe('getBrewModeDisplayLabel', () => {
+  it.each([
+    [{ brew_mode: 'hot_pourover', method: '手冲' }, '热手冲'],
+    [{ brew_mode: 'iced_pourover', method: '手冲' }, '冰手冲'],
+    [{ brew_mode: 'cold_brew', brew_variant: 'ready_to_drink', method: '冷萃' }, '冷萃 · 直接饮用'],
+    [{ brew_mode: 'cold_brew', brew_variant: 'concentrate', method: '冷萃' }, '冷萃 · 浓缩基底'],
+    [{ brew_mode: 'espresso', method: '意式' }, '意式'],
+  ] as const)('uses the canonical four-mode label for %o', (input, expected) => {
+    expect(getBrewModeDisplayLabel(input)).toBe(expected)
+  })
+
+  it('keeps a meaningful non-default method as secondary information', () => {
+    expect(getBrewModeDisplayLabel({ brew_mode: 'hot_pourover', method: '爱乐压' }))
+      .toBe('热手冲 · 爱乐压')
+  })
+
+  it('falls back to the legacy method when the mode cannot be inferred', () => {
+    expect(getBrewModeDisplayLabel({ brew_mode: null, method: '未知方法' }))
+      .toBe('未知方法')
   })
 })

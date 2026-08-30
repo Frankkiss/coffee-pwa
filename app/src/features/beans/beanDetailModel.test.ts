@@ -135,4 +135,19 @@ describe('buildBeanDetailView', () => {
     expect(view.bestBrew?.id).toBe('older')
     expect(view.recentBrews.map((brew) => brew.id)).toEqual(['newer', 'older'])
   })
+
+  it('uses the canonical iced label and hot-water-only ratio for legacy records', () => {
+    const view = buildBeanDetailView(createBean(), [createBrewLog({
+      brew_mode: 'iced_pourover',
+      method: '手冲',
+      coffee_grams: 16,
+      water_grams: 150,
+      ice_grams: 100,
+      ratio: '1:15.6',
+    })])
+
+    expect(view.recentBrews[0]?.summary).toBe(
+      '冰手冲 / V60 / 1:9.4 / 92°C / 150s / 22 clicks',
+    )
+  })
 })

@@ -45,7 +45,7 @@ describe('buildBrewLogDetailView', () => {
     const detail = buildBrewLogDetailView(createBrewLog(), '耶加雪菲 水洗')
 
     expect(detail.title).toBe('耶加雪菲 水洗')
-    expect(detail.subtitle).toBe('手冲 / V60')
+    expect(detail.subtitle).toBe('热手冲 / V60')
     expect(detail.parameterFields).toEqual([
       { label: '滤纸', value: 'Hario V60 02' },
       { label: '磨豆机', value: 'C40' },
@@ -87,6 +87,18 @@ describe('buildBrewLogDetailView', () => {
     expect(detail.parameterFields).toContainEqual({ label: '热水量', value: '150 g' })
     expect(detail.parameterFields).toContainEqual({ label: '冰量', value: '90 g' })
     expect(detail.parameterFields).toContainEqual({ label: '粉水比（仅热水）', value: '1:10' })
+    expect(detail.subtitle).toBe('冰手冲 / V60')
+  })
+
+  it('includes the cold-brew variant without repeating the default method', () => {
+    const detail = buildBrewLogDetailView(createBrewLog({
+      method: '冷萃',
+      brew_mode: 'cold_brew',
+      brew_variant: 'concentrate',
+      dripper: null,
+    }), '冷萃豆')
+
+    expect(detail.subtitle).toBe('冷萃 · 浓缩基底')
   })
 
   it('keeps sparse logs readable', () => {

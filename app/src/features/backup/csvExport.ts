@@ -1,5 +1,6 @@
 import type { Bean } from '../beans/beanTypes'
 import { formatBlendComponents } from '../beans/blendComponents'
+import { getCanonicalBrewRatio } from '../brews/brewRatio'
 import type { BrewLog } from '../brews/brewTypes'
 
 type CsvKind = 'beans' | 'brew-logs'
@@ -95,7 +96,7 @@ export function buildBrewLogsCsv(brewLogs: BrewLog[]) {
       log.grind_setting,
       log.coffee_grams,
       log.water_grams,
-      log.ratio,
+      getCanonicalBrewRatio(log),
       log.water_temperature_c,
       log.total_time_seconds,
       log.rating,

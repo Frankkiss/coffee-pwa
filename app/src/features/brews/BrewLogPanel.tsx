@@ -12,6 +12,7 @@ import {
   withFallbackBeanId,
 } from './brewForm'
 import { getBrewFormPresentation } from './brewFormPresentation'
+import { getBrewModeDisplayLabel } from './brewMode'
 import { getCanonicalBrewRatio } from './brewRatio'
 import { BrewLogDetailPanel } from './BrewLogDetailPanel'
 import type { BrewForm, BrewLog, BrewLogFilters, BrewLogUpdatePayload, BrewMode } from './brewTypes'
@@ -570,7 +571,7 @@ export function BrewLogPanel({ beans, brewLogs, initialDraft, onDraftConsumed }:
 function formatBrewSummary(log: BrewLog) {
   return (
     [
-      log.method,
+      getBrewModeDisplayLabel(log),
       getCanonicalBrewRatio(log),
       log.water_temperature_c ? `${log.water_temperature_c}°C` : null,
       log.total_time_seconds ? `${log.total_time_seconds}s` : null,

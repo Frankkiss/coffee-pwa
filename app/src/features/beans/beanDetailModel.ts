@@ -1,4 +1,6 @@
 import type { BrewLog } from '../brews/brewTypes'
+import { getBrewModeDisplayLabel } from '../brews/brewMode'
+import { getCanonicalBrewRatio } from '../brews/brewRatio'
 import { formatBlendComponents } from './blendComponents'
 import type { Bean } from './beanTypes'
 
@@ -105,9 +107,9 @@ function toBrewSummary(log: BrewLog): BeanDetailBrewSummary {
     title: formatShortDate(log.brewed_at),
     summary:
       [
-        log.method,
+        getBrewModeDisplayLabel(log),
         log.dripper,
-        log.ratio,
+        getCanonicalBrewRatio(log),
         log.water_temperature_c ? `${log.water_temperature_c}°C` : null,
         log.total_time_seconds ? `${log.total_time_seconds}s` : null,
         log.grind_setting,

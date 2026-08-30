@@ -123,7 +123,7 @@ describe('buildHomeOverview', () => {
     expect(overview.recentBrews[0]).toMatchObject({
       id: 'brew-1',
       beanName: '埃塞俄比亚 花魁',
-      summary: '手冲 / V60 / 1:16 / 92°C / 150s / 22 clicks',
+      summary: '热手冲 / V60 / 1:16 / 92°C / 150s / 22 clicks',
       rating: '4.5/5',
     })
     expect(overview.accountLabel).toBe('1799263035')
@@ -169,6 +169,29 @@ describe('buildHomeOverview', () => {
         { label: '研磨', value: '22 clicks' },
         { label: '时间', value: '150s' },
       ],
+    })
+  })
+
+  it('re-derives legacy iced ratios from hot water in summaries and recommendation previews', () => {
+    const overview = buildHomeOverview({
+      beans: [createBean({ name: '冰手冲豆' })],
+      brewLogs: [createBrewLog({
+        brew_mode: 'iced_pourover',
+        method: '手冲',
+        coffee_grams: 16,
+        water_grams: 150,
+        ice_grams: 100,
+        ratio: '1:15.6',
+      })],
+      backupReminder,
+      email: null,
+      syncState: { kind: 'synced', lastSyncedAt: '2026-08-11T00:00:00.000Z' },
+    })
+
+    expect(overview.recentBrews[0]?.summary).toContain('冰手冲 / V60 / 1:9.4')
+    expect(overview.recommendationPreview.parameters[0]).toEqual({
+      label: '粉水比（仅热水）',
+      value: '1:9.4',
     })
   })
 

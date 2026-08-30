@@ -12,11 +12,11 @@
 
 **文件：** `app/src/features/brews/brewMode.ts`、`BrewLogPanel.tsx`、`brewLogDetailModel.ts`、`homeOverviewModel.ts`、`beanDetailModel.ts` 及对应测试。
 
-- [ ] 先写回归测试：冰手冲旧存储比例 `1:15.6` 在首页、豆子详情和记录详情显示为由 16g 粉与 150g 热水推导的 `1:9.4`。
-- [ ] 先写回归测试：四类记录显示规范名称，默认方法不重复，冷萃带子类型。
-- [ ] 运行目标测试并确认因缺少统一派生/标签而失败。
-- [ ] 提取并接入统一展示函数，所有 UI 读取 `getCanonicalBrewRatio`。
-- [ ] 运行目标测试、全量单元测试、lint 和 build；提交 `fix: unify brew mode summaries`。
+- [x] 先写回归测试：冰手冲旧存储比例 `1:15.6` 在首页、豆子详情和记录详情显示为由 16g 粉与 150g 热水推导的 `1:9.4`。
+- [x] 先写回归测试：四类记录显示规范名称，默认方法不重复，冷萃带子类型。
+- [x] 运行目标测试并确认因缺少统一派生/标签而失败。
+- [x] 提取并接入统一展示函数，所有 UI 和 CSV 读取 `getCanonicalBrewRatio`。
+- [x] 运行目标测试、全量单元测试、lint 和 build；提交 `fix: unify brew mode summaries`。
 
 ## 2. 录豆确认字段
 

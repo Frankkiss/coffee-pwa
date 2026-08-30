@@ -1,6 +1,8 @@
 import type { BackupReminderView } from '../backup/backupReminder'
 import type { Bean } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
+import { getBrewModeDisplayLabel, normalizeBrewMode } from '../brews/brewMode'
+import { getCanonicalBrewRatio } from '../brews/brewRatio'
 import { toSyncStatusView } from '../sync/syncStatusModel'
 import type { SyncState } from '../sync/syncTypes'
 
@@ -120,9 +122,9 @@ function toHomeBrew(
 export function formatBrewSummary(brewLog: BrewLog) {
   return (
     [
-      brewLog.method,
+      getBrewModeDisplayLabel(brewLog),
       brewLog.dripper,
-      brewLog.ratio,
+      getCanonicalBrewRatio(brewLog),
       typeof brewLog.water_temperature_c === 'number'
         ? `${brewLog.water_temperature_c}°C`
         : null,
@@ -165,7 +167,10 @@ function buildRecommendationPreview(
     source: formatRecommendationSource(bestBrew),
     actionLabel: '打开推荐',
     parameters: [
-      { label: '粉水比', value: bestBrew.ratio ?? '待补充' },
+      {
+        label: normalizeBrewMode(bestBrew) === 'iced_pourover' ? '粉水比（仅热水）' : '粉水比',
+        value: getCanonicalBrewRatio(bestBrew) ?? '待补充',
+      },
       {
         label: '水温',
         value:

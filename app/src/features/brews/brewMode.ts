@@ -40,3 +40,43 @@ export function allowsIceGrams(mode: unknown, variant: unknown) {
   return mode === 'iced_pourover'
     || (mode === 'cold_brew' && variant === 'concentrate')
 }
+
+type BrewModeDisplayInput = {
+  brew_mode?: string | null
+  brew_variant?: string | null
+  method?: string | null
+}
+
+const modeLabels: Record<BrewMode, string> = {
+  hot_pourover: '热手冲',
+  iced_pourover: '冰手冲',
+  cold_brew: '冷萃',
+  espresso: '意式',
+}
+
+const variantLabels: Record<BrewVariant, string> = {
+  ready_to_drink: '直接饮用',
+  concentrate: '浓缩基底',
+}
+
+export function getBrewModeDisplayLabel(input: BrewModeDisplayInput) {
+  const method = input.method?.trim() ?? ''
+  const mode = normalizeBrewMode(input)
+  if (!mode) return method
+
+  const parts = [modeLabels[mode]]
+  const variant = normalizeBrewVariant(mode, input.brew_variant)
+  if (variant) parts.push(variantLabels[variant])
+  if (method && !isDefaultMethod(mode, method)) parts.push(method)
+  return parts.join(' · ')
+}
+
+function isDefaultMethod(mode: BrewMode, method: string) {
+  const normalized = method.trim().toLowerCase()
+  if (mode === 'hot_pourover') return /^(手冲|pourover|pour-over|filter)$/.test(normalized)
+  if (mode === 'iced_pourover') {
+    return /^(手冲|冰手冲|iced\s*(pourover|pour-over|filter))$/.test(normalized)
+  }
+  if (mode === 'cold_brew') return /^(冷萃|cold\s*brew)$/.test(normalized)
+  return /^(意式|espresso|浓缩咖啡)$/.test(normalized)
+}
