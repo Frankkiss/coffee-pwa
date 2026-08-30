@@ -66,6 +66,8 @@ function snapshot() {
         endSeconds: 30, targetWaterGrams: 50, label: 'Bloom', action: 'Pour' }],
       suitable_for: [], avoid_for: [], flavor_goal: '', adjustment_rules: [],
       source_notes: '', source_urls: [], is_champion_reference: false,
+      brew_mode: 'iced_pourover', brew_variant: null, ice_grams: 75,
+      beverage_grams: null,
       copied_from_template_id: null, created_at: time, updated_at: time,
       deleted_at: null, schema_version: 1,
     }],

@@ -176,6 +176,27 @@ describe('method-aware rule recommendation', () => {
     )).toBe(true)
   })
 
+  it('preserves serving ice from a cold-brew concentrate template', () => {
+    const concentrateTemplate = {
+      ...brewTemplates.find((template) => template.brewMode === 'cold_brew' && template.brewVariant === 'concentrate')!,
+      id: 'custom-concentrate-with-ice',
+      iceGrams: 120,
+    }
+
+    const result = generateMethodAwareRuleRecommendation(
+      context('cold_brew', 'concentrate'),
+      [bean()],
+      [],
+      [concentrateTemplate],
+    )
+
+    expect(result?.recommended).toMatchObject({
+      brewMode: 'cold_brew',
+      brewVariant: 'concentrate',
+      iceGrams: 120,
+    })
+  })
+
   it('uses the same equipment-aware template for the first candidate and base source', () => {
     const targetBean = bean()
     const oreaContext = createRecommendationContext({

@@ -80,6 +80,8 @@ async function saveBrewTemplate(
     flavor_goal: entity.flavor_goal, adjustment_rules: entity.adjustment_rules,
     source_notes: entity.source_notes, source_urls: entity.source_urls,
     is_champion_reference: entity.is_champion_reference,
+    brew_mode: entity.brew_mode ?? null, brew_variant: entity.brew_variant ?? null,
+    ice_grams: entity.ice_grams ?? null, beverage_grams: entity.beverage_grams ?? null,
     copied_from_template_id: entity.copied_from_template_id, schema_version: entity.schema_version,
   }
   const mutation: BrewTemplateMutation = { ...write, entityId: entity.id, entityType: 'brewTemplate', operation: 'upsert', payload }

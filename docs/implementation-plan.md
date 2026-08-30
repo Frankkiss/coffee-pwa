@@ -31,11 +31,11 @@
 
 **文件：** `app/src/features/brewTemplates/*`、`app/src/features/sync/*`、`app/src/features/backup/*`、新增 `supabase/migrations/20260830010000_method_aware_brew_templates.sql`、数据库测试。
 
-- [ ] 先写模型和 Repository 测试：新模板显式保存四类方式；冷萃保存子类型；冰手冲保存冰量；意式保存出液量；旧模板仍可推断。
-- [ ] 先写同步、备份和恢复测试：新字段往返无损，缺失字段继续合法。
-- [ ] 运行目标测试并确认新字段尚未贯通。
-- [ ] 扩展类型、表单、Repository、IndexedDB/wire 校验、备份和恢复。
-- [ ] 编写只增加可空列、约束及 RPC/快照兼容的 migration 和 pgTAP 测试；不连接生产项目应用。
+- [x] 先写模型和 Repository 测试：新模板显式保存四类方式；冷萃保存子类型；冰手冲保存冰量；意式保存出液量；旧模板仍可推断。
+- [x] 先写同步、备份和恢复测试：新字段往返无损，缺失字段继续合法。
+- [x] 运行目标测试并确认新字段尚未贯通。
+- [x] 扩展类型、表单、Repository、IndexedDB/wire 校验、备份和恢复。
+- [x] 编写只增加可空列、约束及 RPC/快照兼容的 migration 和 pgTAP 测试；不连接生产项目应用。
 - [ ] 运行前端全量测试、数据库测试、lint、build 和手机尺寸模板验证；提交 `feat: align custom templates with brew modes`。
 
 ## 4. E2E 与 CI

@@ -1,6 +1,6 @@
 import type { ServerBeanRow } from '../beans/beanTypes'
 import type { BrewLog } from '../brews/brewTypes'
-import { allowsIceGrams } from '../brews/brewMode'
+import { allowsIceGrams, isBrewMode } from '../brews/brewMode'
 import type { UserBrewTemplateRow } from '../brewTemplates/brewTemplateTypes'
 import type { SavedRecommendationRow } from '../recommendations/savedRecommendationList'
 import type { UserSettingsRow } from '../settings/userSettingsTypes'
@@ -2006,7 +2006,7 @@ function isBrewLogUpsertPayload(value: Record<string, unknown>) {
 }
 
 function isBrewTemplateUpsertPayload(value: Record<string, unknown>) {
-  if (!hasExactKeys(value, [
+  if (!hasRequiredAndOptionalKeys(value, [
     'name',
     'category',
     'difficulty',
@@ -2030,7 +2030,7 @@ function isBrewTemplateUpsertPayload(value: Record<string, unknown>) {
     'is_champion_reference',
     'copied_from_template_id',
     'schema_version',
-  ])) {
+  ], ['brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams'])) {
     return false
   }
   return (
@@ -2059,7 +2059,14 @@ function isBrewTemplateUpsertPayload(value: Record<string, unknown>) {
     isStringArray(value.source_urls) &&
     typeof value.is_champion_reference === 'boolean' &&
     isNullableString(value.copied_from_template_id) &&
-    value.schema_version === 1
+    value.schema_version === 1 &&
+    (value.brew_mode === undefined || value.brew_mode === null || isBrewMode(value.brew_mode)) &&
+    (value.brew_variant === undefined || value.brew_variant === null || value.brew_variant === 'ready_to_drink' || value.brew_variant === 'concentrate') &&
+    (value.ice_grams === undefined || (isNullableFiniteNumber(value.ice_grams) && (value.ice_grams === null || value.ice_grams >= 0))) &&
+    (value.beverage_grams === undefined || (isNullableFiniteNumber(value.beverage_grams) && (value.beverage_grams === null || value.beverage_grams >= 0))) &&
+    (value.brew_variant == null || value.brew_mode === 'cold_brew') &&
+    (value.ice_grams == null || allowsIceGrams(value.brew_mode, value.brew_variant)) &&
+    (value.beverage_grams == null || value.brew_mode === 'espresso')
   )
 }
 

@@ -7,10 +7,17 @@ import type {
   UserBrewTemplateRow,
 } from './brewTemplateTypes'
 import type { BrewTemplateWriteInput } from './brewTemplateRepository'
+import { allowsIceGrams } from '../brews/brewMode'
+import type { BrewMode, BrewVariant } from '../brews/brewTypes'
+import { getTemplateModeMetadata } from './brewTemplateMode'
 
 export type BrewTemplateForm = {
   name: string
   category: BrewTemplateCategory
+  brewMode: BrewMode
+  brewVariant: BrewVariant | ''
+  iceGrams: number
+  beverageGrams: number
   difficulty: BrewTemplateDifficulty
   brewer: string
   filter: string
@@ -36,6 +43,10 @@ export function createEmptyBrewTemplateForm(): BrewTemplateForm {
   return {
     name: '',
     category: 'daily-pourover',
+    brewMode: 'hot_pourover',
+    brewVariant: '',
+    iceGrams: 0,
+    beverageGrams: 0,
     difficulty: 'easy',
     brewer: 'V60',
     filter: '',
@@ -70,9 +81,14 @@ export function createEmptyBrewTemplateForm(): BrewTemplateForm {
 export function createBrewTemplateFormFromTemplate(
   template: BrewTemplate,
 ): BrewTemplateForm {
+  const mode = getTemplateModeMetadata(template)
   return {
     name: template.name,
     category: template.category,
+    brewMode: mode.brewMode ?? 'hot_pourover',
+    brewVariant: mode.brewVariant ?? '',
+    iceGrams: template.iceGrams ?? 0,
+    beverageGrams: template.beverageGrams ?? 0,
     difficulty: template.difficulty,
     brewer: template.brewer,
     filter: template.filter,
@@ -105,6 +121,8 @@ export function toBrewTemplateFromRow(row: UserBrewTemplateRow): BrewTemplate {
     filter: row.filter,
     doseGrams: Number(row.dose_grams),
     waterGrams: Number(row.water_grams),
+    iceGrams: row.ice_grams ?? undefined,
+    beverageGrams: row.beverage_grams ?? undefined,
     ratio: row.ratio,
     waterTemperatureC: {
       min: Number(row.water_temperature_min),
@@ -123,6 +141,8 @@ export function toBrewTemplateFromRow(row: UserBrewTemplateRow): BrewTemplate {
     sourceNotes: row.source_notes,
     sourceUrls: row.source_urls ?? [],
     isChampionReference: row.is_champion_reference,
+    brewMode: row.brew_mode ?? undefined,
+    brewVariant: row.brew_variant ?? null,
     source: 'user',
     userId: row.user_id,
     copiedFromTemplateId: row.copied_from_template_id,
@@ -139,12 +159,14 @@ export function toUserBrewTemplatePayload(
   return {
     user_id: userId,
     name: form.name.trim(),
-    category: form.category,
+    category: categoryForMode(form.brewMode),
     difficulty: form.difficulty,
     brewer: form.brewer.trim(),
     filter: form.filter.trim(),
     dose_grams: form.doseGrams,
-    water_grams: form.waterGrams,
+    water_grams: form.brewMode === 'espresso'
+      ? positiveOrNull(form.beverageGrams) ?? form.waterGrams
+      : form.waterGrams,
     ratio: form.ratio.trim(),
     water_temperature_min: form.waterTemperatureMin,
     water_temperature_max: form.waterTemperatureMax,
@@ -160,7 +182,23 @@ export function toUserBrewTemplatePayload(
     source_urls: splitTextList(form.sourceUrlsText),
     is_champion_reference: form.isChampionReference,
     copied_from_template_id: copiedFromTemplateId,
+    brew_mode: form.brewMode,
+    brew_variant: form.brewMode === 'cold_brew' ? form.brewVariant || null : null,
+    ice_grams: allowsIceGrams(form.brewMode, form.brewVariant)
+      ? positiveOrNull(form.iceGrams)
+      : null,
+    beverage_grams: form.brewMode === 'espresso'
+      ? positiveOrNull(form.beverageGrams)
+      : null,
   }
+}
+
+function categoryForMode(mode: BrewMode): BrewTemplateCategory {
+  return mode === 'cold_brew' ? 'cold-brew' : 'daily-pourover'
+}
+
+function positiveOrNull(value: number) {
+  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 export function toBrewTemplateWriteInput(

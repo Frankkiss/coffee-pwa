@@ -18,6 +18,8 @@ const input: BrewTemplateWriteInput = {
   suitable_for: ['light'], avoid_for: ['dark'], flavor_goal: 'floral',
   adjustment_rules: ['grind finer'], source_notes: 'own recipe', source_urls: ['https://example.com'],
   is_champion_reference: false, copied_from_template_id: null,
+  brew_mode: 'iced_pourover', brew_variant: null, ice_grams: 75,
+  beverage_grams: null,
 }
 
 describe('brewTemplateRepository', () => {
@@ -44,6 +46,9 @@ describe('brewTemplateRepository', () => {
     const outbox = await local.listOutbox(userId)
     expect(outbox).toHaveLength(1)
     expect(outbox[0].payload).toEqual({ ...input, schema_version: 1 })
+    expect(outbox[0].payload).toMatchObject({
+      brew_mode: 'iced_pourover', ice_grams: 75, beverage_grams: null,
+    })
   })
 
   it('updates a current active template as one complete upsert', async () => {

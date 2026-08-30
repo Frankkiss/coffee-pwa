@@ -38,6 +38,9 @@ const template = {
   sourceNotes: '系统模板',
   sourceUrls: [],
   isChampionReference: false,
+  brewMode: 'iced_pourover',
+  brewVariant: null,
+  iceGrams: 75,
 } satisfies BrewTemplate
 
 describe('brew template model', () => {
@@ -67,6 +70,10 @@ describe('brew template model', () => {
       source_urls: [],
       is_champion_reference: false,
       copied_from_template_id: null,
+      brew_mode: 'cold_brew',
+      brew_variant: 'concentrate',
+      ice_grams: 120,
+      beverage_grams: null,
       created_at: '2026-06-15T01:00:00.000Z',
       updated_at: '2026-06-15T01:00:00.000Z',
       deleted_at: null,
@@ -79,6 +86,9 @@ describe('brew template model', () => {
       userId: 'user-1',
       brewer: '冷萃壶',
       ratio: '1:10',
+      brewMode: 'cold_brew',
+      brewVariant: 'concentrate',
+      iceGrams: 120,
       waterTemperatureC: { min: 4, max: 8 },
     })
   })
@@ -91,10 +101,60 @@ describe('brew template model', () => {
       user_id: 'user-1',
       name: 'V60 三段式',
       brewer: 'V60',
+      brew_mode: 'iced_pourover',
+      brew_variant: null,
+      ice_grams: 75,
+      beverage_grams: null,
       copied_from_template_id: 'system-v60',
     })
     expect(payload.pour_steps).toHaveLength(1)
     expect(payload.suitable_for).toEqual(['水洗', '浅烘'])
+  })
+
+  it('round-trips espresso output as a mode-specific field', () => {
+    const form = createBrewTemplateFormFromTemplate({
+      ...template,
+      brewMode: 'espresso',
+      iceGrams: undefined,
+      beverageGrams: 36,
+      brewer: '意式咖啡机',
+      waterGrams: 240,
+      ratio: '1:2',
+    })
+
+    expect(form).toMatchObject({
+      brewMode: 'espresso',
+      brewVariant: '',
+      iceGrams: 0,
+      beverageGrams: 36,
+    })
+    expect(toBrewTemplateWriteInput(form)).toMatchObject({
+      brew_mode: 'espresso',
+      brew_variant: null,
+      ice_grams: null,
+      beverage_grams: 36,
+      water_grams: 36,
+    })
+  })
+
+  it('keeps legacy user templates readable when method fields are absent', () => {
+    const legacyRow = {
+      id: 'legacy-template', user_id: 'user-1', name: '旧 V60',
+      category: 'daily-pourover' as const, difficulty: 'easy' as const,
+      brewer: 'V60', filter: '滤纸', dose_grams: 15, water_grams: 240,
+      ratio: '1:16', water_temperature_min: 90, water_temperature_max: 93,
+      grind_size: '中细', target_time_min: 120, target_time_max: 180,
+      pour_steps: template.pourSteps, suitable_for: [], avoid_for: [],
+      flavor_goal: '', adjustment_rules: [], source_notes: '旧模板', source_urls: [],
+      is_champion_reference: false, copied_from_template_id: null,
+      created_at: '2026-06-15T01:00:00.000Z', updated_at: '2026-06-15T01:00:00.000Z',
+      deleted_at: null, schema_version: 1,
+    }
+
+    const mapped = toBrewTemplateFromRow(legacyRow)
+
+    expect(mapped).toMatchObject({ id: 'legacy-template', brewMode: undefined })
+    expect(createBrewTemplateFormFromTemplate(mapped).brewMode).toBe('hot_pourover')
   })
 
   it('creates a local repository input without ownership fields', () => {

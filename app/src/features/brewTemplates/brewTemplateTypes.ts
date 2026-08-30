@@ -28,6 +28,7 @@ export type BrewTemplate = {
   doseGrams: number
   waterGrams: number
   iceGrams?: number
+  beverageGrams?: number
   ratio: string
   waterTemperatureC: {
     min: number
@@ -88,6 +89,10 @@ export type UserBrewTemplateRow = {
   source_urls: string[]
   is_champion_reference: boolean
   copied_from_template_id: string | null
+  brew_mode?: BrewMode | null
+  brew_variant?: BrewVariant | null
+  ice_grams?: number | null
+  beverage_grams?: number | null
   created_at: string
   updated_at: string
   deleted_at: string | null

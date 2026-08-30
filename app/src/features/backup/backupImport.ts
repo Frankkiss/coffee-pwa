@@ -284,13 +284,21 @@ function isBrewLog(value: unknown): value is BrewLog {
 function isBrewTemplate(value: unknown): value is UserBrewTemplateRow {
   if (!isRecord(value)) return false
   const keys = ['id', 'user_id', 'name', 'category', 'difficulty', 'brewer', 'filter', 'dose_grams', 'water_grams', 'ratio', 'water_temperature_min', 'water_temperature_max', 'grind_size', 'target_time_min', 'target_time_max', 'pour_steps', 'suitable_for', 'avoid_for', 'flavor_goal', 'adjustment_rules', 'source_notes', 'source_urls', 'is_champion_reference', 'copied_from_template_id', 'created_at', 'updated_at', 'deleted_at', 'schema_version']
-  if (!hasExactKeys(value, keys)) return false
+  const methodKeys = ['brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams']
+  if (!hasExactKeys(value, keys, methodKeys)) return false
   const categories = ['daily-pourover', 'immersion-hybrid', 'bean-specific', 'cold-brew', 'moka-pot', 'champion-reference']
   return isUuid(value.id) && isUuid(value.user_id) && ['name', 'brewer', 'filter', 'ratio', 'grind_size', 'flavor_goal', 'source_notes'].every((key) => isString(value[key])) && categories.includes(String(value.category)) && ['easy', 'medium', 'advanced'].includes(String(value.difficulty)) &&
     ['dose_grams', 'water_grams'].every((key) => isNumber(value[key])) &&
     ['water_temperature_min', 'water_temperature_max', 'target_time_min', 'target_time_max'].every((key) => isSafeInteger(value[key])) &&
     Array.isArray(value.pour_steps) && value.pour_steps.every(isTemplatePourStep) && ['suitable_for', 'avoid_for', 'adjustment_rules', 'source_urls'].every((key) => isStringArray(value[key])) &&
-    typeof value.is_champion_reference === 'boolean' && isNullableString(value.copied_from_template_id) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableTimestamp(value.deleted_at) && isSchemaVersion(value.schema_version)
+    typeof value.is_champion_reference === 'boolean' && isNullableString(value.copied_from_template_id) && isTimestamp(value.created_at) && isTimestamp(value.updated_at) && isNullableTimestamp(value.deleted_at) && isSchemaVersion(value.schema_version) &&
+    (value.brew_mode === undefined || value.brew_mode === null || ['hot_pourover', 'iced_pourover', 'cold_brew', 'espresso'].includes(String(value.brew_mode))) &&
+    (value.brew_variant === undefined || value.brew_variant === null || ['ready_to_drink', 'concentrate'].includes(String(value.brew_variant))) &&
+    (value.ice_grams === undefined || (isNullableNumber(value.ice_grams) && (value.ice_grams === null || value.ice_grams >= 0))) &&
+    (value.beverage_grams === undefined || (isNullableNumber(value.beverage_grams) && (value.beverage_grams === null || value.beverage_grams >= 0))) &&
+    (value.brew_variant == null || value.brew_mode === 'cold_brew') &&
+    (value.ice_grams == null || allowsIceGrams(value.brew_mode, value.brew_variant)) &&
+    (value.beverage_grams == null || value.brew_mode === 'espresso')
 }
 
 function isTemplatePourStep(value: unknown) {

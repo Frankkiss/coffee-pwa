@@ -99,6 +99,10 @@ const brewTemplate = {
   source_notes: '自定义',
   source_urls: [],
   is_champion_reference: false,
+  brew_mode: 'iced_pourover',
+  brew_variant: null,
+  ice_grams: 75,
+  beverage_grams: null,
   copied_from_template_id: null,
   created_at: '2026-06-12T02:30:00.000Z',
   updated_at: '2026-06-12T02:30:00.000Z',
@@ -234,6 +238,36 @@ describe('backup import', () => {
 
     const unknownField = await createV2Document({ beans: [{ ...v2Bean, rollback: true } as typeof v2Bean] })
     await expect(parseBackupDocument(JSON.stringify(unknownField))).rejects.toThrow('备份文件格式不正确')
+  })
+
+  it('accepts both legacy and method-aware user templates', async () => {
+    const {
+      brew_mode: _mode,
+      brew_variant: _variant,
+      ice_grams: _ice,
+      beverage_grams: _beverage,
+      ...legacyTemplate
+    } = brewTemplate
+    void _mode
+    void _variant
+    void _ice
+    void _beverage
+
+    const document = await createV2Document({
+      brewTemplates: [legacyTemplate, { ...brewTemplate, id: '55555555-5555-4555-8555-555555555555' }],
+    })
+
+    await expect(parseBackupDocument(JSON.stringify(document)))
+      .resolves.toMatchObject({ sourceVersion: 2 })
+  })
+
+  it('rejects method-specific template measurements on the wrong mode', async () => {
+    const document = await createV2Document({
+      brewTemplates: [{ ...brewTemplate, brew_mode: 'hot_pourover', ice_grams: 75 }],
+    })
+
+    await expect(parseBackupDocument(JSON.stringify(document)))
+      .rejects.toMatchObject({ code: 'BACKUP_FORMAT_INVALID' })
   })
 
   it('accepts serving ice only for cold brew concentrate', async () => {

@@ -157,6 +157,9 @@ const templateMutableKeys = [
   'suitable_for', 'avoid_for', 'flavor_goal', 'adjustment_rules', 'source_notes',
   'source_urls', 'is_champion_reference', 'copied_from_template_id', 'schema_version',
 ] as const
+const templateMethodKeys = [
+  'brew_mode', 'brew_variant', 'ice_grams', 'beverage_grams',
+] as const
 const settingsMutableKeys = [
   'preferred_units', 'default_gear', 'taste_preferences',
   'backup_reminder_days', 'schema_version',
@@ -227,7 +230,7 @@ function rebuildBrewPayload(value: unknown): BrewLogUpsertPayload {
 }
 
 function rebuildTemplatePayload(value: unknown): BrewTemplateUpsertPayload {
-  const row = exactRecord(value, templateMutableKeys, 'template payload')
+  const row = recordWithOptional(value, templateMutableKeys, templateMethodKeys, 'template payload')
   assertTemplateMutable(row)
   return {
     name: row.name as string,
@@ -251,6 +254,10 @@ function rebuildTemplatePayload(value: unknown): BrewTemplateUpsertPayload {
     source_notes: row.source_notes as string,
     source_urls: [...row.source_urls as string[]],
     is_champion_reference: row.is_champion_reference as boolean,
+    ...(Object.hasOwn(row, 'brew_mode') ? { brew_mode: row.brew_mode as BrewTemplateUpsertPayload['brew_mode'] } : {}),
+    ...(Object.hasOwn(row, 'brew_variant') ? { brew_variant: row.brew_variant as BrewTemplateUpsertPayload['brew_variant'] } : {}),
+    ...(Object.hasOwn(row, 'ice_grams') ? { ice_grams: row.ice_grams as number | null } : {}),
+    ...(Object.hasOwn(row, 'beverage_grams') ? { beverage_grams: row.beverage_grams as number | null } : {}),
     copied_from_template_id: row.copied_from_template_id as string | null,
     schema_version: row.schema_version as number,
   }
@@ -318,7 +325,7 @@ function validateBrewRow(value: unknown): BrewLog {
 }
 
 function validateTemplateRow(value: unknown): UserBrewTemplateRow {
-  const row = exactRecord(value, ['id', 'user_id', ...templateMutableKeys.slice(0, -1), 'created_at', 'updated_at', 'deleted_at', 'schema_version'], 'template row', invalidResponse)
+  const row = recordWithOptional(value, ['id', 'user_id', ...templateMutableKeys.slice(0, -1), 'created_at', 'updated_at', 'deleted_at', 'schema_version'], templateMethodKeys, 'template row', invalidResponse)
   assertOwnedServerFields(row, true)
   assertTemplateMutable(row, invalidResponse)
   return structuredClone(row) as UserBrewTemplateRow
@@ -370,6 +377,17 @@ function recordWithOptional(value: unknown, required: readonly string[], optiona
 function assertTemplateMutable(row: Record<string, unknown>, failure = invalidOperation): void {
   const categories = ['daily-pourover', 'immersion-hybrid', 'bean-specific', 'cold-brew', 'moka-pot', 'champion-reference']
   if (typeof row.name !== 'string' || !categories.includes(String(row.category)) || !['easy', 'medium', 'advanced'].includes(String(row.difficulty)) || typeof row.brewer !== 'string' || typeof row.filter !== 'string' || !isFiniteNumber(row.dose_grams) || !isFiniteNumber(row.water_grams) || typeof row.ratio !== 'string' || !isFiniteNumber(row.water_temperature_min) || !isFiniteNumber(row.water_temperature_max) || typeof row.grind_size !== 'string' || !isFiniteNumber(row.target_time_min) || !isFiniteNumber(row.target_time_max) || !Array.isArray(row.pour_steps) || !row.pour_steps.every(isTemplateStep) || !stringArray(row.suitable_for) || !stringArray(row.avoid_for) || typeof row.flavor_goal !== 'string' || !stringArray(row.adjustment_rules) || typeof row.source_notes !== 'string' || !stringArray(row.source_urls) || typeof row.is_champion_reference !== 'boolean' || !nullableString(row.copied_from_template_id) || row.schema_version !== 1) throw failure()
+  const mode = row.brew_mode
+  const variant = row.brew_variant
+  const ice = row.ice_grams
+  const beverage = row.beverage_grams
+  if ((mode !== undefined && mode !== null && !isBrewMode(mode))
+    || (variant !== undefined && variant !== null && normalizeBrewVariant('cold_brew', variant) !== variant)
+    || (ice !== undefined && (!nullableFinite(ice) || (ice !== null && ice < 0)))
+    || (beverage !== undefined && (!nullableFinite(beverage) || (beverage !== null && beverage < 0)))
+    || (variant != null && mode !== 'cold_brew')
+    || (ice != null && !allowsIceGrams(mode, variant))
+    || (beverage != null && mode !== 'espresso')) throw failure()
 }
 
 function assertSettingsMutable(row: Record<string, unknown>, failure = invalidOperation): void {

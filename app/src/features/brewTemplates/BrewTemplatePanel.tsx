@@ -15,9 +15,10 @@ import {
 import { brewTemplates } from './brewTemplates'
 import { useSyncRuntime } from '../sync/SyncContext'
 import { getEntitySyncBadge } from '../sync/entitySyncPresentation'
+import type { BrewMode, BrewVariant } from '../brews/brewTypes'
+import { getTemplateModeMetadata } from './brewTemplateMode'
 import type {
   BrewTemplate,
-  BrewTemplateCategory,
   BrewTemplateDifficulty,
   BrewTemplateFilters,
   BrewTemplatePourStep,
@@ -28,15 +29,6 @@ const difficultyLabels: Record<BrewTemplateDifficulty, string> = {
   easy: '日常',
   medium: '进阶',
   advanced: '高阶',
-}
-
-const categoryLabels: Record<BrewTemplateCategory, string> = {
-  'daily-pourover': '日常手冲',
-  'immersion-hybrid': '浸泡混合',
-  'bean-specific': '豆子适配',
-  'cold-brew': '冷萃',
-  'moka-pot': '摩卡壶',
-  'champion-reference': '冠军参考',
 }
 
 type EditingState =
@@ -380,18 +372,31 @@ function BrewTemplateFormView({
           />
         </label>
         <label>
-          分类
+          冲煮方式
           <select
-            value={form.category}
-            onChange={(event) => update('category', event.target.value as BrewTemplateCategory)}
+            value={form.brewMode}
+            onChange={(event) => update('brewMode', event.target.value as BrewMode)}
           >
-            {Object.entries(categoryLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
+            <option value="hot_pourover">热手冲</option>
+            <option value="iced_pourover">冰手冲</option>
+            <option value="cold_brew">冷萃</option>
+            <option value="espresso">意式</option>
           </select>
         </label>
+        {form.brewMode === 'cold_brew' ? (
+          <label>
+            冷萃类型
+            <select
+              value={form.brewVariant}
+              onChange={(event) => update('brewVariant', event.target.value as BrewVariant)}
+              required
+            >
+              <option value="">请选择</option>
+              <option value="ready_to_drink">直接饮用</option>
+              <option value="concentrate">浓缩基底</option>
+            </select>
+          </label>
+        ) : null}
         <label>
           难度
           <select
@@ -427,18 +432,44 @@ function BrewTemplateFormView({
             required
           />
         </label>
+        {form.brewMode !== 'espresso' ? (
+          <label>
+            {form.brewMode === 'iced_pourover' ? '热水量 g' : '水量 g'}
+            <input
+              type="number"
+              min="1"
+              value={form.waterGrams}
+              onChange={(event) => update('waterGrams', Number(event.target.value))}
+              required
+            />
+          </label>
+        ) : null}
+        {(form.brewMode === 'iced_pourover'
+          || (form.brewMode === 'cold_brew' && form.brewVariant === 'concentrate')) ? (
+          <label>
+            冰量 g
+            <input
+              type="number"
+              min="0"
+              value={form.iceGrams}
+              onChange={(event) => update('iceGrams', Number(event.target.value))}
+            />
+          </label>
+        ) : null}
+        {form.brewMode === 'espresso' ? (
+          <label>
+            杯中出液量 g
+            <input
+              type="number"
+              min="1"
+              value={form.beverageGrams}
+              onChange={(event) => update('beverageGrams', Number(event.target.value))}
+              required
+            />
+          </label>
+        ) : null}
         <label>
-          水量 g
-          <input
-            type="number"
-            min="1"
-            value={form.waterGrams}
-            onChange={(event) => update('waterGrams', Number(event.target.value))}
-            required
-          />
-        </label>
-        <label>
-          粉水比
+          {form.brewMode === 'iced_pourover' ? '粉水比（仅热水）' : '粉水比'}
           <input value={form.ratio} onChange={(event) => update('ratio', event.target.value)} />
         </label>
         <label>
@@ -535,7 +566,7 @@ function BrewTemplateFormView({
               />
             </label>
             <label className="brew-template-step-row__water">
-              到达水量 g
+              到达目标量 g
               <input
                 type="number"
                 min="0"
@@ -610,15 +641,6 @@ function BrewTemplateFormView({
         />
       </label>
 
-      <label className="brew-template-checkbox">
-        <input
-          type="checkbox"
-          checked={form.isChampionReference}
-          onChange={(event) => update('isChampionReference', event.target.checked)}
-        />
-        作为冠军参考模板
-      </label>
-
       <button type="submit" disabled={isSaving}>
         {isSaving ? '保存中' : '保存模板'}
       </button>
@@ -646,6 +668,7 @@ function TemplateCard({
   syncBadge,
 }: TemplateCardProps) {
   const isUserTemplate = template.source === 'user'
+  const mode = getTemplateModeMetadata(template)
 
   return (
     <article className="brew-template-card">
@@ -670,7 +693,9 @@ function TemplateCard({
         <span>{isUserTemplate ? '我的模板' : '系统模板'}</span>
         {syncBadge ? <span>{syncBadge}</span> : null}
         <span>{template.doseGrams}g 粉</span>
-        <span>{template.waterGrams}g 水</span>
+        <span>{formatModeLabel(mode.brewMode, mode.brewVariant)}</span>
+        <span>{mode.brewMode === 'espresso' ? `${template.beverageGrams ?? template.waterGrams}g 出液` : `${template.waterGrams}g 水`}</span>
+        {template.iceGrams ? <span>{template.iceGrams}g 冰</span> : null}
         <span>{template.ratio}</span>
         <span>{template.waterTemperatureC.min}-{template.waterTemperatureC.max}°C</span>
       </div>
@@ -697,6 +722,16 @@ function TemplateCard({
       {isExpanded ? <TemplateDetail template={template} /> : null}
     </article>
   )
+}
+
+function formatModeLabel(mode: BrewMode | null, variant: BrewVariant | null) {
+  if (mode === 'hot_pourover') return '热手冲'
+  if (mode === 'iced_pourover') return '冰手冲'
+  if (mode === 'espresso') return '意式'
+  if (mode === 'cold_brew') {
+    return variant === 'concentrate' ? '冷萃 · 浓缩基底' : '冷萃 · 直接饮用'
+  }
+  return '方式待确认'
 }
 
 function TemplateDetail({ template }: { template: BrewTemplate }) {

@@ -200,7 +200,7 @@ function parametersFromTemplate(context: RecommendationContext, template: BrewTe
     coffeeGrams: template.doseGrams,
     waterGrams: template.waterGrams,
     iceGrams: template.iceGrams ?? null,
-    beverageGrams: null,
+    beverageGrams: template.beverageGrams ?? null,
   })
 }
 
@@ -237,7 +237,7 @@ function modeParameters(context: RecommendationContext, base: RecommendedBrewPar
     return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, iceGrams: ice, waterGrams: water, beverageGrams: null }
   }
   if (context.mode === 'cold_brew') {
-    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: coffee, waterGrams: Math.round(coffee * denominator), iceGrams: null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
+    return { ...safe, brewMode: context.mode, brewVariant: context.variant, coffeeGrams: coffee, waterGrams: Math.round(coffee * denominator), iceGrams: context.variant === 'concentrate' ? safe.iceGrams ?? null : null, beverageGrams: null, waterTemperatureC: safe.waterTemperatureC ?? 6 }
   }
   if (context.mode === 'espresso') {
     return { ...safe, brewMode: context.mode, brewVariant: null, coffeeGrams: coffee, waterGrams: null, iceGrams: null, beverageGrams: Math.round(coffee * denominator) }
