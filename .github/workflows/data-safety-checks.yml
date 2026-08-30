@@ -2,9 +2,7 @@ name: Data Safety Checks
 
 on:
   pull_request:
-  push:
-    branches:
-      - foundation
+  workflow_dispatch:
   workflow_call:
     inputs:
       upload_pages_artifact:
@@ -88,14 +86,33 @@ jobs:
         with:
           version: 2.113.0
 
-      - name: Start local database
-        run: supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Start local Supabase
+        run: supabase start
 
       - name: Reset local migrations
         run: supabase db reset
 
       - name: Run all database tests
         run: supabase test db
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: app
+
+      - name: Run mobile core workflows
+        run: npx playwright test e2e/core-workflows.spec.ts --project=mobile-chromium
+        working-directory: app
 
       - name: Stop local database
         if: always()

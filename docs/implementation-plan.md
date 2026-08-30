@@ -42,9 +42,9 @@
 
 **文件：** `app/playwright.config.ts`、`app/e2e/*`、`app/src/ciWorkflow.test.ts`、`.github/workflows/data-safety-checks.yml`。
 
-- [ ] 先写配置测试：Windows 可选系统 Chrome，Linux/CI 使用 Playwright Chromium；独立 CI 只执行一次质量门禁。
-- [ ] 增加手机核心 E2E：录豆净含量确认、四类记录联动、模板模式专属字段、规则推荐转草稿。
-- [ ] 在需要 Auth/REST 的本地 Supabase 作业安装 Chromium 并运行核心 E2E。
+- [x] 先写配置测试：Windows 可选系统 Chrome，Linux/CI 使用 Playwright Chromium；独立 CI 只执行一次质量门禁。
+- [x] 增加手机核心 E2E：录豆净含量确认、四类记录联动、模板模式专属字段、规则推荐转草稿。
+- [x] 在需要 Auth/REST 的本地 Supabase 作业安装 Chromium 并运行核心 E2E。
 - [ ] 运行 CI 结构测试、可运行的本地 E2E、全量测试、lint 和 build；提交 `test: cover core coffee workflows`。
 
 ## 5. 清理与最终验证

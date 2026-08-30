@@ -1,8 +1,12 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
 
 const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+const localChromePath = process.platform === 'win32' && existsSync(chromePath)
+  ? chromePath
+  : undefined
 const localConfig = readLocalSupabaseConfig()
 
 process.env.E2E_SUPABASE_URL = localConfig.url
@@ -18,13 +22,13 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:4173/coffee-pwa/',
-    launchOptions: { executablePath: chromePath },
+    launchOptions: { executablePath: localChromePath },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'mobile-chrome', use: { viewport: { width: 360, height: 800 } } },
-    { name: 'desktop-chrome', use: { viewport: { width: 1280, height: 900 } } },
+    { name: 'mobile-chromium', use: { browserName: 'chromium', viewport: { width: 360, height: 800 } } },
+    { name: 'desktop-chromium', use: { browserName: 'chromium', viewport: { width: 1280, height: 900 } } },
   ],
   webServer: {
     command: 'npm run build && npm run preview -- --host 127.0.0.1',
@@ -43,9 +47,13 @@ export default defineConfig({
 function readLocalSupabaseConfig() {
   let output: string
   try {
-    output = execFileSync(process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe', [
-      '/d', '/s', '/c', 'npx --yes supabase status -o env',
-    ], {
+    const executable = process.platform === 'win32'
+      ? process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe'
+      : 'npx'
+    const args = process.platform === 'win32'
+      ? ['/d', '/s', '/c', 'npx --yes supabase status -o env']
+      : ['--yes', 'supabase', 'status', '-o', 'env']
+    output = execFileSync(executable, args, {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     })

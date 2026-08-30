@@ -9,7 +9,27 @@ describe('data safety workflow', () => {
       'utf8',
     )
 
-    expect(workflow).toContain('deno test supabase/functions --allow-env')
+    expect(workflow.match(/deno test supabase\/functions --allow-env/g)).toHaveLength(1)
+  })
+
+  it('runs the mobile core E2E with Playwright Chromium against local Supabase', () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+
+    expect(workflow).toContain('npx playwright install --with-deps chromium')
+    expect(workflow).toContain('e2e/core-workflows.spec.ts --project=mobile-chromium')
+    expect(workflow).not.toContain('supabase start --exclude')
+  })
+
+  it('does not duplicate the foundation push gate outside the Pages workflow', () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+
+    expect(workflow).not.toMatch(/\n\s*push:\s*\n/)
   })
 
   it('does not keep undocumented standalone smoke entry points', () => {
