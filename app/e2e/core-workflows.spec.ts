@@ -57,7 +57,7 @@ test('mobile bean, brew modes, custom template and recommendation draft stay ali
     body: '{"message":"AI unavailable in deterministic E2E"}',
   }))
   await page.getByRole('button', { name: '冲煮推荐' }).click()
-  await expect(page.locator('#recommendations')).toBeVisible()
+  await expect(page.locator('#recommendation')).toBeVisible()
   await page.getByLabel('冲煮方式').selectOption('iced_pourover')
   await page.getByRole('button', { name: '生成推荐' }).click()
   await expect(page.locator('.recommendation-result')).toBeVisible()
