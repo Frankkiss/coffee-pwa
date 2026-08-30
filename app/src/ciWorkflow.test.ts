@@ -33,6 +33,16 @@ describe('data safety workflow', () => {
     expect(workflow).toContain('::error title=Database tests failed::')
   })
 
+  it('publishes mobile workflow details as a check annotation on failure', () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+
+    expect(workflow).toContain('tee "$RUNNER_TEMP/mobile-core-workflows.log"')
+    expect(workflow).toContain('::error title=Mobile core workflows failed::')
+  })
+
   it('does not duplicate the foundation push gate outside the Pages workflow', () => {
     const workflow = readFileSync(
       resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
