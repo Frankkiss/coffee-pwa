@@ -356,6 +356,18 @@ export function BeanDashboard({ session, supabase, previewRows, initialBrewDraft
                   />
                 </label>
                 <label>
+                  净含量（克）
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    value={form.netWeightGrams}
+                    onChange={(event) => updateField('netWeightGrams', event.target.value)}
+                    placeholder="例如：250"
+                  />
+                </label>
+                <label>
                   剩余克数
                   <input
                     type="number"

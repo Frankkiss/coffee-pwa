@@ -51,7 +51,7 @@ export function createBeanFormFromSourceDraft(draft: SourceImportDraft): BeanFor
     roastLevel: draft.roastLevel,
     flavorTags: draft.flavorTags.join(', '),
     flavorNotes: draft.flavorNotes,
-    netWeightGrams: '',
+    netWeightGrams: numberToFormValue(draft.netWeightGrams),
     price: numberToFormValue(draft.price),
     sourceUrl: '',
     beanType: draft.beanType,

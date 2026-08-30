@@ -68,6 +68,8 @@ describe('source import mapping', () => {
     const draft = normalizeSourceImportDraft({
       name: 'Ethiopia Guji',
       altitudeMeters: 1900,
+      netWeightGrams: 250,
+      price: 128,
       flavorTags: ['citrus', 'honey'],
       sourceUrl: 'https://example.com/bean',
     })
@@ -75,6 +77,8 @@ describe('source import mapping', () => {
     expect(createBeanFormFromSourceDraft(draft)).toMatchObject({
       name: 'Ethiopia Guji',
       altitudeMeters: '1900',
+      netWeightGrams: '250',
+      price: '128',
       flavorTags: '柑橘, 蜂蜜',
       beanType: 'single_origin',
       sourceUrl: '',

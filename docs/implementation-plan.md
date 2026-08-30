@@ -22,10 +22,10 @@
 
 **文件：** `app/src/features/sourceImports/sourceImportMapping.ts`、`SourceImportPanel.tsx`、`app/src/features/beans/BeanDashboard.tsx` 及对应测试。
 
-- [ ] 先写测试：来源草稿的净含量进入确认表单；价格和净含量都必须是显式可编辑字段。
-- [ ] 运行测试并确认净含量被丢弃、界面字段缺失。
-- [ ] 手动录豆增加净含量；来源确认增加净含量和价格，不自动改写剩余量。
-- [ ] 运行目标测试、全量单元测试、lint、build 和 360×800 核心表单验证；提交 `fix: expose bean package fields`。
+- [x] 先写测试：来源草稿的净含量进入确认表单；价格和净含量都必须是显式可编辑字段。
+- [x] 运行测试并确认净含量被丢弃、界面字段缺失。
+- [x] 手动录豆增加净含量；来源确认增加净含量和价格，不自动改写剩余量。
+- [x] 运行目标测试、全量单元测试、lint、build 和 360×800 核心表单验证；提交 `fix: expose bean package fields`。
 
 ## 3. 四模式用户模板
 

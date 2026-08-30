@@ -305,6 +305,30 @@ export function SourceImportPanel({
               />
             </label>
             <label>
+              净含量（克）
+              <input
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={form.netWeightGrams}
+                onChange={(event) => updateField('netWeightGrams', event.target.value)}
+                placeholder="例如：250"
+              />
+            </label>
+            <label>
+              价格（可选）
+              <input
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={form.price}
+                onChange={(event) => updateField('price', event.target.value)}
+                placeholder="例如：128"
+              />
+            </label>
+            <label>
               烘焙日期
               <input
                 type="date"
