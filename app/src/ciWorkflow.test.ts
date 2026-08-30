@@ -23,6 +23,16 @@ describe('data safety workflow', () => {
     expect(workflow).not.toContain('supabase start --exclude')
   })
 
+  it('publishes database test details as a check annotation on failure', () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+
+    expect(workflow).toContain('tee "$RUNNER_TEMP/database-tests.log"')
+    expect(workflow).toContain('::error title=Database tests failed::')
+  })
+
   it('does not duplicate the foundation push gate outside the Pages workflow', () => {
     const workflow = readFileSync(
       resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
