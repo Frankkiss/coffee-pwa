@@ -33,6 +33,16 @@ describe('data safety workflow', () => {
     expect(workflow).toContain('::error title=Database tests failed::')
   })
 
+  it('publishes local Supabase startup details as a check annotation on failure', () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+
+    expect(workflow).toContain('tee "$RUNNER_TEMP/supabase-start.log"')
+    expect(workflow).toContain('::error title=Local Supabase failed to start::')
+  })
+
   it('publishes mobile workflow details as a check annotation on failure', () => {
     const workflow = readFileSync(
       resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
