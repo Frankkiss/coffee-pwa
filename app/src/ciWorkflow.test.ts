@@ -52,6 +52,31 @@ describe('data safety workflow', () => {
     expect(workflow).not.toMatch(/\n\s*push:\s*\n/)
   })
 
+  it('uses Node 24 compatible official actions throughout the Pages gate', () => {
+    const qualityWorkflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/data-safety-checks.yml'),
+      'utf8',
+    )
+    const deployWorkflow = readFileSync(
+      resolve(process.cwd(), '../.github/workflows/deploy-pages.yml'),
+      'utf8',
+    )
+    const workflows = `${qualityWorkflow}\n${deployWorkflow}`
+
+    for (const action of [
+      'actions/checkout@v5',
+      'actions/setup-node@v5',
+      'actions/upload-artifact@v6',
+      'actions/download-artifact@v7',
+      'actions/configure-pages@v6',
+      'actions/upload-pages-artifact@v5',
+      'actions/deploy-pages@v5',
+    ]) {
+      expect(workflows, action).toContain(action)
+    }
+    expect(qualityWorkflow.match(/node-version: 24/g)).toHaveLength(2)
+  })
+
   it('does not keep undocumented standalone smoke entry points', () => {
     for (const path of [
       'backup-flow-smoke.html',

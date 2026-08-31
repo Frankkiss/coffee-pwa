@@ -36,12 +36,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: app/package-lock.json
 
@@ -67,7 +67,7 @@ jobs:
 
       - name: Preserve verified frontend
         if: inputs.upload_pages_artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: verified-pages-dist
           path: app/dist
@@ -79,7 +79,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v3
@@ -107,9 +107,9 @@ jobs:
           fi
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: app/package-lock.json
 
@@ -151,7 +151,7 @@ jobs:
       DEEPSEEK_VISION_API_KEY: ci-placeholder-deepseek-key
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -174,15 +174,15 @@ jobs:
       id-token: write
     steps:
       - name: Download verified frontend
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: verified-pages-dist
           path: app/dist
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload verified Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: app/dist
